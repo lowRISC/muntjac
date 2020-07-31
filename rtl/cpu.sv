@@ -56,6 +56,15 @@ module cpu #(
     logic de_ex_handshaked;
     assign de_ex_handshaked = de_ex_valid && de_ex_ready;
 
+    typedef struct packed {
+        // Whether the associated rd is valid. If not valid, it means that the stage is empty.
+        logic rd_valid;
+        // Whether the associated value is valid. If not valid, it means that the stage is still busy.
+        logic value_valid;
+        logic [4:0] rd;
+        logic [63:0] value;
+    } bypass_t;
+
     // EX-EX2 interfacing
     logic ex_ex2_valid;
     logic ex_ex2_ready;

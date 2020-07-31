@@ -160,15 +160,6 @@ typedef enum logic [3:0] {
 } if_reason_t;
 
 typedef struct packed {
-    // Whether the associated rd is valid. If not valid, it means that the stage is empty.
-    logic rd_valid;
-    // Whether the associated value is valid. If not valid, it means that the stage is still busy.
-    logic value_valid;
-    logic [4:0] rd;
-    logic [63:0] value;
-} bypass_t;
-
-typedef struct packed {
     logic tsr;
     logic tw;
     logic tvm;
