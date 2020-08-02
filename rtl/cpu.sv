@@ -241,17 +241,32 @@ module cpu #(
     );
 
     // Misprediction control
-    logic ex_mispredicted;
-    assign ex_mispredicted = !de_ex_decoded.pc_override && ex_state_q != ST_NORMAL;
+    logic ex_can_issue;
+    logic ex2_can_issue;
+    always_comb begin
+        ex_can_issue = 1'b0;
+        ex2_can_issue = 1'b0;
+        unique case (ex_state_q)
+            ST_NORMAL: begin
+                ex_can_issue = 1'b1;
+                // TODO: Try to remove override from this equation
+                ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_wb_trap.valid;
+            end
+            ST_MISPREDICT, ST_EXCEPTION: begin
+                ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
+            end
+            default:;
+        endcase
+    end
 
     always_comb begin
         ex_state_d = ex_state_q;
         // When EX2 stage says we had a misprediction, or went through a trap, we have to
         // flush the pipeline, otherwise we can forward from speculatively executed EX stage.
-        if ((ex2_wb_valid && ex2_wb_pc_override) || ex2_wb_trap.valid)) begin
+        if ((ex2_wb_valid && ex2_wb_pc_override) || ex2_wb_trap.valid) begin
             ex_state_d = ST_MISPREDICT;
         end
-        if (de_ex_handshaked && de_ex_decoded.pc_override) begin
+        if (de_ex_handshaked && de_ex_decoded.if_reason !=? 4'bxxx0) begin
             ex_state_d = ST_NORMAL;
         end
     end
@@ -283,7 +298,7 @@ module cpu #(
                 ex_ex2_mispredict <= 'x;
             end
 
-            if (de_ex_handshaked && !ex_mispredicted) begin
+            if (de_ex_handshaked && ex_can_issue) begin
                 ex_ex2_valid <= 1'b1;
                 ex_ex2_result.rd_valid <= 1'b1;
                 ex_ex2_result.rd <= de_ex_decoded.rd;
@@ -330,7 +345,7 @@ module cpu #(
     assign ex2_csr_select = csr_t'(ex_ex2_decoded.exception.mtval[31:20]);
     assign ex2_csr_operand = ex_ex2_val;
 
-    wire ex2_valid = ex_ex2_handshaked && ex_state_d == ST_NORMAL && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
+    wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
     // Flush control
     assign flush_tlb = ex2_valid && ex_ex2_decoded.op_type == SFENCE_VMA;
@@ -429,7 +444,7 @@ module cpu #(
             ex2_wb_pc_override_reason <= IF_FLUSH;
         end
         else begin
-            if (ex_ex2_handshaked && ex_state_d == ST_NORMAL) begin
+            if (ex_ex2_handshaked && ex2_can_issue) begin
                 ex2_ready <= 1'b0;
                 ex2_wb_result.rd_valid <= 1'b1;
                 ex2_select_alu <= 1'b1;

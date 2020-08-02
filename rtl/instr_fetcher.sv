@@ -55,11 +55,10 @@ module instr_fetcher # (
     end
 
     logic [XLEN-1:0] pc;
-    logic pc_override;
+    if_reason_t reason;
 
     logic [XLEN-1:0] pc_next;
     if_reason_t reason_next;
-    logic pc_override_next;
 
     // We need to latch ATP so that its change does not affect currently prefetched instructions.
     logic [XLEN-1:0] atp_latch;
@@ -106,7 +105,7 @@ module instr_fetcher # (
             resp_exception_latch <= 1'b0;
 
             pc <= 0;
-            pc_override <= 1'b0;
+            reason <= IF_PREFETCH;
         end
         else begin
             if (!o_ready && cache.resp_valid) begin
@@ -123,13 +122,13 @@ module instr_fetcher # (
 
             if (o_valid && o_ready) begin
                 pc <= pc_next;
-                pc_override <= pc_override_next;
+                reason <= reason_next;
             end
         end
 
     assign o_fetched_instr.instr_word = latched ? resp_instr_latch : cache.resp_instr;
     assign o_fetched_instr.pc = pc;
-    assign o_fetched_instr.pc_override = pc_override;
+    assign o_fetched_instr.if_reason = reason;
     assign o_fetched_instr.exception.valid = latched ? resp_exception_latch : cache.resp_exception;
     assign o_fetched_instr.exception.mcause_interrupt = 1'b0;
     assign o_fetched_instr.exception.mcause_code = 4'hC;
@@ -229,6 +228,5 @@ module instr_fetcher # (
         assign pc_next = i_valid ? {i_pc[XLEN-1:2], 2'b0} : (predict_taken ? predict_target : npc);
     end
     assign reason_next = i_valid ? i_reason : (predict_taken ? IF_PREDICT : IF_PREFETCH);
-    assign pc_override_next = i_valid;
 
 endmodule

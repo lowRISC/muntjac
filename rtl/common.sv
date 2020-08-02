@@ -32,6 +32,21 @@ typedef enum logic [2:0] {
     L_XOR = 3'b100, L_OR = 3'b110, L_AND = 3'b111
 } op_t;
 
+// Reason for instruction fetch
+typedef enum logic [3:0] {
+    // An instruction prefetch that follows the previous instruction in program counter order.
+    IF_PREFETCH = 4'bxx00,
+    // An instruction prefetch commanded by the branch predictor.
+    IF_PREDICT = 4'bxx10,
+    // An instruction fetch caused by misprediction.
+    IF_MISPREDICT = 4'bxx01,
+    // SUM or privilege level have been changed
+    IF_PROT_CHANGED = 4'b0011,
+    // SATP has been changed
+    IF_SATP_CHANGED = 4'b0111,
+    // Either FENCE.I or SFENCE.VMA is executed.
+    IF_FLUSH = 4'b1111
+} if_reason_t;
 // ALU operations
 typedef enum logic [2:0] {
     EQ, NE, LT, GE, LTU, GEU,
@@ -122,8 +137,8 @@ typedef struct packed {
 
     // PC of decoded instruction.
     logic [63:0] pc;
-    // Indicate if this instruction is flushed.
-    logic pc_override;
+    // Indicate the reason that this is fetched
+    if_reason_t if_reason;
     // Exception happened during decoding.
     exception_t  exception;
     // Branch prediction result.
@@ -134,7 +149,7 @@ typedef struct packed {
     // PC of fetched instruction.
     logic [63:0] pc;
     // Indicate if this instruction is flushed.
-    logic pc_override;
+    if_reason_t if_reason;
     // Instruction word fetched.
     logic [31:0] instr_word;
     // Branch prediction result.
@@ -142,22 +157,6 @@ typedef struct packed {
     // Exception happened during instruction fetch.
     exception_t  exception;
 } fetched_instr_t;
-
-// Reason for instruction fetch
-typedef enum logic [3:0] {
-    // An instruction prefetch that follows the previous instruction in program counter order.
-    IF_PREFETCH = 4'bxx00,
-    // An instruction prefetch commanded by the branch predictor.
-    IF_PREDICT = 4'bxx10,
-    // An instruction fetch caused by misprediction.
-    IF_MISPREDICT = 4'bxx01,
-    // SUM or privilege level have been changed
-    IF_PROT_CHANGED = 4'b0011,
-    // SATP has been changed
-    IF_SATP_CHANGED = 4'b0111,
-    // Either FENCE.I or SFENCE.VMA is executed.
-    IF_FLUSH = 4'b1111
-} if_reason_t;
 
 typedef struct packed {
     logic tsr;

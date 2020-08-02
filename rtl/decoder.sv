@@ -84,7 +84,7 @@ module decoder # (
 
         // Forward these fields.
         decoded_instr.pc = fetched_instr.pc;
-        decoded_instr.pc_override = fetched_instr.pc_override;
+        decoded_instr.if_reason = fetched_instr.if_reason;
         decoded_instr.prediction = fetched_instr.prediction;
 
         case (opcode)
