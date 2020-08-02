@@ -17,7 +17,6 @@ module instr_fetcher # (
     input  [XLEN-1:0] i_pc,
     input  if_reason_t i_reason,
     input  i_valid,
-    output i_ready,
 
     // These should always be valid.
     input  logic           i_prv,
@@ -31,6 +30,29 @@ module instr_fetcher # (
     input  logic o_ready,
     output fetched_instr_t o_fetched_instr
 );
+
+    logic [XLEN-1:0] i_pc_q;
+    if_reason_t i_reason_q;
+    logic i_valid_q;
+    logic i_ready_q;
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            // Reset vector
+            i_pc_q <= '0;
+            i_reason_q <= IF_FLUSH;
+            i_valid_q <= 1'b1;
+        end else begin
+            if (i_ready_q) begin
+                i_valid_q <= 1'b0;
+            end
+            if (i_valid) begin
+                i_pc_q <= i_pc;
+                i_valid_q <= i_valid;
+                i_reason_q <= i_reason;
+            end
+        end
+    end
 
     icache_intf cache (clk, resetn);
 
@@ -72,7 +94,7 @@ module instr_fetcher # (
             sum_latch <= 1'b0;
         end
         else begin
-            if (i_valid && i_ready) begin
+            if (i_valid_q && i_ready_q) begin
                 atp_latch <= i_atp;
                 prv_latch <= i_prv;
                 sum_latch <= i_sum;
@@ -82,9 +104,9 @@ module instr_fetcher # (
     assign cache.req_pc = pc_next;
     assign cache.req_reason = reason_next;
     assign cache.req_valid = o_valid && o_ready;
-    assign cache.req_sum = i_valid && i_ready ? i_sum : sum_latch;
-    assign cache.req_atp = i_valid && i_ready ? i_atp : atp_latch;
-    assign cache.req_prv = i_valid && i_ready ? i_prv : prv_latch;
+    assign cache.req_sum = i_valid_q && i_ready_q ? i_sum : sum_latch;
+    assign cache.req_atp = i_valid_q && i_ready_q ? i_atp : atp_latch;
+    assign cache.req_prv = i_valid_q && i_ready_q ? i_prv : prv_latch;
     assign cache.flush_cache = flush_cache;
     assign cache.flush_tlb = flush_tlb;
 
@@ -94,7 +116,7 @@ module instr_fetcher # (
     logic resp_exception_latch;
 
     assign o_valid = cache.resp_valid || latched;
-    assign i_ready = o_valid && o_ready;
+    assign i_ready_q = o_valid && o_ready;
 
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
@@ -222,11 +244,11 @@ module instr_fetcher # (
     end
 
     if (C_EXT) begin
-        assign pc_next = i_valid ? {i_pc[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
+        assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
     end
     else begin
-        assign pc_next = i_valid ? {i_pc[XLEN-1:2], 2'b0} : (predict_taken ? predict_target : npc);
+        assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:2], 2'b0} : (predict_taken ? predict_target : npc);
     end
-    assign reason_next = i_valid ? i_reason : (predict_taken ? IF_PREDICT : IF_PREFETCH);
+    assign reason_next = i_valid_q ? i_reason_q : (predict_taken ? IF_PREDICT : IF_PREFETCH);
 
 endmodule

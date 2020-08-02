@@ -36,11 +36,7 @@ module cpu #(
     // WB-IF interfacing, valid only when a PC override is required.
     logic wb_if_valid;
     if_reason_t wb_if_reason;
-    logic wb_if_ready;
-    // Previous pc, aka pc causing the control flow change
     logic [XLEN-1:0] wb_if_pc;
-    logic wb_if_handshaked;
-    assign wb_if_handshaked = wb_if_valid && wb_if_ready;
 
     // IF-DE interfacing
     logic if_de_valid;
@@ -106,7 +102,6 @@ module cpu #(
         .i_pc (wb_if_pc),
         .i_valid (wb_if_valid),
         .i_reason (wb_if_reason),
-        .i_ready (wb_if_ready),
         .i_prv (prv[0]),
         .i_sum (status.sum),
         .i_atp (insn_atp),
@@ -637,34 +632,25 @@ module cpu #(
         .*
     );
 
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            wb_if_pc <= '0;
-            wb_if_valid <= 1'b1;
-            wb_if_reason <= IF_FLUSH;
-        end
-        else begin
-            if (wb_if_handshaked) begin
-                wb_if_valid <= 1'b0;
-                wb_if_reason <= if_reason_t'('x);
-                wb_if_pc <= 'x;
-            end
+    always_comb begin
+        wb_if_valid = 1'b0;
+        wb_if_reason = if_reason_t'('x);
+        wb_if_pc = 'x;
 
-            // WB
-            if (ex2_wb_trap.valid) begin
-                $display("%t: trap %x", $time, ex2_wb_pc);
-                wb_if_pc <= wb_tvec;
-                wb_if_valid <= 1'b1;
-                // PRV change
-                wb_if_reason <= IF_PROT_CHANGED;
-            end
-            else if (ex2_wb_valid) begin
-                // $display("commit %x", ex2_wb_pc);
-                if (ex2_wb_pc_override) begin
-                    wb_if_pc <= ex2_wb_npc;
-                    wb_if_valid <= 1'b1;
-                    wb_if_reason <= ex2_wb_pc_override_reason;
-                end
+        // WB
+        if (ex2_wb_trap.valid) begin
+            $display("%t: trap %x", $time, ex2_wb_pc);
+            wb_if_pc = wb_tvec;
+            wb_if_valid = 1'b1;
+            // PRV change
+            wb_if_reason = IF_EXCEPTION;
+        end
+        else if (ex2_wb_valid) begin
+            // $display("commit %x", ex2_wb_pc);
+            if (ex2_wb_pc_override) begin
+                wb_if_pc = ex2_wb_npc;
+                wb_if_valid = 1'b1;
+                wb_if_reason = ex2_wb_pc_override_reason;
             end
         end
     end
