@@ -90,11 +90,6 @@ module cpu #(
     logic ex2_wb_pc_override;
     if_reason_t ex2_wb_pc_override_reason;
     logic [XLEN-1:0] wb_tvec;
-    bypass_t ex2_wb_result;
-    assign ex2_wb_result.rd_valid = !ex2_ready && ex2_wb_rd != 0;
-    assign ex2_wb_result.value_valid = ex2_wb_valid && !ex2_wb_trap.valid;
-    assign ex2_wb_result.rd = ex2_wb_rd;
-    assign ex2_wb_result.value = ex2_wb_data;
 
     //
     // IF stage
@@ -167,13 +162,26 @@ module cpu #(
     logic [XLEN-1:0] ex_rs1;
     logic [XLEN-1:0] ex_rs2;
 
+    typedef enum logic [1:0] {
+        ST_NORMAL,
+        ST_MISPREDICT,
+        ST_EXCEPTION
+    } state_e;
+
+    state_e ex_state_q, ex_state_d;
+
+    bypass_t ex2_wb_result;
+    assign ex2_wb_result.value_valid = ex2_wb_valid;
+    assign ex2_wb_result.rd = ex2_wb_rd;
+    assign ex2_wb_result.value = ex2_wb_data;
+
     // EX1 bypass logic
     always_comb begin
         ex_stalled = 1'b0;
 
         ex_rs1 = de_ex_rs1;
         // RS1 bypass from EX2
-        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs1) begin
+        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
             if (ex2_wb_result.value_valid) begin
                 ex_rs1 = ex2_wb_result.value;
             end
@@ -182,7 +190,7 @@ module cpu #(
             end
         end
         // RS1 bypass from EX1
-        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs1) begin
+        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
             if (ex_ex2_result.value_valid) begin
                 ex_rs1 = ex_ex2_result.value;
             end
@@ -193,7 +201,7 @@ module cpu #(
 
         ex_rs2 = de_ex_rs2;
         // RS2 bypass from EX2
-        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs2) begin
+        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
             if (ex2_wb_result.value_valid) begin
                 ex_rs2 = ex2_wb_result.value;
             end
@@ -202,7 +210,7 @@ module cpu #(
             end
         end
         // RS2 bypass from EX1
-        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs2) begin
+        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
             if (ex_ex2_result.value_valid) begin
                 ex_rs2 = ex_ex2_result.value;
             end
@@ -233,9 +241,20 @@ module cpu #(
     );
 
     // Misprediction control
-    logic ex_wait_for_override;
     logic ex_mispredicted;
-    assign ex_mispredicted = !de_ex_decoded.pc_override && ex_wait_for_override;
+    assign ex_mispredicted = !de_ex_decoded.pc_override && ex_state_q != ST_NORMAL;
+
+    always_comb begin
+        ex_state_d = ex_state_q;
+        // When EX2 stage says we had a misprediction, or went through a trap, we have to
+        // flush the pipeline, otherwise we can forward from speculatively executed EX stage.
+        if ((ex2_wb_valid && ex2_wb_pc_override) || ex2_wb_trap.valid)) begin
+            ex_state_d = ST_MISPREDICT;
+        end
+        if (de_ex_handshaked && de_ex_decoded.pc_override) begin
+            ex_state_d = ST_NORMAL;
+        end
+    end
 
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
@@ -248,17 +267,10 @@ module cpu #(
             ex_ex2_npc <= 'x;
             ex_ex2_mispredict <= 'x;
             ex_ex2_decoded <= decoded_instr_t'('x);
-            ex_wait_for_override <= 1'b0;
+            ex_state_q <= ST_MISPREDICT;
         end
         else begin
-            // When EX2 stage says we had a misprediction, or went through a trap, we have to
-            // flush the pipeline, otherwise we can forward from speculatively executed EX stage.
-            if (ex2_wb_valid && (ex2_wb_pc_override || ex2_wb_trap.valid)) begin
-                ex_wait_for_override <= 1'b1;
-            end
-            if (de_ex_handshaked && de_ex_decoded.pc_override) begin
-                ex_wait_for_override <= 1'b0;
-            end
+            ex_state_q <= ex_state_d;
 
             if (ex_ex2_handshaked) begin
                 ex_ex2_valid <= 1'b0;
@@ -273,7 +285,7 @@ module cpu #(
 
             if (de_ex_handshaked && !ex_mispredicted) begin
                 ex_ex2_valid <= 1'b1;
-                ex_ex2_result.rd_valid <= de_ex_decoded.rd != 0;
+                ex_ex2_result.rd_valid <= 1'b1;
                 ex_ex2_result.rd <= de_ex_decoded.rd;
                 ex_ex2_result.value_valid <= ex_value_valid;
                 ex_ex2_val <= ex_val;
@@ -307,10 +319,6 @@ module cpu #(
     exception_t ex2_mem_trap;
     logic ex2_mem_notif_ready;
 
-    // Misprediction control
-    logic ex2_mispredict;
-    assign ex2_mispredict = !ex_ex2_decoded.pc_override && (ex2_wb_pc_override || ex2_wb_trap.valid);
-
     // CSRs
     csr_t ex2_csr_select;
     logic [XLEN-1:0] ex2_csr_operand;
@@ -322,7 +330,7 @@ module cpu #(
     assign ex2_csr_select = csr_t'(ex_ex2_decoded.exception.mtval[31:20]);
     assign ex2_csr_operand = ex_ex2_val;
 
-    wire ex2_valid = ex_ex2_handshaked && !ex2_mispredict && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
+    wire ex2_valid = ex_ex2_handshaked && ex_state_d == ST_NORMAL && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
     // Flush control
     assign flush_tlb = ex2_valid && ex_ex2_decoded.op_type == SFENCE_VMA;
@@ -359,7 +367,7 @@ module cpu #(
         .o_valid    (ex2_div_valid)
     );
 
-    assign ex_ex2_ready = ex2_ready || ex2_wb_valid;
+    assign ex_ex2_ready = ex2_ready || ex2_wb_valid || ex2_wb_trap.valid;
     always_comb begin
         unique case (1'b1)
             ex2_select_alu: begin
@@ -402,6 +410,7 @@ module cpu #(
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             ex2_ready <= 1'b1;
+            ex2_wb_result.rd_valid <= 1'b0;
             ex2_select_alu <= 1'b1;
             ex2_select_mem <= 1'b0;
             ex2_select_mul <= 1'b0;
@@ -411,6 +420,7 @@ module cpu #(
             ex2_alu_valid <= 1'b0;
             ex2_alu_data <= 'x;
             ex2_alu_trap <= exception_t'('x);
+            ex2_alu_trap.valid <= 1'b0;
             ex2_div_use_rem <= 'x;
             ex2_wb_pc <= 'x;
             ex2_wb_rd <= '0;
@@ -419,12 +429,9 @@ module cpu #(
             ex2_wb_pc_override_reason <= IF_FLUSH;
         end
         else begin
-            if (ex2_wb_valid) begin
-                ex2_ready <= 1'b1;
-            end
-
-            if (ex_ex2_handshaked && !ex2_mispredict) begin
+            if (ex_ex2_handshaked && ex_state_d == ST_NORMAL) begin
                 ex2_ready <= 1'b0;
+                ex2_wb_result.rd_valid <= 1'b1;
                 ex2_select_alu <= 1'b1;
                 ex2_select_mem <= 1'b0;
                 ex2_select_flush <= 1'b0;
@@ -442,9 +449,11 @@ module cpu #(
                 ex2_wb_pc_override_reason <= IF_FLUSH;
                 case (1'b1)
                     ex_ex2_decoded.exception.valid: begin
+                        ex2_alu_valid <= 1'b0;
                         ex2_alu_trap <= ex_ex2_decoded.exception;
                     end
                     ex2_int_valid: begin
+                        ex2_alu_valid <= 1'b0;
                         ex2_alu_trap.valid <= 1'b1;
                         ex2_alu_trap.mcause_interrupt <= 1'b1;
                         ex2_alu_trap.mcause_code <= ex2_int_cause;
@@ -460,6 +469,7 @@ module cpu #(
                                 ex2_wb_pc_override_reason <= IF_MISPREDICT;
                                 // Instruction mis-aligned
                                 if (!C_EXT && ex_ex2_npc[1]) begin
+                                    ex2_alu_valid <= 1'b0;
                                     ex2_alu_trap.valid <= 1'b1;
                                     ex2_alu_trap.mcause_interrupt <= 1'b0;
                                     ex2_alu_trap.mcause_code <= 4'h0;
@@ -524,8 +534,11 @@ module cpu #(
                         endcase
                 endcase
             end
-            else if (ex2_wb_valid) begin
+            else if (ex2_wb_valid || ex2_wb_trap.valid) begin
                 // Reset to default values.
+                ex2_ready <= 1'b1;
+                ex2_wb_result.rd_valid <= 1'b0;
+                ex2_wb_rd <= '0;
                 ex2_alu_valid <= 1'b0;
                 // Unselect other units
                 ex2_select_alu <= 1'b1;
@@ -534,9 +547,8 @@ module cpu #(
                 ex2_select_mul <= 1'b0;
                 ex2_select_div <= 1'b0;
                 ex2_select_wfi <= 1'b0;
-                // We need this because ex2_mispredict requires ex2_wb_trap.valid to hold high
-                // until further handshake.
-                ex2_alu_trap <= ex2_wb_trap;
+                ex2_alu_trap <= exception_t'('x);
+                ex2_alu_trap.valid <= 1'b0;
             end
         end
     end
@@ -595,7 +607,7 @@ module cpu #(
         .a_op (ex_ex2_decoded.csr.op),
         .a_data (ex2_csr_operand),
         .a_read (ex2_csr_read),
-        .ex_valid (ex2_wb_valid && ex2_wb_trap.valid),
+        .ex_valid (ex2_wb_trap.valid),
         .ex_exception (ex2_wb_trap),
         .ex_epc (ex2_wb_pc),
         .ex_tvec (wb_tvec),
@@ -606,7 +618,7 @@ module cpu #(
         .int_cause (ex2_int_cause),
         .wfi_valid (ex2_wfi_valid),
         .mhartid (mhartid),
-        .hpm_instret (ex2_wb_valid && !ex2_wb_trap.valid),
+        .hpm_instret (ex2_wb_valid),
         .*
     );
 
@@ -624,21 +636,19 @@ module cpu #(
             end
 
             // WB
-            if (ex2_wb_valid) begin
-                if (ex2_wb_trap.valid) begin
-                    $display("%t: trap %x", $time, ex2_wb_pc);
-                    wb_if_pc <= wb_tvec;
+            if (ex2_wb_trap.valid) begin
+                $display("%t: trap %x", $time, ex2_wb_pc);
+                wb_if_pc <= wb_tvec;
+                wb_if_valid <= 1'b1;
+                // PRV change
+                wb_if_reason <= IF_PROT_CHANGED;
+            end
+            else if (ex2_wb_valid) begin
+                // $display("commit %x", ex2_wb_pc);
+                if (ex2_wb_pc_override) begin
+                    wb_if_pc <= ex2_wb_npc;
                     wb_if_valid <= 1'b1;
-                    // PRV change
-                    wb_if_reason <= IF_PROT_CHANGED;
-                end
-                else begin
-                    // $display("commit %x", ex2_wb_pc);
-                    if (ex2_wb_pc_override) begin
-                        wb_if_pc <= ex2_wb_npc;
-                        wb_if_valid <= 1'b1;
-                        wb_if_reason <= ex2_wb_pc_override_reason;
-                    end
+                    wb_if_reason <= ex2_wb_pc_override_reason;
                 end
             end
         end

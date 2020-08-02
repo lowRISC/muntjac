@@ -290,7 +290,6 @@ module dcache_uncached # (
                             end
                         end else begin
                             // Trigger exception
-                            cache.resp_valid <= 1'b1;
                             cache.resp_exception.valid <= 1'b1;
                             cache.resp_exception.mcause_interrupt <= 1'b0;
                             cache.resp_exception.mcause_code <= req_op == MEM_LOAD ? 4'h4 : 4'h6;
@@ -319,7 +318,6 @@ module dcache_uncached # (
                                 mem.r_data[27:10] != 0) // LSBs not cleared
                             begin
                                 // Trigger exception
-                                cache.resp_valid <= 1'b1;
                                 cache.resp_exception.valid <= 1'b1;
                                 cache.resp_exception.mcause_interrupt <= 1'b0;
                                 cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
@@ -367,7 +365,6 @@ module dcache_uncached # (
                                 (XLEN == 64 ? mem.r_data[18:10] : mem.r_data[19:10]) != 0) // LSBs not cleared
                             begin
                                 // Trigger exception
-                                cache.resp_valid <= 1'b1;
                                 cache.resp_exception.valid <= 1'b1;
                                 cache.resp_exception.mcause_interrupt <= 1'b0;
                                 cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
@@ -409,7 +406,6 @@ module dcache_uncached # (
                             (mem.r_data[4] && req_prv && !req_sum)) // Accessing user memory without SUM
                         begin
                             // Trigger exception
-                            cache.resp_valid <= 1'b1;
                             cache.resp_exception.valid <= 1'b1;
                             cache.resp_exception.mcause_interrupt <= 1'b0;
                             cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
