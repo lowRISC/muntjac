@@ -52,28 +52,22 @@ module cpu #(
     logic de_ex_handshaked;
     assign de_ex_handshaked = de_ex_valid && de_ex_ready;
 
-    typedef struct packed {
-        // Whether the associated rd is valid. If not valid, it means that the stage is empty.
-        logic rd_valid;
-        // Whether the associated value is valid. If not valid, it means that the stage is still busy.
-        logic value_valid;
-        logic [4:0] rd;
-        logic [63:0] value;
-    } bypass_t;
-
     // EX-EX2 interfacing
     logic ex_ex2_valid;
     logic ex_ex2_ready;
     decoded_instr_t ex_ex2_decoded;
+
+    logic ex_pending;
+    logic [4:0] ex_ex2_rd;
+    logic ex_ex2_value_valid;
+
     // Main value passed from EX1 to EX2.
-    logic [XLEN-1:0] ex_ex2_val;
+    logic [XLEN-1:0] ex_ex2_data;
     // Additional value passed from EX1 to EX2. E.g. store value
-    logic [XLEN-1:0] ex_ex2_val2;
+    logic [XLEN-1:0] ex_ex2_data2;
     logic [XLEN-1:0] ex_ex2_npc;
     logic ex_ex2_mispredict;
     wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
-    bypass_t ex_ex2_result;
-    assign ex_ex2_result.value = ex_ex2_val;
 
     // EX2-WB interfacing
     logic ex2_ready;
@@ -116,39 +110,48 @@ module cpu #(
     // DE stage
     //
     logic [4:0] de_rs1_select, de_rs2_select;
-    logic [XLEN-1:0] de_rs1;
-    logic [XLEN-1:0] de_rs2;
     csr_t de_csr_sel;
     logic [1:0] de_csr_op;
     logic de_csr_illegal;
+    decoded_instr_t de_decoded;
 
-    decode_unit # (
-        .XLEN (XLEN),
+    decoder # (
         .C_EXT (C_EXT)
-    ) decode_unit (
-        .clk (clk),
-        .resetn (resetn),
-
-        .rs1_select (de_rs1_select),
-        .rs1_value (de_rs1),
-        .rs2_select (de_rs2_select),
-        .rs2_value (de_rs2),
-
+    ) decoder (
+        .fetched_instr (if_de_instr),
+        .decoded_instr (de_decoded),
+        .prv (prv),
+        .status (status),
         .csr_sel (de_csr_sel),
         .csr_op (de_csr_op),
-        .csr_illegal (de_csr_illegal),
-
-        .i_valid (if_de_valid),
-        .i_ready (if_de_ready),
-        .i_fetched_instr (if_de_instr),
-        .i_prv (prv),
-        .i_status (status),
-        .o_valid (de_ex_valid),
-        .o_ready (de_ex_ready),
-        .o_decoded_instr (de_ex_decoded),
-        .rs1 (de_ex_rs1),
-        .rs2 (de_ex_rs2)
+        .csr_illegal (de_csr_illegal)
     );
+
+    assign if_de_ready = de_ex_ready;
+
+    always_ff @(posedge clk or negedge resetn) begin
+        if (!resetn) begin
+            de_ex_valid <= 1'b0;
+            de_ex_decoded <= decoded_instr_t'('x);
+            de_rs1_select <= 'x;
+            de_rs2_select <= 'x;
+        end
+        else begin
+            // New inbound data
+            if (if_de_valid && if_de_ready) begin
+                de_ex_valid <= 1'b1;
+                de_ex_decoded <= de_decoded;
+
+                // Regfile will read register into rs1_value and rs2_value
+                de_rs1_select <= de_decoded.rs1;
+                de_rs2_select <= de_decoded.rs2;
+            end
+            // No new inbound data - deassert valid if ready is asserted.
+            else if (de_ex_valid && de_ex_ready) begin
+                de_ex_valid <= 1'b0;
+            end
+        end
+    end
 
     //
     // EX stage
@@ -165,10 +168,7 @@ module cpu #(
 
     state_e ex_state_q, ex_state_d;
 
-    bypass_t ex2_wb_result;
-    assign ex2_wb_result.value_valid = ex2_wb_valid;
-    assign ex2_wb_result.rd = ex2_wb_rd;
-    assign ex2_wb_result.value = ex2_wb_data;
+    logic ex2_pending;
 
     // EX1 bypass logic
     always_comb begin
@@ -176,18 +176,18 @@ module cpu #(
 
         ex_rs1 = de_ex_rs1;
         // RS1 bypass from EX2
-        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
-            if (ex2_wb_result.value_valid) begin
-                ex_rs1 = ex2_wb_result.value;
+        if (ex2_pending && ex2_wb_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+            if (ex2_wb_valid) begin
+                ex_rs1 = ex2_wb_data;
             end
             else begin
                 ex_stalled = 1'b1;
             end
         end
         // RS1 bypass from EX1
-        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
-            if (ex_ex2_result.value_valid) begin
-                ex_rs1 = ex_ex2_result.value;
+        if (ex_pending && ex_ex2_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+            if (ex_ex2_value_valid) begin
+                ex_rs1 = ex_ex2_data;
             end
             else begin
                 ex_stalled = 1'b1;
@@ -196,18 +196,18 @@ module cpu #(
 
         ex_rs2 = de_ex_rs2;
         // RS2 bypass from EX2
-        if (ex2_wb_result.rd_valid && ex2_wb_result.rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
-            if (ex2_wb_result.value_valid) begin
-                ex_rs2 = ex2_wb_result.value;
+        if (ex2_pending && ex2_wb_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+            if (ex2_wb_valid) begin
+                ex_rs2 = ex2_wb_data;
             end
             else begin
                 ex_stalled = 1'b1;
             end
         end
         // RS2 bypass from EX1
-        if (ex_ex2_result.rd_valid && ex_ex2_result.rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
-            if (ex_ex2_result.value_valid) begin
-                ex_rs2 = ex_ex2_result.value;
+        if (ex_pending && ex_ex2_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+            if (ex_ex2_value_valid) begin
+                ex_rs2 = ex_ex2_data;
             end
             else begin
                 ex_stalled = 1'b1;
@@ -247,8 +247,11 @@ module cpu #(
                 // TODO: Try to remove override from this equation
                 ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_wb_trap.valid;
             end
-            ST_MISPREDICT, ST_EXCEPTION: begin
+            ST_MISPREDICT: begin
                 ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
+            end
+            ST_EXCEPTION: begin
+                ex_can_issue = de_ex_decoded.if_reason == 4'b1011;
             end
             default:;
         endcase
@@ -258,7 +261,9 @@ module cpu #(
         ex_state_d = ex_state_q;
         // When EX2 stage says we had a misprediction, or went through a trap, we have to
         // flush the pipeline, otherwise we can forward from speculatively executed EX stage.
-        if ((ex2_wb_valid && ex2_wb_pc_override) || ex2_wb_trap.valid) begin
+        if (ex2_wb_trap.valid) begin
+            ex_state_d = ST_EXCEPTION;
+        end else if (ex2_wb_valid && ex2_wb_pc_override) begin
             ex_state_d = ST_MISPREDICT;
         end
         if (de_ex_handshaked && de_ex_decoded.if_reason !=? 4'bxxx0) begin
@@ -269,11 +274,11 @@ module cpu #(
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
             ex_ex2_valid <= 1'b0;
-            ex_ex2_result.rd_valid <= 1'b0;
-            ex_ex2_result.value_valid <= 1'b0;
-            ex_ex2_result.rd <= '0;
-            ex_ex2_val <= 'x;
-            ex_ex2_val2 <= 'x;
+            ex_pending <= 1'b0;
+            ex_ex2_value_valid <= 1'b0;
+            ex_ex2_rd <= '0;
+            ex_ex2_data <= 'x;
+            ex_ex2_data2 <= 'x;
             ex_ex2_npc <= 'x;
             ex_ex2_mispredict <= 'x;
             ex_ex2_decoded <= decoded_instr_t'('x);
@@ -284,22 +289,22 @@ module cpu #(
 
             if (ex_ex2_handshaked) begin
                 ex_ex2_valid <= 1'b0;
-                ex_ex2_result.rd_valid <= 1'b0;
-                ex_ex2_result.value_valid <= 1'b0;
-                ex_ex2_result.rd <= '0;
-                ex_ex2_val <= 'x;
-                ex_ex2_val2 <= 'x;
+                ex_pending <= 1'b0;
+                ex_ex2_value_valid <= 1'b0;
+                ex_ex2_rd <= '0;
+                ex_ex2_data <= 'x;
+                ex_ex2_data2 <= 'x;
                 ex_ex2_npc <= 'x;
                 ex_ex2_mispredict <= 'x;
             end
 
             if (de_ex_handshaked && ex_can_issue) begin
                 ex_ex2_valid <= 1'b1;
-                ex_ex2_result.rd_valid <= 1'b1;
-                ex_ex2_result.rd <= de_ex_decoded.rd;
-                ex_ex2_result.value_valid <= ex_value_valid;
-                ex_ex2_val <= ex_val;
-                ex_ex2_val2 <= ex_val2;
+                ex_pending <= 1'b1;
+                ex_ex2_rd <= de_ex_decoded.rd;
+                ex_ex2_value_valid <= ex_value_valid;
+                ex_ex2_data <= ex_val;
+                ex_ex2_data2 <= ex_val2;
                 ex_ex2_npc <= ex_npc;
                 ex_ex2_mispredict <= ex_mispredict;
                 ex_ex2_decoded <= de_ex_decoded;
@@ -338,7 +343,7 @@ module cpu #(
     logic ex2_wfi_valid;
     logic [3:0] ex2_int_cause;
     assign ex2_csr_select = csr_t'(ex_ex2_decoded.exception.mtval[31:20]);
-    assign ex2_csr_operand = ex_ex2_val;
+    assign ex2_csr_operand = ex_ex2_data;
 
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
@@ -351,8 +356,8 @@ module cpu #(
     mul_unit mul (
         .clk       (clk),
         .rstn      (resetn),
-        .operand_a (ex_ex2_val),
-        .operand_b (ex_ex2_val2),
+        .operand_a (ex_ex2_data),
+        .operand_b (ex_ex2_data2),
         .i_32      (ex_ex2_decoded.is_32),
         .i_op      (ex_ex2_decoded.mul.op),
         .i_valid   (ex2_valid && ex_ex2_decoded.op_type == MUL),
@@ -367,8 +372,8 @@ module cpu #(
     div_unit div (
         .clk        (clk),
         .rstn       (resetn),
-        .operand_a  (ex_ex2_val),
-        .operand_b  (ex_ex2_val2),
+        .operand_a  (ex_ex2_data),
+        .operand_b  (ex_ex2_data2),
         .i_32       (ex_ex2_decoded.is_32),
         .i_unsigned (ex_ex2_decoded.div.is_unsigned),
         .i_valid    (ex2_valid && ex_ex2_decoded.op_type == DIV),
@@ -420,7 +425,7 @@ module cpu #(
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
             ex2_ready <= 1'b1;
-            ex2_wb_result.rd_valid <= 1'b0;
+            ex2_pending <= 1'b0;
             ex2_select_alu <= 1'b1;
             ex2_select_mem <= 1'b0;
             ex2_select_mul <= 1'b0;
@@ -441,7 +446,7 @@ module cpu #(
         else begin
             if (ex_ex2_handshaked && ex2_can_issue) begin
                 ex2_ready <= 1'b0;
-                ex2_wb_result.rd_valid <= 1'b1;
+                ex2_pending <= 1'b1;
                 ex2_select_alu <= 1'b1;
                 ex2_select_mem <= 1'b0;
                 ex2_select_flush <= 1'b0;
@@ -472,10 +477,10 @@ module cpu #(
                     default:
                         case (ex_ex2_decoded.op_type)
                             ALU, AUIPC: begin
-                                ex2_alu_data <= ex_ex2_result.value;
+                                ex2_alu_data <= ex_ex2_data;
                             end
                             BRANCH, JALR: begin
-                                ex2_alu_data <= ex_ex2_val;
+                                ex2_alu_data <= ex_ex2_data;
                                 ex2_wb_pc_override_reason <= IF_MISPREDICT;
                                 // Instruction mis-aligned
                                 if (!C_EXT && ex_ex2_npc[1]) begin
@@ -547,7 +552,7 @@ module cpu #(
             else if (ex2_wb_valid || ex2_wb_trap.valid) begin
                 // Reset to default values.
                 ex2_ready <= 1'b1;
-                ex2_wb_result.rd_valid <= 1'b0;
+                ex2_pending <= 1'b0;
                 ex2_wb_rd <= '0;
                 ex2_alu_valid <= 1'b0;
                 // Unselect other units
@@ -570,10 +575,10 @@ module cpu #(
     assign dcache.req_valid    = ex2_valid && ex_ex2_decoded.op_type == MEM;
     assign dcache.req_op       = ex_ex2_decoded.mem.op;
     assign dcache.req_amo      = ex_ex2_decoded.exception.mtval[31:25];
-    assign dcache.req_address  = ex_ex2_val;
+    assign dcache.req_address  = ex_ex2_data;
     assign dcache.req_size     = ex_ex2_decoded.mem.size;
     assign dcache.req_unsigned = ex_ex2_decoded.mem.zeroext;
-    assign dcache.req_value    = ex_ex2_val2;
+    assign dcache.req_value    = ex_ex2_data2;
     assign dcache.req_prv      = data_prv;
     assign dcache.req_sum      = status.sum;
     assign dcache.req_mxr      = status.mxr;
@@ -595,12 +600,12 @@ module cpu #(
         .clk (clk),
         .rstn (resetn),
         .ra_sel (de_rs1_select),
-        .ra_data (de_rs1),
+        .ra_data (de_ex_rs1),
         .rb_sel (de_rs2_select),
-        .rb_data (de_rs2),
-        .w_sel (ex2_wb_result.rd),
-        .w_data (ex2_wb_result.value),
-        .w_en (ex2_wb_result.value_valid)
+        .rb_data (de_ex_rs2),
+        .w_sel (ex2_wb_rd),
+        .w_data (ex2_wb_data),
+        .w_en (ex2_wb_valid)
     );
 
     csr_regfile # (
