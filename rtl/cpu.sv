@@ -216,9 +216,7 @@ module cpu #(
     logic ex_value_valid, ex_mispredict;
     logic [XLEN-1:0] ex_val, ex_val2, ex_npc;
 
-    stage_ex #(
-        .XLEN (XLEN)
-    ) stage_ex (
+    stage_ex stage_ex (
         .clk,
         .rstn (resetn),
         .i_decoded (de_ex_decoded),
@@ -472,10 +470,10 @@ module cpu #(
                     end
                     default:
                         case (ex_ex2_decoded.op_type)
-                            ALU, AUIPC: begin
+                            ALU: begin
                                 ex2_alu_data <= ex_ex2_data;
                             end
-                            BRANCH, JALR: begin
+                            BRANCH: begin
                                 ex2_alu_data <= ex_ex2_data;
                                 ex2_wb_pc_override_reason <= IF_MISPREDICT;
                             end
@@ -637,13 +635,10 @@ module cpu #(
             // PRV change
             wb_if_reason = IF_EXCEPTION;
         end
-        else if (ex2_wb_valid) begin
-            // $display("commit %x", ex2_wb_pc);
-            if (ex2_wb_pc_override) begin
-                wb_if_pc = ex2_wb_npc;
-                wb_if_valid = 1'b1;
-                wb_if_reason = ex2_wb_pc_override_reason;
-            end
+        else if (ex2_wb_valid && ex2_wb_pc_override) begin
+            wb_if_pc = ex2_wb_npc;
+            wb_if_valid = 1'b1;
+            wb_if_reason = ex2_wb_pc_override_reason;
         end
     end
 

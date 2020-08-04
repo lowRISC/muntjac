@@ -63,12 +63,12 @@ module decoder # (
         decoded_instr.rd  = '0;
 
         decoded_instr.is_32 = 1'b0;
-        decoded_instr.adder_subtract = 1'bx;
+        decoded_instr.adder.use_pc = 1'b0;
 
         decoded_instr.op = op_t'('x);
         decoded_instr.shifter_left = 1'bx;
         decoded_instr.shifter_arithmetic = 1'bx;
-        decoded_instr.comparator_op = comparator_op_t'('x);
+        decoded_instr.condition = condition_code_e'('x);
 
         // Set exception to be illegal instruction, but do not enable it yet.
         decoded_instr.exception.valid = 1'b0;
@@ -90,7 +90,6 @@ module decoder # (
                 decoded_instr.mem.op = MEM_LOAD;
                 decoded_instr.mem.size = funct3[1:0];
                 decoded_instr.mem.zeroext = funct3[2];
-                decoded_instr.adder_subtract = 1'b0;
 
                 if (XLEN == 32) begin
                      if (funct3[1:0] == 2'b11 || funct3 == 3'b110) decoded_instr.exception.valid = 1'b1;
@@ -118,16 +117,15 @@ module decoder # (
 
                 unique case (funct3)
                     3'b000: begin
-                        decoded_instr.op = ADDSUB;
-                        decoded_instr.adder_subtract = 1'b0;
+                        decoded_instr.op = ADD;
                     end
                     3'b010: begin
-                        decoded_instr.op = SLT;
-                        decoded_instr.adder_subtract = 1'b1;
+                        decoded_instr.op = SCC;
+                        decoded_instr.condition = CC_LT;
                     end
                     3'b011: begin
-                        decoded_instr.op = SLTU;
-                        decoded_instr.adder_subtract = 1'b1;
+                        decoded_instr.op = SCC;
+                        decoded_instr.condition = CC_LTU;
                     end
                     3'b100: decoded_instr.op = L_XOR;
                     3'b110: decoded_instr.op = L_OR;
@@ -158,8 +156,10 @@ module decoder # (
             end
 
             OPCODE_AUIPC: begin
-                decoded_instr.op_type = AUIPC;
-                decoded_instr.rd      = rd;
+                decoded_instr.rd = rd;
+                decoded_instr.op_type = ALU;
+                decoded_instr.op = ADD;
+                decoded_instr.adder.use_pc = 1'b1;
             end
 
             OPCODE_OP_IMM_32: begin
@@ -171,8 +171,7 @@ module decoder # (
 
                     unique case (funct3)
                         3'b000: begin
-                            decoded_instr.op = ADDSUB;
-                            decoded_instr.adder_subtract = 1'b0;
+                            decoded_instr.op = ADD;
                         end
                         3'b001: begin
                             decoded_instr.op = SHIFT;
@@ -204,7 +203,6 @@ module decoder # (
                 decoded_instr.rs2 = rs2;
                 decoded_instr.mem.op = MEM_STORE;
                 decoded_instr.mem.size = funct3[1:0];
-                decoded_instr.adder_subtract = 1'b0;
                 if (funct3[2] == 1'b1) decoded_instr.exception.valid = 1'b1;
                 if (XLEN == 32 && funct3[1:0] == 2'b11) decoded_instr.exception.valid = 1'b1;
             end
@@ -217,7 +215,6 @@ module decoder # (
                 decoded_instr.mem.size = funct3[1:0];
                 decoded_instr.mem.zeroext = 1'b0;
                 decoded_instr.mem.op = MEM_AMO;
-                decoded_instr.adder_subtract = 1'b0;
 
                 unique case (funct3)
                     3'b010, 3'b011:;
@@ -265,20 +262,18 @@ module decoder # (
                         decoded_instr.div.rem = funct3[1];
                     end
                     {7'b0000000, 3'b000}: begin
-                        decoded_instr.op = ADDSUB;
-                        decoded_instr.adder_subtract = 1'b0;
+                        decoded_instr.op = ADD;
                     end
                     {7'b0100000, 3'b000}: begin
-                        decoded_instr.op = ADDSUB;
-                        decoded_instr.adder_subtract = 1'b1;
+                        decoded_instr.op = SUB;
                     end
                     {7'b0000000, 3'b010}: begin
-                        decoded_instr.op = SLT;
-                        decoded_instr.adder_subtract = 1'b1;
+                        decoded_instr.op = SCC;
+                        decoded_instr.condition = CC_LT;
                     end
                     {7'b0000000, 3'b011}: begin
-                        decoded_instr.op = SLTU;
-                        decoded_instr.adder_subtract = 1'b1;
+                        decoded_instr.op = SCC;
+                        decoded_instr.condition = CC_LTU;
                     end
                     {7'b0000000, 3'b100}: decoded_instr.op = L_XOR;
                     {7'b0000000, 3'b110}: decoded_instr.op = L_OR;
@@ -305,8 +300,7 @@ module decoder # (
             OPCODE_LUI: begin
                 decoded_instr.rd = rd;
                 decoded_instr.op_type = ALU;
-                decoded_instr.op = ADDSUB;
-                decoded_instr.adder_subtract = 1'b0;
+                decoded_instr.op = ADD;
             end
 
             OPCODE_OP_32: begin
@@ -328,12 +322,10 @@ module decoder # (
                             decoded_instr.div.rem = funct3[1];
                         end
                         {7'b0000000, 3'b000}: begin
-                            decoded_instr.op = ADDSUB;
-                            decoded_instr.adder_subtract = 1'b0;
+                            decoded_instr.op = ADD;
                         end
                         {7'b0100000, 3'b000}: begin
-                            decoded_instr.op = ADDSUB;
-                            decoded_instr.adder_subtract  = 1'b1;
+                            decoded_instr.op = SUB;
                         end
                         {7'b0000000, 3'b001}: begin
                             decoded_instr.op = SHIFT;
@@ -359,31 +351,32 @@ module decoder # (
                 decoded_instr.op_type = BRANCH;
                 decoded_instr.rs1     = rs1;
                 decoded_instr.rs2     = rs2;
-                decoded_instr.adder_subtract = 1'b1;
+                decoded_instr.adder.use_pc = 1'b1;
 
                 unique case (funct3)
-                    3'b000: decoded_instr.comparator_op = EQ;
-                    3'b001: decoded_instr.comparator_op = NE;
-                    3'b100: decoded_instr.comparator_op = LT;
-                    3'b101: decoded_instr.comparator_op = GE;
-                    3'b110: decoded_instr.comparator_op = LTU;
-                    3'b111: decoded_instr.comparator_op = GEU;
+                    3'b000: decoded_instr.condition = CC_EQ;
+                    3'b001: decoded_instr.condition = CC_NE;
+                    3'b100: decoded_instr.condition = CC_LT;
+                    3'b101: decoded_instr.condition = CC_GE;
+                    3'b110: decoded_instr.condition = CC_LTU;
+                    3'b111: decoded_instr.condition = CC_GEU;
                     default: decoded_instr.exception.valid = 1'b1;
                 endcase
             end
 
             OPCODE_JALR: begin
-                decoded_instr.op_type = JALR;
+                decoded_instr.op_type = BRANCH;
                 decoded_instr.rs1     = rs1;
                 decoded_instr.rd      = rd;
-                decoded_instr.adder_subtract = 1'b0;
+                decoded_instr.condition = CC_TRUE;
                 if (funct3 != 3'b0) decoded_instr.exception.valid = 1'b1;
             end
 
             OPCODE_JAL: begin
                 decoded_instr.op_type = BRANCH;
                 decoded_instr.rd      = rd;
-                decoded_instr.comparator_op = JUMP;
+                decoded_instr.adder.use_pc = 1'b1;
+                decoded_instr.condition = CC_TRUE;
             end
 
             OPCODE_SYSTEM: begin
@@ -458,6 +451,7 @@ module decoder # (
 
         // Immedidate decoding logic
         decoded_instr.use_imm = 1'b0;
+        decoded_instr.adder.use_imm = 1'b1;
         unique case (opcode)
             // I-type
             OPCODE_LOAD, OPCODE_OP_IMM, OPCODE_OP_IMM_32, OPCODE_JALR: begin
@@ -481,6 +475,11 @@ module decoder # (
             // J-Type
             OPCODE_JAL: begin
                 immediate = j_imm;
+            end
+            // R-Type
+            OPCODE_OP, OPCODE_OP_32: begin
+                decoded_instr.adder.use_imm = 1'b0;
+                immediate = 'x;
             end
             // Atomics. This probably should better be handled in EX stage.
             OPCODE_AMO: begin

@@ -1,75 +1,59 @@
 import cpu_common::*;
 
 // This module contains the EX stage (combinational) of the pipeline.
-module stage_ex #(
-    parameter XLEN = 64
-) (
+module stage_ex (
     input  logic            clk,
     input  logic            rstn,
 
     input  decoded_instr_t  i_decoded,
-    input  [XLEN-1:0]       i_rs1,
-    input  logic [XLEN-1:0] i_rs2,
+    input  [63:0]       i_rs1,
+    input  logic [63:0] i_rs2,
 
     output logic            o_value_valid,
-    output logic [XLEN-1:0] o_val,
-    output logic [XLEN-1:0] o_val2,
-    output logic [XLEN-1:0] o_npc,
+    output logic [63:0] o_val,
+    output logic [63:0] o_val2,
+    output logic [63:0] o_npc,
     output logic            o_mispredict
 );
 
-    logic [XLEN-1:0] npc;
+    logic [63:0] npc;
     assign npc = i_decoded.pc + (i_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
 
-    // Adder for PC and immediate.
-    // Only used for AUIPC, JAL and branch
-    logic [XLEN-1:0] pc_imm_adder;
-    assign pc_imm_adder = i_decoded.pc + i_decoded.immediate;
+    wire [63:0] operand_b = i_decoded.use_imm ? i_decoded.immediate : i_rs2;
 
     // Adder.
     // This is the core component of the EX stage.
-    // It is used for add, sub and compare.
-    wire [XLEN-1:0] operand_b = i_decoded.use_imm ? i_decoded.immediate : i_rs2;
-    logic [XLEN-1:0] adder_result;
-    adder #(
-        .XLEN (XLEN)
-    ) adder (
-        .subtract (i_decoded.adder_subtract),
-        .operand_a (i_rs1),
-        .operand_b (operand_b),
-        .result (adder_result)
-    );
+    // It is used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
+    logic [63:0] sum;
+    assign sum = (i_decoded.adder.use_pc ? i_decoded.pc : i_rs1) + (i_decoded.adder.use_imm ? i_decoded.immediate : i_rs2);
+
+    // Subtractor.
+    // It is used for SUB, BRANCH, SLT, SLTU
+    logic [63:0] difference;
+    assign difference = i_rs1 - operand_b;
 
     // Comparator. Used in BRANCH, SLT, and SLTU
-    logic lt_flag;
-    logic ltu_flag;
     logic compare_result;
-    comparator #(
-        .XLEN (XLEN)
-    ) comparator (
+    comparator comparator (
         .operand_a    (i_rs1),
         .operand_b    (operand_b),
-        .op           (i_decoded.comparator_op),
-        .adder_result,
-        .lt_flag,
-        .ltu_flag,
+        .op           (i_decoded.condition),
+        .difference_i (difference),
         .result       (compare_result)
     );
 
     // ALU
-    logic [XLEN-1:0] alu_result;
-    alu #(
-        .XLEN (XLEN)
-    ) alu (
+    logic [63:0] alu_result;
+    alu alu (
         .operator      (i_decoded.op),
         .decoded_instr (i_decoded),
         .is_32         (i_decoded.is_32),
         .operand_a     (i_rs1),
         .operand_b     (operand_b),
-        .adder_result  (adder_result),
-        .lt_flag,
-        .ltu_flag,
-        .result        (alu_result)
+        .sum_i         (sum),
+        .difference_i  (difference),
+        .compare_result_i (compare_result),
+        .result           (alu_result)
     );
 
     always_comb begin
@@ -88,30 +72,20 @@ module stage_ex #(
                     o_value_valid = 1'b1;
                     o_val = alu_result;
                 end
-                AUIPC: begin
-                    o_value_valid = 1'b1;
-                    o_val = pc_imm_adder;
-                end
                 // As EX1 can be speculatively executed,
                 // Therefore we will compute next PC and misprediction information, but
-                // instruction misalign and misprediction handling are all done in stage 2.
+                // Misprediction handling are all done in stage 2.
                 BRANCH: begin
                     o_value_valid = 1'b1;
                     o_val = npc;
                     o_mispredict = compare_result != i_decoded.prediction.taken;
-                    o_npc = compare_result ? pc_imm_adder : npc;
-                end
-                JALR: begin
-                    o_value_valid = 1'b1;
-                    o_val = npc;
-                    o_mispredict = 1'b1;
-                    o_npc = {adder_result[XLEN-1:1], 1'b0};
+                    o_npc = compare_result ? {sum[63:1], 1'b0} : npc;
                 end
                 CSR: begin
-                    o_val = i_decoded.csr.imm ? {{(XLEN-5){1'b0}}, i_decoded.rs1} : i_rs1;
+                    o_val = i_decoded.csr.imm ? {{(64-5){1'b0}}, i_decoded.rs1} : i_rs1;
                 end
                 MEM: begin
-                    o_val = adder_result;
+                    o_val = sum;
                     // For store and AMO
                     o_val2 = i_rs2;
                 end

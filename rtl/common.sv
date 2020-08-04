@@ -3,11 +3,8 @@ package cpu_common;
 typedef enum logic [4:0] {
     // Normal ALU operation
     ALU,
-    AUIPC,
-    // Branching
+    // Branching and jumps
     BRANCH,
-    // Jump to adder result
-    JALR,
     CSR,
     MEM,
     MUL,
@@ -23,14 +20,27 @@ typedef enum logic [4:0] {
 // ALU operations
 typedef enum logic [2:0] {
     // Arithmetic
-    ADDSUB = 3'b000,
+    ADD = 3'b000,
+    SUB = 3'b001,
     // Shifts
-    SHIFT = 3'b001,
+    SHIFT = 3'b010,
     // Compare and set
-    SLT = 3'b010, SLTU = 3'b011,
+    SCC = 3'b011,
     // Bit operation
     L_XOR = 3'b100, L_OR = 3'b110, L_AND = 3'b111
 } op_t;
+
+// Branch/comparison condition codes
+typedef enum logic [2:0] {
+    CC_FALSE,
+    CC_TRUE,
+    CC_EQ,
+    CC_NE,
+    CC_LT,
+    CC_GE,
+    CC_LTU,
+    CC_GEU
+} condition_code_e;
 
 // Reason for instruction fetch
 typedef enum logic [3:0] {
@@ -48,12 +58,6 @@ typedef enum logic [3:0] {
     // Either FENCE.I or SFENCE.VMA is executed.
     IF_FLUSH = 4'b1111
 } if_reason_t;
-// ALU operations
-typedef enum logic [2:0] {
-    EQ, NE, LT, GE, LTU, GEU,
-    // Always true jump
-    JUMP
-} comparator_op_t;
 
 // MEM operations
 typedef enum logic [2:0] {
@@ -91,11 +95,17 @@ typedef struct packed {
     // Used by ALU, MUL and DIV
     logic is_32;
 
+    // Information relevant to the adder.
+    // Adder is special to ALU because it is also used for branch target and address computation
+    struct packed {
+        // Whether adder should use PC or RS1 as input.
+        logic use_pc;
+        // Whether adder should use immediate or RS2 as input.
+        logic use_imm;
+    } adder;
+
     // Whether ALU ops or adder should use rs2 or immediate.
     logic use_imm;
-    // Adder results are always available regardless op type.
-    // This dictates whether the adder should perform addition or subtraction.
-    logic adder_subtract;
 
     // ALU ops
     op_t op;
@@ -105,7 +115,7 @@ typedef struct packed {
     logic shifter_arithmetic;
 
     // For comparator
-    comparator_op_t comparator_op;
+    condition_code_e condition;
 
     // Information relevant only to the memory unit.
     struct packed {
