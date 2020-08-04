@@ -4,7 +4,6 @@ import riscv::*;
 module csr_regfile # (
     parameter XLEN = 64,
     parameter A_EXT = 1'b1,
-    parameter C_EXT = 1'b1,
     parameter D_EXT = 1'b0,
     parameter F_EXT = 1'b0,
     parameter M_EXT = 1'b1,
@@ -78,7 +77,7 @@ module csr_regfile # (
         {XLEN == 64 ? 2'b10 : 2'b01, {(XLEN-28){1'b0}}, 26'h100} // Base ISA
         | 26'h40000 // S-Mode
         | (A_EXT ? 26'h1 : 0) // A-extension
-        | (C_EXT ? 26'h4 : 0) // C-extension
+        | 26'h4 // C-extension
         | (D_EXT ? 26'h8 : 0) // D-extension
         | (F_EXT ? 26'h20 : 0) // F-extension
         | (M_EXT ? 26'h1000 : 0) // M-extension
@@ -118,7 +117,7 @@ module csr_regfile # (
     logic [XLEN-1:0] mtvec, mtvec_d;
     logic [XLEN-1:0] stvec, stvec_d;
 
-    // The last one (or last two, if C_EXT is 0) bit must be zero.
+    // The last two bit must be zero.
     logic [XLEN-1:0] mepc, mepc_d;
     logic [XLEN-1:0] sepc, sepc_d;
 
@@ -423,7 +422,7 @@ module csr_regfile # (
                         CSR_SCOUNTEREN: scounteren_d = new_value[2:0] & 3'b101;
 
                         CSR_SSCRATCH: sscratch_d = new_value;
-                        CSR_SEPC: sepc_d = C_EXT ? {new_value[XLEN-1:1], 1'b0} : {new_value[XLEN-1:2], 2'b0};
+                        CSR_SEPC: sepc_d = {new_value[XLEN-1:1], 1'b0};
                         CSR_SCAUSE: begin
                             scause_interrupt_d = new_value[XLEN-1];
                             scause_code_d = new_value[3:0];
@@ -462,7 +461,7 @@ module csr_regfile # (
                         CSR_MCOUNTEREN: mcounteren_d = new_value[2:0] & 3'b101;
 
                         CSR_MSCRATCH: mscratch_d = new_value;
-                        CSR_MEPC: mepc_d = C_EXT ? {new_value[XLEN-1:1], 1'b0} : {new_value[XLEN-1:2], 2'b0};
+                        CSR_MEPC: mepc_d = {new_value[XLEN-1:1], 1'b0};
                         CSR_MCAUSE: begin
                             mcause_interrupt_d = new_value[XLEN-1];
                             mcause_code_d = new_value[3:0];

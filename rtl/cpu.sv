@@ -2,8 +2,7 @@ import riscv::*;
 import cpu_common::*;
 
 module cpu #(
-    parameter XLEN = 64,
-    parameter C_EXT = 1'b1
+    parameter XLEN = 64
 ) (
     // Clock and reset
     input  logic            clk,
@@ -87,7 +86,6 @@ module cpu #(
     logic flush_tlb;
     instr_fetcher #(
         .XLEN(XLEN),
-        .C_EXT (C_EXT),
         .BRANCH_PRED (BRANCH_PRED)
     ) fetcher (
         .clk (clk),
@@ -115,9 +113,7 @@ module cpu #(
     logic de_csr_illegal;
     decoded_instr_t de_decoded;
 
-    decoder # (
-        .C_EXT (C_EXT)
-    ) decoder (
+    decoder decoder (
         .fetched_instr (if_de_instr),
         .decoded_instr (de_decoded),
         .prv (prv),
@@ -482,14 +478,6 @@ module cpu #(
                             BRANCH, JALR: begin
                                 ex2_alu_data <= ex_ex2_data;
                                 ex2_wb_pc_override_reason <= IF_MISPREDICT;
-                                // Instruction mis-aligned
-                                if (!C_EXT && ex_ex2_npc[1]) begin
-                                    ex2_alu_valid <= 1'b0;
-                                    ex2_alu_trap.valid <= 1'b1;
-                                    ex2_alu_trap.mcause_interrupt <= 1'b0;
-                                    ex2_alu_trap.mcause_code <= 4'h0;
-                                    ex2_alu_trap.mtval <= ex_ex2_npc;
-                                end
                             end
                             CSR: begin
                                 ex2_alu_data <= ex2_csr_read;
@@ -609,8 +597,7 @@ module cpu #(
     );
 
     csr_regfile # (
-        .XLEN (XLEN),
-        .C_EXT (C_EXT)
+        .XLEN (XLEN)
     ) csr_regfile (
         .clk (clk),
         .resetn (resetn),

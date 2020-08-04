@@ -3,8 +3,7 @@ import riscv::*;
 
 module decoder # (
     // Decide the base ISA to use. Note that the decoded immediate length will always be 32 bits.
-    parameter XLEN = 64,
-    parameter C_EXT = 1'b1
+    parameter XLEN = 64
 ) (
     input  fetched_instr_t fetched_instr,
     output decoded_instr_t decoded_instr,
@@ -29,18 +28,13 @@ module decoder # (
     // Use the structure to unpack the instruction word.
     logic [31:0] instr_word;
 
-    if (C_EXT) begin
-        // C-extension decompression.
-        logic [31:0] decompressed;
-        decode_compressed decomp (
-            .compressed (fetched_instr.instr_word[15:0]),
-            .decompressed
-        );
-        assign instr_word = fetched_instr.instr_word[1:0] == 2'b11 ? fetched_instr.instr_word : decompressed;
-    end
-    else begin
-        assign instr_word = fetched_instr.instr_word;
-    end
+    // C-extension decompression.
+    logic [31:0] decompressed;
+    decode_compressed decomp (
+        .compressed (fetched_instr.instr_word[15:0]),
+        .decompressed
+    );
+    assign instr_word = fetched_instr.instr_word[1:0] == 2'b11 ? fetched_instr.instr_word : decompressed;
 
     wire [6:0] funct7 = instr_word[31:25];
     wire [4:0] rs2 = instr_word[24:20];

@@ -4,7 +4,6 @@ import cpu_common::*;
 // it has encountered a PC override.
 module instr_fetcher # (
     parameter XLEN = 64,
-    parameter C_EXT = 1'b0,
     parameter BRANCH_PRED = 1
 ) (
     input  logic clk,
@@ -55,26 +54,7 @@ module instr_fetcher # (
     end
 
     icache_intf cache (clk, resetn);
-
-    if (C_EXT) begin
-        icache_compressed comp_inst (cache, cache_uncompressed);
-    end
-    else begin
-        assign cache_uncompressed.req_valid = cache.req_valid;
-        assign cache_uncompressed.req_pc = cache.req_pc;
-        assign cache_uncompressed.req_reason = cache.req_reason;
-        assign cache_uncompressed.req_prv = cache.req_prv;
-        assign cache_uncompressed.req_sum = cache.req_sum;
-        assign cache_uncompressed.req_atp = cache.req_atp;
-
-        assign cache.resp_valid = cache_uncompressed.resp_valid;
-        assign cache.resp_pc = cache_uncompressed.resp_pc;
-        assign cache.resp_instr = cache_uncompressed.resp_instr;
-        assign cache.resp_exception = cache_uncompressed.resp_exception;
-
-        assign cache_uncompressed.flush_cache = cache.flush_cache;
-        assign cache_uncompressed.flush_tlb = cache.flush_tlb;
-    end
+    icache_compressed comp_inst (cache, cache_uncompressed);
 
     logic [XLEN-1:0] pc;
     if_reason_t reason;
@@ -167,22 +147,12 @@ module instr_fetcher # (
     // Highest bits are tied to one as we only use b_imm if they're one.
     // wire [XLEN-1:0] b_imm = signed'({instr_word[31], instr_word[7], instr_word[30:25], instr_word[11:8], 1'b0});
     logic [XLEN-1:0] b_imm;
-    if (C_EXT) begin
-        assign b_imm = signed'({1'b1, instr_word[7], instr_word[30:25], instr_word[11:8], 1'b0});
-    end
-    else begin
-        assign b_imm = signed'({1'b1, instr_word[7], instr_word[30:25], instr_word[11:9], 1'b0, 1'b0});
-    end
+    assign b_imm = signed'({1'b1, instr_word[7], instr_word[30:25], instr_word[11:8], 1'b0});
 
     // Prediction for jal
     wire is_jal = instr_word[6:0] == 7'b1101111;
     logic [XLEN-1:0] j_imm;
-    if (C_EXT) begin
-        assign j_imm = signed'({instr_word[31], instr_word[19:12], instr_word[20], instr_word[30:21], 1'b0});
-    end
-    else begin
-        assign j_imm = signed'({instr_word[31], instr_word[19:12], instr_word[20], instr_word[30:22], 1'b0, 1'b0});
-    end
+    assign j_imm = signed'({instr_word[31], instr_word[19:12], instr_word[20], instr_word[30:21], 1'b0});
 
     wire is_c_branch = instr_word[1:0] == 2'b01 && instr_word[15:14] == 2'b11;
     // wire [XLEN-1:0] cb_imm = signed'({instr_word[12], instr_word[6:5], instr_word[2], instr_word[11:10], instr_word[4:3], 1'b0});
@@ -203,11 +173,11 @@ module instr_fetcher # (
                 predict_taken = 1'b1;
                 predict_target = pc + j_imm;
             end
-            BRANCH_PRED && C_EXT && is_c_branch: begin
+            BRANCH_PRED && is_c_branch: begin
                 predict_taken = instr_word[12];
                 predict_target = pc + cb_imm;
             end
-            BRANCH_PRED && C_EXT && is_c_jal: begin
+            BRANCH_PRED && is_c_jal: begin
                 predict_taken = 1'b1;
                 predict_target = pc + cj_imm;
             end
@@ -229,26 +199,19 @@ module instr_fetcher # (
     logic [XLEN-1:0] npc;
     always_comb begin
         npc = npc_word;
-        if (C_EXT) begin
-            if (instr_word[1:0] == 2'b11) begin
-                // Need to do +4, so copy bit 1.
-                npc[1] = pc[1];
-            end
-            else if (!pc[1]) begin
-                // Need to do +2.
-                // If pc[1] is 1, zeroing out bit 1 and +4 is exactly +2.
-                // If pc[1] is 0, just keep the higher bit and set bit 1 to 1.
-                npc = {pc[XLEN-1:2], 2'b10};
-            end
+        if (instr_word[1:0] == 2'b11) begin
+            // Need to do +4, so copy bit 1.
+            npc[1] = pc[1];
+        end
+        else if (!pc[1]) begin
+            // Need to do +2.
+            // If pc[1] is 1, zeroing out bit 1 and +4 is exactly +2.
+            // If pc[1] is 0, just keep the higher bit and set bit 1 to 1.
+            npc = {pc[XLEN-1:2], 2'b10};
         end
     end
 
-    if (C_EXT) begin
-        assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
-    end
-    else begin
-        assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:2], 2'b0} : (predict_taken ? predict_target : npc);
-    end
+    assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
     assign reason_next = i_valid_q ? i_reason_q : (predict_taken ? IF_PREDICT : IF_PREFETCH);
 
 endmodule
