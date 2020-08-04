@@ -42,6 +42,7 @@ typedef enum logic [3:0] {
     IF_MISPREDICT = 4'bxx01,
     // SUM or privilege level have been changed
     IF_PROT_CHANGED = 4'b0011,
+    IF_EXCEPTION = 4'b1011,
     // SATP has been changed
     IF_SATP_CHANGED = 4'b0111,
     // Either FENCE.I or SFENCE.VMA is executed.
