@@ -12,8 +12,7 @@ module stage_ex (
     output logic            o_value_valid,
     output logic [63:0] o_val,
     output logic [63:0] o_val2,
-    output logic [63:0] o_npc,
-    output logic            o_mispredict
+    output logic [63:0] o_npc
 );
 
     logic [63:0] npc;
@@ -62,10 +61,6 @@ module stage_ex (
         o_val2 = 'x;
         o_npc = npc;
 
-        // The default case is that we think there is no branching happening. So if a branch is predicted to be taken,
-        // then it is a misprediction and we need flushing.
-        o_mispredict = i_decoded.prediction.taken;
-
         if (!i_decoded.exception.valid) begin
             case (i_decoded.op_type)
                 ALU: begin
@@ -78,7 +73,6 @@ module stage_ex (
                 BRANCH: begin
                     o_value_valid = 1'b1;
                     o_val = npc;
-                    o_mispredict = compare_result != i_decoded.prediction.taken;
                     o_npc = compare_result ? {sum[63:1], 1'b0} : npc;
                 end
                 CSR: begin

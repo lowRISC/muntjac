@@ -188,9 +188,6 @@ module instr_fetcher # (
         endcase
     end
 
-    assign o_fetched_instr.prediction.taken = predict_taken;
-    assign o_fetched_instr.prediction.target = predict_target;
-
     // Compute next PC if no branch is taken.
     // This could be just `pc + (instr_word[1:0] == 2'b11 ? 4 : 2)`, but doing so would make the
     // critical path really long. Therefore we just do `pc + 4` instead, and if we need to do +2,
@@ -210,6 +207,9 @@ module instr_fetcher # (
             npc = {pc[XLEN-1:2], 2'b10};
         end
     end
+
+    assign o_fetched_instr.prediction.taken = predict_taken;
+    assign o_fetched_instr.prediction.target = predict_taken ? predict_target : npc;
 
     assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
     assign reason_next = i_valid_q ? i_reason_q : (predict_taken ? IF_PREDICT : IF_PREFETCH);

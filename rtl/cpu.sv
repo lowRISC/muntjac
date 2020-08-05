@@ -213,7 +213,7 @@ module cpu #(
 
     assign de_ex_ready = !ex_stalled && (ex_ex2_ready || !ex_ex2_valid);
 
-    logic ex_value_valid, ex_mispredict;
+    logic ex_value_valid;
     logic [XLEN-1:0] ex_val, ex_val2, ex_npc;
 
     stage_ex stage_ex (
@@ -225,9 +225,10 @@ module cpu #(
         .o_value_valid (ex_value_valid),
         .o_val (ex_val),
         .o_val2 (ex_val2),
-        .o_npc (ex_npc),
-        .o_mispredict (ex_mispredict)
+        .o_npc (ex_npc)
     );
+
+    logic [XLEN-1:0] ex_expected_pc;
 
     // Misprediction control
     logic ex_can_issue;
@@ -237,7 +238,7 @@ module cpu #(
         ex2_can_issue = 1'b0;
         unique case (ex_state_q)
             ST_NORMAL: begin
-                ex_can_issue = 1'b1;
+                ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
                 // TODO: Try to remove override from this equation
                 ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_wb_trap.valid;
             end
@@ -257,7 +258,7 @@ module cpu #(
         // flush the pipeline, otherwise we can forward from speculatively executed EX stage.
         if (ex2_wb_trap.valid) begin
             ex_state_d = ST_EXCEPTION;
-        end else if (ex2_wb_valid && ex2_wb_pc_override) begin
+        end else if (ex2_wb_valid && ex2_wb_pc_override && ex2_wb_pc_override_reason !== IF_MISPREDICT) begin
             ex_state_d = ST_MISPREDICT;
         end
         if (de_ex_handshaked && de_ex_decoded.if_reason !=? 4'bxxx0) begin
@@ -277,6 +278,8 @@ module cpu #(
             ex_ex2_mispredict <= 'x;
             ex_ex2_decoded <= decoded_instr_t'('x);
             ex_state_q <= ST_MISPREDICT;
+
+            ex_expected_pc <= '0;
         end
         else begin
             ex_state_q <= ex_state_d;
@@ -300,8 +303,10 @@ module cpu #(
                 ex_ex2_data <= ex_val;
                 ex_ex2_data2 <= ex_val2;
                 ex_ex2_npc <= ex_npc;
-                ex_ex2_mispredict <= ex_mispredict;
+                ex_ex2_mispredict <= ex_npc != de_ex_decoded.prediction.target;
                 ex_ex2_decoded <= de_ex_decoded;
+
+                ex_expected_pc <= ex_npc;
             end
         end
 
