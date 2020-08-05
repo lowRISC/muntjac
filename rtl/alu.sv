@@ -42,61 +42,57 @@ module comparator (
 endmodule
 
 module shifter (
-    input  logic [63:0] operand_a,
-    input  logic [63:0] operand_b,
-    input  logic            left,
-    input  logic            arithmetic,
-    input  logic            is_32,
-    output logic [63:0] result
+    input  logic [63:0] operand_a_i,
+    input  logic [63:0] operand_b_i,
+    input  logic        left_i,
+    input  logic        arithmetic_i,
+    // If set, this is a word op (32-bit)
+    input  logic        word_i,
+    output logic [63:0] result_o
 );
-
-    logic [63:0] operand_a_rev;
-    for (genvar i=0;i<64;i++)
-        assign operand_a_rev[i] = operand_a[63-i];
 
     // Determine the operand to be fed into the right shifter.
     logic [63:0] shift_operand;
     logic shift_fill_bit;
-
-    always_comb begin
-        unique case ({arithmetic, left})
-            2'b10: begin
-                shift_operand = is_32 ? {{32{operand_a[31]}}, operand_a[31:0]} : operand_a;
-                shift_fill_bit = shift_operand[63];
-            end
-            2'b00: begin
-                shift_operand = is_32 ? {32'b0, operand_a[31:0]} : operand_a;
-                shift_fill_bit = 1'b0;
-            end
-            2'b01: begin
-                // Left shift can be done by reversing, logical right shift and reverse again.
-                // We use the stream operator here for easy reversing.
-                shift_operand = operand_a_rev;
-                shift_fill_bit = 1'b0;
-            end
-            default: begin
-                shift_operand = 'x;
-                shift_fill_bit = 1'bx;
-            end
-        endcase
-    end
-
-    // Determine max shift amount through is_32.
     logic [5:0] shamt;
-    assign shamt = is_32 ? {1'b0, operand_b[4:0]} : operand_b[5:0];
-
-    // Add the fill bit to the left and perform shift.
     logic [64:0] shift_operand_ext;
     logic [63:0] shift_result;
-    assign shift_operand_ext = {shift_fill_bit, shift_operand};
-    assign shift_result = $signed(shift_operand_ext) >>> shamt;
 
-    logic [63:0] shift_result_rev;
-    for (genvar i=0;i<64;i++)
-        assign shift_result_rev[i] = shift_result[63-i];
+    always_comb begin
+        shift_operand = 'x;
+        unique casez ({word_i, left_i})
+            2'b00: begin
+                shift_operand = operand_a_i;
+            end
+            2'b10: begin
+                shift_operand = {operand_a_i[31:0], 32'dx};
+            end
+            2'b?1: begin
+                for (int i = 0; i < 64; i++) shift_operand[i] = operand_a_i[63 - i];
+            end
+            default:;
+        endcase
 
-    // Reverse left-shift results back if needed.
-    assign result = left ? shift_result_rev : shift_result;
+        shift_fill_bit = arithmetic && shift_operand[63];
+        shamt = word_i ? {1'b0, operand_b_i[4:0]} : operand_b_i[5:0];
+
+        shift_operand_ext = {shift_fill_bit, shift_operand};
+        shift_result = signed'(shift_operand_ext) >>> shamt;
+
+        result_o = 'x;
+        unique casez ({word_i, left_i})
+            2'b00: begin
+                result_o = shift_result;
+            end
+            2'b10: begin
+                result_o = {32'dx, shift_result[63:32]};
+            end
+            2'b?1: begin
+                for (int i = 0; i < 64; i++) result_o[i] = shift_result[63 - i];
+            end
+            default:;
+        endcase
+    end
 
 endmodule
 
@@ -119,12 +115,12 @@ module alu (
 
     logic [63:0] shift_result;
     shifter shifter(
-        operand_a,
-        operand_b,
-        decoded_instr.shifter_left,
-        decoded_instr.shifter_arithmetic,
-        is_32,
-        shift_result
+        .operand_a_i  (operand_a),
+        .operand_b_i  (operand_b),
+        .left_i       (decoded_instr.shifter_left),
+        .arithmetic_i (decoded_instr.shifter_arithmetic),
+        .word_i       (is_32),
+        .result_o     (shift_result)
     );
 
     /* Result Multiplexer */
