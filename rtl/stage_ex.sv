@@ -35,11 +35,11 @@ module stage_ex (
     // Comparator. Used in BRANCH, SLT, and SLTU
     logic compare_result;
     comparator comparator (
-        .operand_a    (i_rs1),
-        .operand_b    (operand_b),
-        .op           (i_decoded.condition),
+        .operand_a_i  (i_rs1),
+        .operand_b_i  (operand_b),
+        .condition_i  (i_decoded.condition),
         .difference_i (difference),
-        .result       (compare_result)
+        .result_o     (compare_result)
     );
 
     // ALU

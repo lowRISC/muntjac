@@ -1,14 +1,11 @@
 import cpu_common::*;
 
 module comparator (
-    input  logic [63:0] operand_a,
-    input  logic [63:0] operand_b,
-    input  condition_code_e op,
-
-    // Value of operand_a - operand_b
-    input  logic [63:0] difference_i,
-
-    output logic            result
+    input  logic [63:0]     operand_a_i,
+    input  logic [63:0]     operand_b_i,
+    input  condition_code_e condition_i,
+    input  logic [63:0]     difference_i,
+    output logic            result_o
 );
 
     logic eq_flag;
@@ -18,25 +15,25 @@ module comparator (
 
     always_comb begin
         // We don't check for difference_i == 0 because it will make the critical path longer.
-        eq_flag = operand_a == operand_b;
+        eq_flag = operand_a_i == operand_b_i;
 
         // If MSBs are the same, look at the sign of the result is sufficient.
         // Otherwise the one with MSB 0 is larger.
-        lt_flag = operand_a[63] == operand_b[63] ? difference_i[63] : operand_a[63];
+        lt_flag = operand_a_i[63] == operand_b_i[63] ? difference_i[63] : operand_a_i[63];
 
         // If MSBs are the same, look at the sign of the result is sufficient.
         // Otherwise the one with MSB 1 is larger.
-        ltu_flag = operand_a[63] == operand_b[63] ? difference_i[63] : operand_b[63];
+        ltu_flag = operand_a_i[63] == operand_b_i[63] ? difference_i[63] : operand_b_i[63];
 
-        unique case ({op[2:1], 1'b0})
+        unique case ({condition_i[2:1], 1'b0})
            CC_FALSE: result_before_neg = 1'b0;
            CC_EQ: result_before_neg = eq_flag;
            CC_LT: result_before_neg = lt_flag;
            CC_LTU: result_before_neg = ltu_flag;
-           default: result = 'x;
+           default: result_before_neg = 'x;
         endcase
 
-        result = op[0] ? !result_before_neg : result_before_neg;
+        result_o = condition_i[0] ? !result_before_neg : result_before_neg;
     end
 
 endmodule
@@ -73,7 +70,7 @@ module shifter (
             default:;
         endcase
 
-        shift_fill_bit = arithmetic && shift_operand[63];
+        shift_fill_bit = arithmetic_i && shift_operand[63];
         shamt = word_i ? {1'b0, operand_b_i[4:0]} : operand_b_i[5:0];
 
         shift_operand_ext = {shift_fill_bit, shift_operand};
@@ -103,9 +100,7 @@ module alu (
     input  [63:0]       operand_a,
     input  [63:0]       operand_b,
 
-    // operand_a + operand_b
     input  logic [63:0] sum_i,
-    // operand_a - operand_b
     input  logic [63:0] difference_i,
     input  logic            compare_result_i,
     output logic [63:0] result
