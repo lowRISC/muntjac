@@ -65,7 +65,6 @@ module cpu #(
     // Additional value passed from EX1 to EX2. E.g. store value
     logic [XLEN-1:0] ex_ex2_data2;
     logic [XLEN-1:0] ex_ex2_npc;
-    logic ex_ex2_mispredict;
     wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
 
     // EX2-WB interfacing
@@ -260,8 +259,10 @@ module cpu #(
             ex_state_d = ST_EXCEPTION;
         end else if (ex2_wb_valid && ex2_wb_pc_override && ex2_wb_pc_override_reason !== IF_MISPREDICT) begin
             ex_state_d = ST_MISPREDICT;
+        end else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
+            ex_state_d = ST_MISPREDICT;
         end
-        if (de_ex_handshaked && de_ex_decoded.if_reason !=? 4'bxxx0) begin
+        if (de_ex_handshaked && de_ex_decoded.if_reason !=? 4'bxxx0 && ex_can_issue) begin
             ex_state_d = ST_NORMAL;
         end
     end
@@ -275,7 +276,6 @@ module cpu #(
             ex_ex2_data <= 'x;
             ex_ex2_data2 <= 'x;
             ex_ex2_npc <= 'x;
-            ex_ex2_mispredict <= 'x;
             ex_ex2_decoded <= decoded_instr_t'('x);
             ex_state_q <= ST_MISPREDICT;
 
@@ -292,7 +292,6 @@ module cpu #(
                 ex_ex2_data <= 'x;
                 ex_ex2_data2 <= 'x;
                 ex_ex2_npc <= 'x;
-                ex_ex2_mispredict <= 'x;
             end
 
             if (de_ex_handshaked && ex_can_issue) begin
@@ -303,7 +302,6 @@ module cpu #(
                 ex_ex2_data <= ex_val;
                 ex_ex2_data2 <= ex_val2;
                 ex_ex2_npc <= ex_npc;
-                ex_ex2_mispredict <= ex_npc != de_ex_decoded.prediction.target;
                 ex_ex2_decoded <= de_ex_decoded;
 
                 ex_expected_pc <= ex_npc;
@@ -459,7 +457,7 @@ module cpu #(
                 ex2_wb_pc <= ex_ex2_decoded.pc;
                 ex2_wb_rd <= ex_ex2_decoded.rd;
                 ex2_wb_npc <= ex_ex2_npc;
-                ex2_wb_pc_override <= ex_ex2_mispredict;
+                ex2_wb_pc_override <= 1'b0;
                 ex2_wb_pc_override_reason <= IF_FLUSH;
                 case (1'b1)
                     ex_ex2_decoded.exception.valid: begin
@@ -475,12 +473,8 @@ module cpu #(
                     end
                     default:
                         case (ex_ex2_decoded.op_type)
-                            ALU: begin
+                            ALU, BRANCH: begin
                                 ex2_alu_data <= ex_ex2_data;
-                            end
-                            BRANCH: begin
-                                ex2_alu_data <= ex_ex2_data;
-                                ex2_wb_pc_override_reason <= IF_MISPREDICT;
                             end
                             CSR: begin
                                 ex2_alu_data <= ex2_csr_read;
@@ -634,7 +628,6 @@ module cpu #(
 
         // WB
         if (ex2_wb_trap.valid) begin
-            $display("%t: trap %x", $time, ex2_wb_pc);
             wb_if_pc = wb_tvec;
             wb_if_valid = 1'b1;
             // PRV change
@@ -644,6 +637,17 @@ module cpu #(
             wb_if_pc = ex2_wb_npc;
             wb_if_valid = 1'b1;
             wb_if_reason = ex2_wb_pc_override_reason;
+        end
+        else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
+            wb_if_pc = ex_expected_pc;
+            wb_if_valid = 1'b1;
+            wb_if_reason = IF_MISPREDICT;
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (ex2_wb_trap.valid) begin
+            $display("%t: trap %x", $time, ex2_wb_pc);
         end
     end
 

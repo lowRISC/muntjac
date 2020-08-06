@@ -79,7 +79,6 @@ module decoder # (
         // Forward these fields.
         decoded_instr.pc = fetched_instr.pc;
         decoded_instr.if_reason = fetched_instr.if_reason;
-        decoded_instr.prediction = fetched_instr.prediction;
 
         case (opcode)
             OPCODE_LOAD: begin

@@ -77,13 +77,6 @@ typedef struct packed {
 } exception_t;
 
 typedef struct packed {
-    // If the branch is predicted to be taken
-    logic taken;
-    // Target address, if taken is set.
-    logic [63:0] target;
-} prediction_t;
-
-typedef struct packed {
     // Decoded instruction parts
     op_type_t    op_type;
     logic [4:0]  rs1;
@@ -152,8 +145,6 @@ typedef struct packed {
     if_reason_t if_reason;
     // Exception happened during decoding.
     exception_t  exception;
-    // Branch prediction result.
-    prediction_t prediction;
 } decoded_instr_t;
 
 typedef struct packed {
@@ -163,8 +154,6 @@ typedef struct packed {
     if_reason_t if_reason;
     // Instruction word fetched.
     logic [31:0] instr_word;
-    // Branch prediction result.
-    prediction_t prediction;
     // Exception happened during instruction fetch.
     exception_t  exception;
 } fetched_instr_t;

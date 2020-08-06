@@ -208,9 +208,6 @@ module instr_fetcher # (
         end
     end
 
-    assign o_fetched_instr.prediction.taken = predict_taken;
-    assign o_fetched_instr.prediction.target = predict_taken ? predict_target : npc;
-
     assign pc_next = i_valid_q ? {i_pc_q[XLEN-1:1], 1'b0} : (predict_taken ? predict_target : npc);
     assign reason_next = i_valid_q ? i_reason_q : (predict_taken ? IF_PREDICT : IF_PREFETCH);
 
