@@ -267,6 +267,13 @@ module cpu #(
         end
     end
 
+    typedef enum logic [1:0] {
+        FU_ALU,
+        FU_MEM,
+        FU_MUL,
+        FU_DIV
+    } func_unit_e;
+
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
             ex_ex2_valid <= 1'b0;
@@ -315,7 +322,8 @@ module cpu #(
     assign ex2_npc = ex_ex2_decoded.pc + (ex_ex2_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
 
     // Selecting which unit to choose from
-    logic ex2_select_alu = 1'b1;
+    logic ex2_select_valid = 1'b0;
+    func_unit_e ex2_select;
     logic ex2_select_mem;
     logic ex2_select_flush;
     logic ex2_select_wfi;
@@ -382,12 +390,12 @@ module cpu #(
     assign ex_ex2_ready = ex2_ready || ex2_wb_valid || ex2_wb_trap.valid;
     always_comb begin
         unique case (1'b1)
-            ex2_select_alu: begin
+            ex2_select_valid && ex2_select == FU_ALU: begin
                 ex2_wb_valid = ex2_alu_valid;
                 ex2_wb_data = ex2_alu_data;
                 ex2_wb_trap = ex2_alu_trap;
             end
-            ex2_select_mem: begin
+            ex2_select_valid && ex2_select == FU_MEM: begin
                 ex2_wb_valid = ex2_mem_valid;
                 ex2_wb_data = ex2_mem_data;
                 ex2_wb_trap = ex2_mem_trap;
@@ -404,15 +412,21 @@ module cpu #(
                 ex2_wb_trap = exception_t'('x);
                 ex2_wb_trap.valid = 1'b0;
             end
-            ex2_select_mul: begin
+            ex2_select_valid && ex2_select == FU_MUL: begin
                 ex2_wb_valid = ex2_mul_valid;
                 ex2_wb_data = ex2_mul_data;
                 ex2_wb_trap = exception_t'('x);
                 ex2_wb_trap.valid = 1'b0;
             end
-            ex2_select_div: begin
+            ex2_select_valid && ex2_select == FU_DIV: begin
                 ex2_wb_valid = ex2_div_valid;
                 ex2_wb_data = ex2_div_use_rem ? ex2_div_rem : ex2_div_quo;
+                ex2_wb_trap = exception_t'('x);
+                ex2_wb_trap.valid = 1'b0;
+            end
+            default: begin
+                ex2_wb_valid = 1'b0;
+                ex2_wb_data = 'x;
                 ex2_wb_trap = exception_t'('x);
                 ex2_wb_trap.valid = 1'b0;
             end
@@ -423,10 +437,8 @@ module cpu #(
         if (!resetn) begin
             ex2_ready <= 1'b1;
             ex2_pending <= 1'b0;
-            ex2_select_alu <= 1'b1;
-            ex2_select_mem <= 1'b0;
-            ex2_select_mul <= 1'b0;
-            ex2_select_div <= 1'b0;
+            ex2_select_valid <= 1'b0;
+            ex2_select <= FU_ALU;
             ex2_select_flush <= 1'b0;
             ex2_select_wfi <= 1'b0;
             ex2_alu_valid <= 1'b0;
@@ -444,11 +456,9 @@ module cpu #(
             if (ex_ex2_handshaked && ex2_can_issue) begin
                 ex2_ready <= 1'b0;
                 ex2_pending <= 1'b1;
-                ex2_select_alu <= 1'b1;
-                ex2_select_mem <= 1'b0;
+                ex2_select_valid <= 1'b1;
+                ex2_select <= FU_ALU;
                 ex2_select_flush <= 1'b0;
-                ex2_select_mul <= 1'b0;
-                ex2_select_div <= 1'b0;
                 ex2_select_wfi <= 1'b0;
                 ex2_alu_valid <= 1'b1;
                 ex2_alu_trap <= exception_t'('x);
@@ -483,7 +493,7 @@ module cpu #(
                                 if (ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm) begin
                                     case (ex2_csr_select)
                                         CSR_SATP: begin
-                                            ex2_select_alu <= 1'b0;
+                                            ex2_select_valid <= 1'b0;
                                             ex2_select_flush <= 1'b1;
                                             ex2_wb_pc_override <= 1'b1;
                                             ex2_wb_pc_override_reason <= IF_SATP_CHANGED;
@@ -500,16 +510,13 @@ module cpu #(
                                 end
                             end
                             MEM: begin
-                                ex2_select_alu <= 1'b0;
-                                ex2_select_mem <= 1'b1;
+                                ex2_select <= FU_MEM;
                             end
                             MUL: begin
-                                ex2_select_alu <= 1'b0;
-                                ex2_select_mul <= 1'b1;
+                                ex2_select <= FU_MUL;
                             end
                             DIV: begin
-                                ex2_select_alu <= 1'b0;
-                                ex2_select_div <= 1'b1;
+                                ex2_select <= FU_DIV;
                                 ex2_div_use_rem <= ex_ex2_decoded.div.rem;
                             end
                             ERET: begin
@@ -522,13 +529,13 @@ module cpu #(
                                 ex2_wb_pc_override_reason <= IF_FLUSH;
                             end
                             SFENCE_VMA: begin
-                                ex2_select_alu <= 1'b0;
+                                ex2_select_valid <= 1'b0;
                                 ex2_select_flush <= 1'b1;
                                 ex2_wb_pc_override <= 1'b1;
                                 ex2_wb_pc_override_reason <= IF_FLUSH;
                             end
                             WFI: begin
-                                ex2_select_alu <= 1'b0;
+                                ex2_select_valid <= 1'b0;
                                 ex2_select_wfi <= 1'b1;
                             end
                         endcase
@@ -540,12 +547,9 @@ module cpu #(
                 ex2_pending <= 1'b0;
                 ex2_wb_rd <= '0;
                 ex2_alu_valid <= 1'b0;
-                // Unselect other units
-                ex2_select_alu <= 1'b1;
-                ex2_select_mem <= 1'b0;
+                ex2_select_valid <= 1'b0;
+                ex2_select <= FU_ALU;
                 ex2_select_flush <= 1'b0;
-                ex2_select_mul <= 1'b0;
-                ex2_select_div <= 1'b0;
                 ex2_select_wfi <= 1'b0;
                 ex2_alu_trap <= exception_t'('x);
                 ex2_alu_trap.valid <= 1'b0;
