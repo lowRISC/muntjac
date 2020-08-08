@@ -380,7 +380,8 @@ module decoder # (
 
             OPCODE_SYSTEM: begin
                 if (funct3[1:0] != 2'b00) begin
-                    decoded_instr.op_type = CSR;
+                    decoded_instr.op_type = SYSTEM;
+                    decoded_instr.sys_op  = CSR;
                     decoded_instr.rs1     = rs1;
                     decoded_instr.rd      = rd;
                     decoded_instr.csr.op  = csr_op;
@@ -403,13 +404,15 @@ module decoder # (
                             decoded_instr.exception.mtval = 0;
                         end
                         12'b0011000_00010: begin
-                            decoded_instr.op_type = ERET;
+                            decoded_instr.op_type = SYSTEM;
+                            decoded_instr.sys_op  = ERET;
 
                             // MRET is only allowed if currently in M-mode
                             if (prv != PRV_M) decoded_instr.exception.valid = 1'b1;
                         end
                         12'b0001000_00010: begin
-                            decoded_instr.op_type = ERET;
+                            decoded_instr.op_type = SYSTEM;
+                            decoded_instr.sys_op  = ERET;
 
                             // SRET is only allowed if
                             // * Currently in M-mode
@@ -417,7 +420,8 @@ module decoder # (
                             if (prv != PRV_M && (prv != PRV_S || status.tsr)) decoded_instr.exception.valid = 1'b1;
                         end
                         12'b0001000_00101: begin
-                            decoded_instr.op_type = WFI;
+                            decoded_instr.op_type = SYSTEM;
+                            decoded_instr.sys_op  = WFI;
 
                             // WFI is only allowed if
                             // * Currently in M-mode
@@ -426,7 +430,8 @@ module decoder # (
                         end
                         // Decode SFENCE.VMA
                         12'b0001001_?????: begin
-                            decoded_instr.op_type = SFENCE_VMA;
+                            decoded_instr.op_type = SYSTEM;
+                            decoded_instr.sys_op  = SFENCE_VMA;
                             decoded_instr.rs1 = rs1;
                             decoded_instr.rs2 = rs2;
 

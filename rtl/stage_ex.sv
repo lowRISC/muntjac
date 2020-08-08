@@ -75,9 +75,6 @@ module stage_ex (
                     o_val = npc;
                     o_npc = compare_result ? {sum[63:1], 1'b0} : npc;
                 end
-                CSR: begin
-                    o_val = i_decoded.csr.imm ? {{(64-5){1'b0}}, i_decoded.rs1} : i_rs1;
-                end
                 MEM: begin
                     o_val = sum;
                     // For store and AMO
@@ -93,13 +90,12 @@ module stage_ex (
                     o_val = i_rs1;
                     o_val2 = i_rs2;
                 end
-                ERET: begin
-                    // Leave this to stage 2.
-                end
-                SFENCE_VMA: begin
-                    // Leave this to stage 2.
+                SYSTEM: begin
                     o_val = i_rs1;
                     o_val2 = i_rs2;
+                    if (i_decoded.sys_op == CSR) begin
+                        o_val = i_decoded.csr.imm ? {{(64-5){1'b0}}, i_decoded.rs1} : i_rs1;
+                    end
                 end
             endcase
         end

@@ -1,21 +1,25 @@
 package cpu_common;
 
-typedef enum logic [4:0] {
+typedef enum logic [3:0] {
     // Normal ALU operation
     ALU,
     // Branching and jumps
     BRANCH,
-    CSR,
     MEM,
     MUL,
     DIV,
+    SYSTEM,
+    FENCE_I
+} op_type_t;
+
+typedef enum logic [1:0] {
+    CSR,
     // Environmental return (MRET, SRET)
     ERET,
-    FENCE_I,
     // TLB Flush
     SFENCE_VMA,
     WFI
-} op_type_t;
+} sys_op_t;
 
 // ALU operations
 typedef enum logic [2:0] {
@@ -96,6 +100,8 @@ typedef struct packed {
         // Whether adder should use immediate or RS2 as input.
         logic use_imm;
     } adder;
+
+    sys_op_t sys_op;
 
     // Whether ALU ops or adder should use rs2 or immediate.
     logic use_imm;
