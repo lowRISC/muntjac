@@ -164,8 +164,8 @@ module cpu #(
         // wait for all issued instructions to commit or trap.
         ST_DRAIN,
 
-        ST_EXCEPTION,
-
+        // SFENCE.VMA is issued. Waiting for flush to completer
+        ST_SFENCE_VMA,
         // Waiting for interrupt to arrive. Clock can be stopped.
         ST_WFI
     } state_e;
@@ -248,10 +248,12 @@ module cpu #(
     logic ex2_int_valid;
     logic [3:0] ex2_int_cause;
     logic ex2_wfi_valid;
+    logic ex2_mem_notif_ready;
 
     // Misprediction control
     logic ex_can_issue;
     logic ex2_can_issue;
+    logic no_drain;
     always_comb begin
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
@@ -259,6 +261,7 @@ module cpu #(
         de_ex_ready = !ex_stalled && (ex_ex2_ready || !ex_ex2_valid);
         ex_can_issue = 1'b0;
         ex2_can_issue = 1'b0;
+        no_drain = 1'b0;
         ex_state_d = ex_state_q;
         unique case (ex_state_q)
             ST_NORMAL, ST_MISPREDICT: begin
@@ -278,35 +281,51 @@ module cpu #(
                     ex_state_d = ST_NORMAL;
                 end
             end
-            ST_EXCEPTION: begin
-                ex_can_issue = de_ex_decoded.if_reason == 4'b1011;
-                if (de_ex_handshaked && ex_can_issue) begin
-                    ex_state_d = ST_NORMAL;
-                end
-            end
             ST_DRAIN: begin
+                no_drain = 1'b1;
                 de_ex_ready = 1'b0;
                 ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
                 if (!ex_pending && !ex2_pending) begin
-                    de_ex_ready = 1'b1;
                     if (exception_pending_q.valid) begin
+                        de_ex_ready = 1'b1;
                         exception_issue = 1'b1;
-                        ex_state_d = ST_EXCEPTION;
+                        ex_state_d = ST_FLUSH;
                     end else begin
-                        ex_can_issue = 1'b1;
-                        ex_state_d = ST_NORMAL;
+                        // Handle SYSTEM
+                        unique case (de_ex_decoded.sys_op)
+                            SFENCE_VMA: ex_state_d = ST_SFENCE_VMA;
+                            WFI: ex_state_d = ST_WFI;
+                            default: begin
+                                de_ex_ready = 1'b1;
+                                ex_can_issue = 1'b1;
+                                ex_state_d = ST_NORMAL;
+                            end
+                        endcase
                     end
                 end
             end
+            ST_SFENCE_VMA: begin
+                no_drain = 1'b1;
+                if (ex2_mem_notif_ready) begin
+                    // Actually issue the instruction out (will flush the pipeline).
+                    de_ex_ready = 1'b1;
+                    ex_can_issue = 1'b1;
+                    ex_state_d = ST_NORMAL;
+                end
+            end
             ST_WFI: begin
+                no_drain = 1'b1;
                 if (ex2_wfi_valid) begin
+                    // Actually issue the instruction out (it will be a NOP in the pipleine.
+                    de_ex_ready = 1'b1;
+                    ex_can_issue = 1'b1;
                     ex_state_d = ST_NORMAL;
                 end
             end
             default:;
         endcase
 
-        if (ex_state_q != ST_DRAIN && ex_can_issue && de_ex_valid && (
+        if (!no_drain && ex_can_issue && de_ex_valid && (
             de_ex_decoded.exception.valid ||
             ex2_int_valid ||
             (de_ex_decoded.op_type == SYSTEM)
@@ -328,8 +347,8 @@ module cpu #(
         end
 
         if (ex2_mem_trap.valid) begin
-            ex_state_d = ST_EXCEPTION;
-        end else if (ex2_wb_valid && ex2_wb_pc_override && ex2_wb_pc_override_reason !== IF_MISPREDICT) begin
+            ex_state_d = ST_FLUSH;
+        end else if (ex2_wb_valid && ex2_wb_pc_override) begin
             ex_state_d = ST_FLUSH;
         end
     end
@@ -397,7 +416,6 @@ module cpu #(
     logic ex2_mem_valid;
     logic [XLEN-1:0] ex2_mem_data;
     exception_t ex2_mem_trap;
-    logic ex2_mem_notif_ready;
 
     // CSRs
     csr_t ex2_csr_select;
@@ -410,7 +428,7 @@ module cpu #(
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
     // Flush control
-    assign flush_tlb = ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == SFENCE_VMA;
+    assign flush_tlb = ex_state_d == ST_SFENCE_VMA;
 
     // Multiplier
     logic [XLEN-1:0] ex2_mul_data;
@@ -459,10 +477,6 @@ module cpu #(
                 ex2_wb_valid = ex2_mem_notif_ready;
                 ex2_wb_data = ex2_alu_data;
             end
-            ex2_select_wfi: begin
-                ex2_wb_valid = ex2_wfi_valid;
-                ex2_wb_data = 'x;
-            end
             ex2_select_valid && ex2_select == FU_MUL: begin
                 ex2_wb_valid = ex2_mul_valid;
                 ex2_wb_data = ex2_mul_data;
@@ -485,7 +499,6 @@ module cpu #(
             ex2_select_valid <= 1'b0;
             ex2_select <= FU_ALU;
             ex2_select_flush <= 1'b0;
-            ex2_select_wfi <= 1'b0;
             ex2_alu_valid <= 1'b0;
             ex2_alu_data <= 'x;
             ex2_div_use_rem <= 'x;
@@ -502,7 +515,6 @@ module cpu #(
                 ex2_select_valid <= 1'b1;
                 ex2_select <= FU_ALU;
                 ex2_select_flush <= 1'b0;
-                ex2_select_wfi <= 1'b0;
                 ex2_alu_valid <= 1'b1;
                 ex2_alu_data <= 'x;
                 ex2_wb_pc <= ex_ex2_decoded.pc;
@@ -545,15 +557,10 @@ module cpu #(
                                 ex2_wb_npc <= ex2_er_epc;
                             end
                             SFENCE_VMA: begin
-                                ex2_select_valid <= 1'b0;
-                                ex2_select_flush <= 1'b1;
                                 ex2_wb_pc_override <= 1'b1;
                                 ex2_wb_pc_override_reason <= IF_FLUSH;
                             end
-                            WFI: begin
-                                ex2_select_valid <= 1'b0;
-                                ex2_select_wfi <= 1'b1;
-                            end
+                            WFI:; // NOP
                         endcase
                     end
                     MEM: begin
@@ -581,7 +588,6 @@ module cpu #(
                 ex2_select_valid <= 1'b0;
                 ex2_select <= FU_ALU;
                 ex2_select_flush <= 1'b0;
-                ex2_select_wfi <= 1'b0;
             end
         end
     end
@@ -606,8 +612,8 @@ module cpu #(
     assign ex2_mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
-    assign dcache.notif_valid = ex2_valid && ex_ex2_decoded.op_type == SYSTEM && (ex_ex2_decoded.sys_op == SFENCE_VMA || (ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP));
-    assign dcache.notif_reason = ex_ex2_decoded.sys_op == SFENCE_VMA;
+    assign dcache.notif_valid = ex_state_d == ST_SFENCE_VMA || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
+    assign dcache.notif_reason = ex_state_d == ST_SFENCE_VMA;
 
     //
     // Register file instantiation
@@ -664,7 +670,7 @@ module cpu #(
             wb_if_pc = wb_tvec;
             wb_if_valid = 1'b1;
             // PRV change
-            wb_if_reason = IF_EXCEPTION;
+            wb_if_reason = IF_PROT_CHANGED;
         end
         else if (ex2_wb_valid && ex2_wb_pc_override) begin
             wb_if_pc = ex2_wb_npc;

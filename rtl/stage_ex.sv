@@ -67,9 +67,6 @@ module stage_ex (
                     o_value_valid = 1'b1;
                     o_val = alu_result;
                 end
-                // As EX1 can be speculatively executed,
-                // Therefore we will compute next PC and misprediction information, but
-                // Misprediction handling are all done in stage 2.
                 BRANCH: begin
                     o_value_valid = 1'b1;
                     o_val = npc;
