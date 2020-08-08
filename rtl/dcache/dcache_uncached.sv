@@ -241,6 +241,7 @@ module dcache_uncached # (
         end
         else begin
             cache.resp_valid <= 1'b0;
+            cache.resp_exception.valid <= 1'b0;
             unique case (state)
                 STATE_IDLE: begin
                     if (req_valid) begin
