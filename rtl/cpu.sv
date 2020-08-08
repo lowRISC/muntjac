@@ -81,7 +81,6 @@ module cpu #(
     //
     // IF stage
     //
-    logic flush_tlb;
     instr_fetcher #(
         .XLEN(XLEN),
         .BRANCH_PRED (BRANCH_PRED)
@@ -95,8 +94,6 @@ module cpu #(
         .i_prv (prv[0]),
         .i_sum (status.sum),
         .i_atp (insn_atp),
-        .flush_cache (1'b0),
-        .flush_tlb,
         .o_valid (if_de_valid),
         .o_ready (if_de_ready),
         .o_fetched_instr (if_de_instr)
@@ -427,8 +424,6 @@ module cpu #(
 
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
-    // Flush control
-    assign flush_tlb = ex_state_d == ST_SFENCE_VMA;
 
     // Multiplier
     logic [XLEN-1:0] ex2_mul_data;
@@ -506,7 +501,7 @@ module cpu #(
             ex2_wb_rd <= '0;
             ex2_wb_npc <= '0;
             ex2_wb_pc_override <= 1'b1;
-            ex2_wb_pc_override_reason <= IF_FLUSH;
+            ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
         end
         else begin
             if (ex_ex2_handshaked && ex2_can_issue) begin
@@ -521,7 +516,7 @@ module cpu #(
                 ex2_wb_rd <= ex_ex2_decoded.rd;
                 ex2_wb_npc <= ex_ex2_npc;
                 ex2_wb_pc_override <= 1'b0;
-                ex2_wb_pc_override_reason <= IF_FLUSH;
+                ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
                 case (ex_ex2_decoded.op_type)
                     ALU, BRANCH: begin
                         ex2_alu_data <= ex_ex2_data;
@@ -558,7 +553,11 @@ module cpu #(
                             end
                             SFENCE_VMA: begin
                                 ex2_wb_pc_override <= 1'b1;
-                                ex2_wb_pc_override_reason <= IF_FLUSH;
+                                ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
+                            end
+                            FENCE_I: begin
+                                ex2_wb_pc_override <= 1'b1;
+                                ex2_wb_pc_override_reason <= IF_FENCE_I;
                             end
                             WFI:; // NOP
                         endcase
@@ -572,10 +571,6 @@ module cpu #(
                     DIV: begin
                         ex2_select <= FU_DIV;
                         ex2_div_use_rem <= ex_ex2_decoded.div.rem;
-                    end
-                    FENCE_I: begin
-                        ex2_wb_pc_override <= 1'b1;
-                        ex2_wb_pc_override_reason <= IF_FLUSH;
                     end
                 endcase
             end

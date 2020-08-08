@@ -104,7 +104,11 @@ module decoder # (
                         // Decode FENCE as NOP
                     end
                     3'b001: begin
-                        decoded_instr.op_type = FENCE_I;
+                        // XXX: fence.i is somewhat special compared to normal fence
+                        // because it need to wait all previous instructions to commit
+                        // and flush the pipeline, so decode as SYSTEM instrution for now
+                        decoded_instr.op_type = SYSTEM;
+                        decoded_instr.sys_op = FENCE_I;
                     end
                     default: decoded_instr.exception.valid = 1'b1;
                 endcase

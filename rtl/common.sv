@@ -8,16 +8,16 @@ typedef enum logic [3:0] {
     MEM,
     MUL,
     DIV,
-    SYSTEM,
-    FENCE_I
+    SYSTEM
 } op_type_t;
 
-typedef enum logic [1:0] {
+typedef enum logic [2:0] {
     CSR,
     // Environmental return (MRET, SRET)
     ERET,
     // TLB Flush
     SFENCE_VMA,
+    FENCE_I,
     WFI
 } sys_op_t;
 
@@ -58,8 +58,10 @@ typedef enum logic [3:0] {
     IF_PROT_CHANGED = 4'b0011,
     // SATP has been changed
     IF_SATP_CHANGED = 4'b0111,
-    // Either FENCE.I or SFENCE.VMA is executed.
-    IF_FLUSH = 4'b1111
+    // FENCE.I is executed
+    IF_FENCE_I = 4'b1011,
+    // SFENCE.VMA is executed.
+    IF_SFENCE_VMA = 4'b1111
 } if_reason_t;
 
 // MEM operations

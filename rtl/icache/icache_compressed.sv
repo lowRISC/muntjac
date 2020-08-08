@@ -28,8 +28,6 @@ module icache_compressed # (
     assign mem.req_prv = cache.req_prv;
     assign mem.req_sum = cache.req_sum;
     assign mem.req_atp = cache.req_atp;
-    assign mem.flush_cache = cache.flush_cache;
-    assign mem.flush_tlb = cache.flush_tlb;
 
     // Fill with cache.req_pc from last cycle, which we need to reply to cache.resp_pc.
     logic [XLEN-1:0] latched_pc, latched_pc_d;

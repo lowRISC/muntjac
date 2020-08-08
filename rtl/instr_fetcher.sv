@@ -22,9 +22,6 @@ module instr_fetcher # (
     input  logic           i_sum,
     input  [XLEN-1:0] i_atp,
 
-    input  logic flush_cache,
-    input  logic flush_tlb,
-
     output logic o_valid,
     input  logic o_ready,
     output fetched_instr_t o_fetched_instr
@@ -39,7 +36,7 @@ module instr_fetcher # (
         if (!resetn) begin
             // Reset vector
             i_pc_q <= '0;
-            i_reason_q <= IF_FLUSH;
+            i_reason_q <= IF_FENCE_I;
             i_valid_q <= 1'b1;
         end else begin
             if (i_ready_q) begin
@@ -87,8 +84,6 @@ module instr_fetcher # (
     assign cache.req_sum = i_valid_q && i_ready_q ? i_sum : sum_latch;
     assign cache.req_atp = i_valid_q && i_ready_q ? i_atp : atp_latch;
     assign cache.req_prv = i_valid_q && i_ready_q ? i_prv : prv_latch;
-    assign cache.flush_cache = flush_cache;
-    assign cache.flush_tlb = flush_tlb;
 
     logic latched;
     logic [31:0] resp_instr_latch;
