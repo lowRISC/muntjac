@@ -56,8 +56,6 @@ module cpu #(
     logic ex_ex2_ready;
     decoded_instr_t ex_ex2_decoded;
 
-    logic ex_pending;
-    logic [4:0] ex_ex2_rd;
     logic ex_ex2_value_valid;
 
     // Main value passed from EX1 to EX2.
@@ -68,10 +66,6 @@ module cpu #(
     wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
 
     // EX2-WB interfacing
-    logic ex2_ready;
-    logic ex2_wb_valid;
-    logic [4:0] ex2_wb_rd;
-    logic [XLEN-1:0] ex2_wb_data;
     logic [XLEN-1:0] ex2_wb_pc;
     logic [XLEN-1:0] ex2_wb_npc;
     logic ex2_wb_pc_override;
@@ -169,24 +163,30 @@ module cpu #(
 
     state_e ex_state_q, ex_state_d;
 
-    logic ex2_pending;
+    logic ex1_pending;
+    logic [4:0] ex1_rd;
 
-    // EX1 bypass logic
+    logic ex2_pending;
+    logic [4:0] ex2_rd;
+    logic ex2_data_valid;
+    logic [XLEN-1:0] ex2_data;
+
+    // Source register bypass and stall detection logic
     always_comb begin
         ex_stalled = 1'b0;
 
         ex_rs1 = de_ex_rs1;
         // RS1 bypass from EX2
-        if (ex2_pending && ex2_wb_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
-            if (ex2_wb_valid) begin
-                ex_rs1 = ex2_wb_data;
+        if (ex2_pending && ex2_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+            if (ex2_data_valid) begin
+                ex_rs1 = ex2_data;
             end
             else begin
                 ex_stalled = 1'b1;
             end
         end
         // RS1 bypass from EX1
-        if (ex_pending && ex_ex2_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+        if (ex1_pending && ex1_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
             if (ex_ex2_value_valid) begin
                 ex_rs1 = ex_ex2_data;
             end
@@ -197,16 +197,16 @@ module cpu #(
 
         ex_rs2 = de_ex_rs2;
         // RS2 bypass from EX2
-        if (ex2_pending && ex2_wb_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
-            if (ex2_wb_valid) begin
-                ex_rs2 = ex2_wb_data;
+        if (ex2_pending && ex2_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+            if (ex2_data_valid) begin
+                ex_rs2 = ex2_data;
             end
             else begin
                 ex_stalled = 1'b1;
             end
         end
         // RS2 bypass from EX1
-        if (ex_pending && ex_ex2_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+        if (ex1_pending && ex1_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
             if (ex_ex2_value_valid) begin
                 ex_rs2 = ex_ex2_data;
             end
@@ -264,7 +264,7 @@ module cpu #(
             ST_NORMAL, ST_MISPREDICT: begin
                 ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
                 // TODO: Try to remove override from this equation
-                ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
+                ex2_can_issue = !(ex2_pending && ex2_data_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
 
                 if (de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
                     ex_state_d = ST_MISPREDICT;
@@ -281,8 +281,8 @@ module cpu #(
             ST_DRAIN: begin
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
-                ex2_can_issue = !(ex2_wb_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
-                if (!ex_pending && !ex2_pending) begin
+                ex2_can_issue = !(ex2_pending && ex2_data_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
+                if (!ex1_pending && !ex2_pending) begin
                     if (exception_pending_q.valid) begin
                         de_ex_ready = 1'b1;
                         exception_issue = 1'b1;
@@ -345,7 +345,7 @@ module cpu #(
 
         if (ex2_mem_trap.valid) begin
             ex_state_d = ST_FLUSH;
-        end else if (ex2_wb_valid && ex2_wb_pc_override) begin
+        end else if (ex2_pending && ex2_data_valid && ex2_wb_pc_override) begin
             ex_state_d = ST_FLUSH;
         end
     end
@@ -353,9 +353,9 @@ module cpu #(
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
             ex_ex2_valid <= 1'b0;
-            ex_pending <= 1'b0;
+            ex1_pending <= 1'b0;
             ex_ex2_value_valid <= 1'b0;
-            ex_ex2_rd <= '0;
+            ex1_rd <= '0;
             ex_ex2_data <= 'x;
             ex_ex2_data2 <= 'x;
             ex_ex2_npc <= 'x;
@@ -372,9 +372,9 @@ module cpu #(
 
             if (ex_ex2_handshaked) begin
                 ex_ex2_valid <= 1'b0;
-                ex_pending <= 1'b0;
+                ex1_pending <= 1'b0;
                 ex_ex2_value_valid <= 1'b0;
-                ex_ex2_rd <= '0;
+                ex1_rd <= '0;
                 ex_ex2_data <= 'x;
                 ex_ex2_data2 <= 'x;
                 ex_ex2_npc <= 'x;
@@ -382,8 +382,8 @@ module cpu #(
 
             if (de_ex_handshaked && ex_can_issue) begin
                 ex_ex2_valid <= 1'b1;
-                ex_pending <= 1'b1;
-                ex_ex2_rd <= de_ex_decoded.rd;
+                ex1_pending <= 1'b1;
+                ex1_rd <= de_ex_decoded.rd;
                 ex_ex2_value_valid <= ex_value_valid;
                 ex_ex2_data <= ex_val;
                 ex_ex2_data2 <= ex_val2;
@@ -399,13 +399,7 @@ module cpu #(
     //
 
     // Selecting which unit to choose from
-    logic ex2_select_valid = 1'b0;
     func_unit_e ex2_select;
-    logic ex2_select_mem;
-    logic ex2_select_flush;
-    logic ex2_select_wfi;
-    logic ex2_select_mul;
-    logic ex2_select_div;
 
     // Results to mux from
     logic ex2_alu_valid;
@@ -457,63 +451,53 @@ module cpu #(
         .o_valid    (ex2_div_valid)
     );
 
-    assign ex_ex2_ready = ex2_ready || ex2_wb_valid || ex2_mem_trap.valid;
+    assign ex_ex2_ready = !ex2_pending || ex2_data_valid || ex2_mem_trap.valid;
     always_comb begin
-        unique case (1'b1)
-            ex2_select_valid && ex2_select == FU_ALU: begin
-                ex2_wb_valid = ex2_alu_valid;
-                ex2_wb_data = ex2_alu_data;
+        unique case (ex2_select)
+            FU_ALU: begin
+                ex2_data_valid = ex2_alu_valid;
+                ex2_data = ex2_alu_data;
             end
-            ex2_select_valid && ex2_select == FU_MEM: begin
-                ex2_wb_valid = ex2_mem_valid;
-                ex2_wb_data = ex2_mem_data;
+            FU_MEM: begin
+                ex2_data_valid = ex2_mem_valid;
+                ex2_data = ex2_mem_data;
             end
-            ex2_select_flush: begin
-                ex2_wb_valid = ex2_mem_notif_ready;
-                ex2_wb_data = ex2_alu_data;
+            FU_MUL: begin
+                ex2_data_valid = ex2_mul_valid;
+                ex2_data = ex2_mul_data;
             end
-            ex2_select_valid && ex2_select == FU_MUL: begin
-                ex2_wb_valid = ex2_mul_valid;
-                ex2_wb_data = ex2_mul_data;
-            end
-            ex2_select_valid && ex2_select == FU_DIV: begin
-                ex2_wb_valid = ex2_div_valid;
-                ex2_wb_data = ex2_div_use_rem ? ex2_div_rem : ex2_div_quo;
+            FU_DIV: begin
+                ex2_data_valid = ex2_div_valid;
+                ex2_data = ex2_div_use_rem ? ex2_div_rem : ex2_div_quo;
             end
             default: begin
-                ex2_wb_valid = 1'b0;
-                ex2_wb_data = 'x;
+                ex2_data_valid = 1'b0;
+                ex2_data = 'x;
             end
         endcase
     end
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
-            ex2_ready <= 1'b1;
             ex2_pending <= 1'b0;
-            ex2_select_valid <= 1'b0;
             ex2_select <= FU_ALU;
-            ex2_select_flush <= 1'b0;
             ex2_alu_valid <= 1'b0;
             ex2_alu_data <= 'x;
             ex2_div_use_rem <= 'x;
             ex2_wb_pc <= 'x;
-            ex2_wb_rd <= '0;
+            ex2_rd <= '0;
             ex2_wb_npc <= '0;
             ex2_wb_pc_override <= 1'b1;
             ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
         end
         else begin
             if (ex_ex2_handshaked && ex2_can_issue) begin
-                ex2_ready <= 1'b0;
                 ex2_pending <= 1'b1;
-                ex2_select_valid <= 1'b1;
                 ex2_select <= FU_ALU;
-                ex2_select_flush <= 1'b0;
                 ex2_alu_valid <= 1'b1;
                 ex2_alu_data <= 'x;
                 ex2_wb_pc <= ex_ex2_decoded.pc;
-                ex2_wb_rd <= ex_ex2_decoded.rd;
+                ex2_rd <= ex_ex2_decoded.rd;
                 ex2_wb_npc <= ex_ex2_npc;
                 ex2_wb_pc_override <= 1'b0;
                 ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
@@ -530,8 +514,6 @@ module cpu #(
                                 if (ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm) begin
                                     case (ex2_csr_select)
                                         CSR_SATP: begin
-                                            ex2_select_valid <= 1'b0;
-                                            ex2_select_flush <= 1'b1;
                                             ex2_wb_pc_override <= 1'b1;
                                             ex2_wb_pc_override_reason <= IF_SATP_CHANGED;
                                         end
@@ -574,15 +556,12 @@ module cpu #(
                     end
                 endcase
             end
-            else if (ex2_wb_valid || ex2_mem_trap.valid) begin
+            else if (ex2_data_valid || ex2_mem_trap.valid) begin
                 // Reset to default values.
-                ex2_ready <= 1'b1;
                 ex2_pending <= 1'b0;
-                ex2_wb_rd <= '0;
+                ex2_rd <= '0;
                 ex2_alu_valid <= 1'b0;
-                ex2_select_valid <= 1'b0;
                 ex2_select <= FU_ALU;
-                ex2_select_flush <= 1'b0;
             end
         end
     end
@@ -607,7 +586,7 @@ module cpu #(
     assign ex2_mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
-    assign dcache.notif_valid = ex_state_d == ST_SFENCE_VMA || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
+    assign dcache.notif_valid = ex_state_d == ST_SFENCE_VMA;// || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
     assign dcache.notif_reason = ex_state_d == ST_SFENCE_VMA;
 
     //
@@ -622,9 +601,9 @@ module cpu #(
         .ra_data (de_ex_rs1),
         .rb_sel (de_rs2_select),
         .rb_data (de_ex_rs2),
-        .w_sel (ex2_wb_rd),
-        .w_data (ex2_wb_data),
-        .w_en (ex2_wb_valid)
+        .w_sel (ex2_rd),
+        .w_data (ex2_data),
+        .w_en (ex2_pending && ex2_data_valid)
     );
 
     csr_regfile # (
@@ -651,7 +630,7 @@ module cpu #(
         .int_cause (ex2_int_cause),
         .wfi_valid (ex2_wfi_valid),
         .mhartid (mhartid),
-        .hpm_instret (ex2_wb_valid),
+        .hpm_instret (ex2_pending && ex2_data_valid),
         .*
     );
 
@@ -667,7 +646,7 @@ module cpu #(
             // PRV change
             wb_if_reason = IF_PROT_CHANGED;
         end
-        else if (ex2_wb_valid && ex2_wb_pc_override) begin
+        else if (ex2_pending && ex2_data_valid && ex2_wb_pc_override) begin
             wb_if_pc = ex2_wb_npc;
             wb_if_valid = 1'b1;
             wb_if_reason = ex2_wb_pc_override_reason;
