@@ -223,20 +223,53 @@ module cpu #(
         end
     end
 
-    logic ex_value_valid;
-    logic [XLEN-1:0] ex_val, ex_val2, ex_npc;
+    //
+    // ALU
+    //
 
-    stage_ex stage_ex (
-        .clk,
-        .rstn (resetn),
-        .i_decoded (de_ex_decoded),
-        .i_rs1 (ex_rs1),
-        .i_rs2 (ex_rs2),
-        .o_value_valid (ex_value_valid),
-        .o_val (ex_val),
-        .o_val2 (ex_val2),
-        .o_npc (ex_npc)
+    logic [63:0] npc;
+    assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
+
+    wire [63:0] operand_b = de_ex_decoded.use_imm ? de_ex_decoded.immediate : ex_rs2;
+
+    // Adder.
+    // This is the core component of the EX stage.
+    // It is used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
+    logic [63:0] sum;
+    assign sum = (de_ex_decoded.adder.use_pc ? de_ex_decoded.pc : ex_rs1) + (de_ex_decoded.adder.use_imm ? de_ex_decoded.immediate : ex_rs2);
+
+    // Subtractor.
+    // It is used for SUB, BRANCH, SLT, SLTU
+    logic [63:0] difference;
+    assign difference = ex_rs1 - operand_b;
+
+    // Comparator. Used in BRANCH, SLT, and SLTU
+    logic compare_result;
+    comparator comparator (
+        .operand_a_i  (ex_rs1),
+        .operand_b_i  (operand_b),
+        .condition_i  (de_ex_decoded.condition),
+        .difference_i (difference),
+        .result_o     (compare_result)
     );
+
+    // ALU
+    logic [63:0] alu_result;
+    alu alu (
+        .operator      (de_ex_decoded.op),
+        .decoded_instr (de_ex_decoded),
+        .is_32         (de_ex_decoded.is_32),
+        .operand_a     (ex_rs1),
+        .operand_b     (operand_b),
+        .sum_i         (sum),
+        .difference_i  (difference),
+        .compare_result_i (compare_result),
+        .result           (alu_result)
+    );
+
+    //
+    // End ALU
+    //
 
     logic [XLEN-1:0] ex_expected_pc;
 
@@ -415,13 +448,43 @@ module cpu #(
                 ex_ex2_valid <= 1'b1;
                 ex1_pending <= 1'b1;
                 ex1_rd <= de_ex_decoded.rd;
-                ex_ex2_value_valid <= ex_value_valid;
-                ex_ex2_data <= ex_val;
-                ex_ex2_data2 <= ex_val2;
-                ex_ex2_npc <= ex_npc;
+                ex_ex2_value_valid <= 1'b0;
+                ex_ex2_data <= 'x;
+                ex_ex2_data2 <= ex_rs2;
+                ex_ex2_npc <= npc;
                 ex_ex2_decoded <= de_ex_decoded;
 
-                ex_expected_pc <= ex_npc;
+                ex_expected_pc <= npc;
+
+                case (de_ex_decoded.op_type)
+                    ALU: begin
+                        ex_ex2_value_valid <= 1'b1;
+                        ex_ex2_data <= alu_result;
+                    end
+                    BRANCH: begin
+                        ex_ex2_value_valid <= 1'b1;
+                        ex_ex2_data <= npc;
+                        ex_ex2_npc <= compare_result ? {sum[63:1], 1'b0} : npc;
+                        ex_expected_pc <= compare_result ? {sum[63:1], 1'b0} : npc;
+                    end
+                    MEM: begin
+                        ex_ex2_data <= sum;
+                    end
+                    MUL: begin
+                        // Leave this to stage 2.
+                        ex_ex2_data <= ex_rs1;
+                    end
+                    DIV: begin
+                        // Leave this to stage 2.
+                        ex_ex2_data <= ex_rs1;
+                    end
+                    SYSTEM: begin
+                        ex_ex2_data <= ex_rs1;
+                        if (de_ex_decoded.sys_op == CSR) begin
+                            ex_ex2_data = de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1;
+                        end
+                    end
+                endcase
             end
         end
 
