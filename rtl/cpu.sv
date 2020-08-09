@@ -154,14 +154,21 @@ module cpu #(
         // when the next instruction is a SYSTEM instruction, we need to drain the pipeline,
         // wait for all issued instructions to commit or trap.
         ST_DRAIN,
-
-        // SFENCE.VMA is issued. Waiting for flush to completer
-        ST_SFENCE_VMA,
-        // Waiting for interrupt to arrive. Clock can be stopped.
-        ST_WFI
+        // Waiting for a SYSTEM instruction to complete
+        ST_SYS
     } state_e;
 
+    // States of the control logic that handles SYSTEM instructions.
+    typedef enum logic [1:0] {
+        SYS_IDLE,
+        // SFENCE.VMA is issued. Waiting for flush to completer
+        SYS_SFENCE_VMA,
+        // Waiting for interrupt to arrive. Clock can be stopped.
+        SYS_WFI
+    } sys_state_e;
+
     state_e ex_state_q, ex_state_d;
+    sys_state_e sys_state_q, sys_state_d;
 
     logic ex1_pending;
     logic [4:0] ex1_rd;
@@ -251,6 +258,11 @@ module cpu #(
     logic ex_can_issue;
     logic ex2_can_issue;
     logic no_drain;
+
+    // Connection between control state machine and SYS control state machine
+    logic sys_issue;
+    logic sys_complete;
+
     always_comb begin
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
@@ -260,6 +272,9 @@ module cpu #(
         ex2_can_issue = 1'b0;
         no_drain = 1'b0;
         ex_state_d = ex_state_q;
+
+        sys_issue = 1'b0;
+
         unique case (ex_state_q)
             ST_NORMAL, ST_MISPREDICT: begin
                 ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
@@ -288,32 +303,18 @@ module cpu #(
                         exception_issue = 1'b1;
                         ex_state_d = ST_FLUSH;
                     end else begin
-                        // Handle SYSTEM
-                        unique case (de_ex_decoded.sys_op)
-                            SFENCE_VMA: ex_state_d = ST_SFENCE_VMA;
-                            WFI: ex_state_d = ST_WFI;
-                            default: begin
-                                de_ex_ready = 1'b1;
-                                ex_can_issue = 1'b1;
-                                ex_state_d = ST_NORMAL;
-                            end
-                        endcase
+                        sys_issue = 1'b1;
+                        if (sys_complete) begin
+                            de_ex_ready = 1'b1;
+                            ex_can_issue = 1'b1;
+                            ex_state_d = ST_NORMAL;
+                        end
                     end
                 end
             end
-            ST_SFENCE_VMA: begin
+            ST_SYS: begin
                 no_drain = 1'b1;
-                if (ex2_mem_notif_ready) begin
-                    // Actually issue the instruction out (will flush the pipeline).
-                    de_ex_ready = 1'b1;
-                    ex_can_issue = 1'b1;
-                    ex_state_d = ST_NORMAL;
-                end
-            end
-            ST_WFI: begin
-                no_drain = 1'b1;
-                if (ex2_wfi_valid) begin
-                    // Actually issue the instruction out (it will be a NOP in the pipleine.
+                if (sys_complete) begin
                     de_ex_ready = 1'b1;
                     ex_can_issue = 1'b1;
                     ex_state_d = ST_NORMAL;
@@ -350,6 +351,34 @@ module cpu #(
         end
     end
 
+    always_comb begin
+        sys_complete = 1'b0;
+        sys_state_d = sys_state_q;
+
+        unique case (sys_state_q)
+            SYS_IDLE: begin
+                unique case (de_ex_decoded.sys_op)
+                    SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
+                    WFI: sys_state_d = SYS_WFI;
+                    default: sys_complete = 1'b1;
+                endcase
+            end
+            SYS_SFENCE_VMA: begin
+                if (ex2_mem_notif_ready) begin
+                    sys_complete = 1'b1;
+                    sys_state_d = SYS_IDLE;
+                end
+            end
+            SYS_WFI: begin
+                if (ex2_wfi_valid) begin
+                    sys_complete = 1'b1;
+                    sys_state_d = SYS_IDLE;
+                end
+            end
+            default:;
+        endcase
+    end
+
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
             ex_ex2_valid <= 1'b0;
@@ -361,6 +390,7 @@ module cpu #(
             ex_ex2_npc <= 'x;
             ex_ex2_decoded <= decoded_instr_t'('x);
             ex_state_q <= ST_FLUSH;
+            sys_state_q <= SYS_IDLE;
             exception_pending_q <= exception_t'('x);
             exception_pending_q.valid <= 1'b0;
 
@@ -368,6 +398,7 @@ module cpu #(
         end
         else begin
             ex_state_q <= ex_state_d;
+            sys_state_q <= sys_state_d;
             exception_pending_q <= exception_pending_d;
 
             if (ex_ex2_handshaked) begin
@@ -586,8 +617,8 @@ module cpu #(
     assign ex2_mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
-    assign dcache.notif_valid = ex_state_d == ST_SFENCE_VMA;// || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
-    assign dcache.notif_reason = ex_state_d == ST_SFENCE_VMA;
+    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA;// || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
+    assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
 
     //
     // Register file instantiation
