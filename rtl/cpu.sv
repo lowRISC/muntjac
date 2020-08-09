@@ -42,33 +42,6 @@ module cpu #(
     logic if_de_ready;
     fetched_instr_t if_de_instr;
 
-    // DE-EX interfacing
-    logic de_ex_valid;
-    logic de_ex_ready;
-    decoded_instr_t de_ex_decoded;
-    logic [XLEN-1:0] de_ex_rs1;
-    logic [XLEN-1:0] de_ex_rs2;
-    logic de_ex_handshaked;
-    assign de_ex_handshaked = de_ex_valid && de_ex_ready;
-
-    // EX-EX2 interfacing
-    logic ex_ex2_valid;
-    logic ex_ex2_ready;
-    decoded_instr_t ex_ex2_decoded;
-
-    logic ex_ex2_value_valid;
-
-    // Main value passed from EX1 to EX2.
-    logic [XLEN-1:0] ex_ex2_data;
-    // Additional value passed from EX1 to EX2. E.g. store value
-    logic [XLEN-1:0] ex_ex2_data2;
-    logic [XLEN-1:0] ex_ex2_npc;
-    wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
-
-    // EX2-WB interfacing
-    logic [XLEN-1:0] ex2_wb_pc;
-    logic [XLEN-1:0] wb_tvec;
-
     //
     // IF stage
     //
@@ -89,6 +62,15 @@ module cpu #(
         .o_ready (if_de_ready),
         .o_fetched_instr (if_de_instr)
     );
+
+    // DE-EX interfacing
+    logic de_ex_valid;
+    logic de_ex_ready;
+    decoded_instr_t de_ex_decoded;
+    logic [XLEN-1:0] de_ex_rs1;
+    logic [XLEN-1:0] de_ex_rs2;
+    logic de_ex_handshaked;
+    assign de_ex_handshaked = de_ex_valid && de_ex_ready;
 
     //
     // DE stage
@@ -135,6 +117,19 @@ module cpu #(
         end
     end
 
+    // EX-EX2 interfacing
+    logic ex_ex2_valid;
+    logic ex_ex2_ready;
+    decoded_instr_t ex_ex2_decoded;
+
+    // Additional value passed from EX1 to EX2. E.g. store value
+    logic [XLEN-1:0] ex_ex2_data2;
+    wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
+
+    // EX2-WB interfacing
+    logic [XLEN-1:0] ex2_wb_pc;
+    logic [XLEN-1:0] wb_tvec;
+
     //
     // EX stage
     //
@@ -172,6 +167,8 @@ module cpu #(
 
     logic ex1_pending;
     logic [4:0] ex1_rd;
+    logic ex1_data_valid;
+    logic [XLEN-1:0] ex1_data;
 
     logic ex2_pending;
     logic [4:0] ex2_rd;
@@ -194,8 +191,8 @@ module cpu #(
         end
         // RS1 bypass from EX1
         if (ex1_pending && ex1_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
-            if (ex_ex2_value_valid) begin
-                ex_rs1 = ex_ex2_data;
+            if (ex1_data_valid) begin
+                ex_rs1 = ex1_data;
             end
             else begin
                 ex_stalled = 1'b1;
@@ -214,8 +211,8 @@ module cpu #(
         end
         // RS2 bypass from EX1
         if (ex1_pending && ex1_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
-            if (ex_ex2_value_valid) begin
-                ex_rs2 = ex_ex2_data;
+            if (ex1_data_valid) begin
+                ex_rs2 = ex1_data;
             end
             else begin
                 ex_stalled = 1'b1;
@@ -287,6 +284,8 @@ module cpu #(
     logic ex2_wfi_valid;
     logic ex2_mem_notif_ready;
 
+    exception_t ex2_mem_trap;
+
     // CSRs
     csr_t csr_select;
     logic [XLEN-1:0] csr_operand;
@@ -322,7 +321,6 @@ module cpu #(
         unique case (ex_state_q)
             ST_NORMAL, ST_MISPREDICT: begin
                 ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
-                // TODO: Try to remove override from this equation
                 ex2_can_issue = !ex2_mem_trap.valid;
 
                 if (de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
@@ -480,75 +478,77 @@ module cpu #(
         endcase
     end
 
+    // State machine state assignments
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
-            ex_ex2_valid <= 1'b0;
-            ex1_pending <= 1'b0;
-            ex_ex2_value_valid <= 1'b0;
-            ex1_rd <= '0;
-            ex_ex2_data <= 'x;
-            ex_ex2_data2 <= 'x;
-            ex_ex2_npc <= 'x;
-            ex_ex2_decoded <= decoded_instr_t'('x);
             ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
             exception_pending_q <= exception_t'('x);
             exception_pending_q.valid <= 1'b0;
-
-            ex_expected_pc <= '0;
         end
         else begin
             ex_state_q <= ex_state_d;
             sys_state_q <= sys_state_d;
             exception_pending_q <= exception_pending_d;
+        end
 
+    always_ff @(posedge clk or negedge resetn)
+        if (!resetn) begin
+            ex_ex2_valid <= 1'b0;
+            ex1_pending <= 1'b0;
+            ex1_data_valid <= 1'b0;
+            ex1_rd <= '0;
+            ex1_data <= 'x;
+            ex_ex2_data2 <= 'x;
+            ex_ex2_decoded <= decoded_instr_t'('x);
+            ex_expected_pc <= '0;
+        end
+        else begin
             if (ex_ex2_handshaked) begin
                 ex_ex2_valid <= 1'b0;
                 ex1_pending <= 1'b0;
-                ex_ex2_value_valid <= 1'b0;
+                ex1_data_valid <= 1'b0;
                 ex1_rd <= '0;
-                ex_ex2_data <= 'x;
+                ex1_data <= 'x;
                 ex_ex2_data2 <= 'x;
-                ex_ex2_npc <= 'x;
             end
 
             if (de_ex_handshaked && ex_can_issue) begin
                 ex_ex2_valid <= 1'b1;
                 ex1_pending <= 1'b1;
                 ex1_rd <= de_ex_decoded.rd;
-                ex_ex2_value_valid <= 1'b0;
-                ex_ex2_data <= 'x;
+                ex1_data_valid <= 1'b0;
+                ex1_data <= 'x;
                 ex_ex2_data2 <= ex_rs2;
-                ex_ex2_npc <= npc;
                 ex_ex2_decoded <= de_ex_decoded;
 
                 ex_expected_pc <= npc;
 
                 case (de_ex_decoded.op_type)
                     ALU: begin
-                        ex_ex2_value_valid <= 1'b1;
-                        ex_ex2_data <= alu_result;
+                        ex1_data_valid <= 1'b1;
+                        ex1_data <= alu_result;
                     end
                     BRANCH: begin
-                        ex_ex2_value_valid <= 1'b1;
-                        ex_ex2_data <= npc;
-                        ex_ex2_npc <= compare_result ? {sum[63:1], 1'b0} : npc;
+                        ex1_data_valid <= 1'b1;
+                        ex1_data <= npc;
                         ex_expected_pc <= compare_result ? {sum[63:1], 1'b0} : npc;
                     end
                     MEM: begin
-                        ex_ex2_data <= sum;
+                        ex1_data <= sum;
                     end
                     MUL: begin
                         // Leave this to stage 2.
-                        ex_ex2_data <= ex_rs1;
+                        ex1_data <= ex_rs1;
                     end
                     DIV: begin
                         // Leave this to stage 2.
-                        ex_ex2_data <= ex_rs1;
+                        ex1_data <= ex_rs1;
                     end
                     SYSTEM: begin
+                        ex1_data_valid <= 1'b1;
                         // All other SYSTEM instructions have no return value
-                        ex_ex2_data <= csr_read;
+                        ex1_data <= csr_read;
                     end
                 endcase
             end
@@ -566,7 +566,6 @@ module cpu #(
     logic [XLEN-1:0] ex2_alu_data;
     logic ex2_mem_valid;
     logic [XLEN-1:0] ex2_mem_data;
-    exception_t ex2_mem_trap;
 
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue;
 
@@ -581,7 +580,7 @@ module cpu #(
     mul_unit mul (
         .clk       (clk),
         .rstn      (resetn),
-        .operand_a (ex_ex2_data),
+        .operand_a (ex1_data),
         .operand_b (ex_ex2_data2),
         .i_32      (ex_ex2_decoded.is_32),
         .i_op      (ex_ex2_decoded.mul.op),
@@ -597,7 +596,7 @@ module cpu #(
     div_unit div (
         .clk        (clk),
         .rstn       (resetn),
-        .operand_a  (ex_ex2_data),
+        .operand_a  (ex1_data),
         .operand_b  (ex_ex2_data2),
         .use_rem_i  (ex_ex2_decoded.div.rem),
         .i_32       (ex_ex2_decoded.is_32),
@@ -650,10 +649,10 @@ module cpu #(
                 ex2_alu_valid <= 1'b1;
                 ex2_alu_data <= 'x;
                 ex2_wb_pc <= ex_ex2_decoded.pc;
-                ex2_rd <= ex_ex2_decoded.rd;
+                ex2_rd <= ex1_rd;
                 case (ex_ex2_decoded.op_type)
                     ALU, BRANCH, SYSTEM: begin
-                        ex2_alu_data <= ex_ex2_data;
+                        ex2_alu_data <= ex1_data;
                     end
                     MEM: begin
                         ex2_select <= FU_MEM;
@@ -683,7 +682,7 @@ module cpu #(
     assign dcache.req_valid    = ex2_valid && ex_ex2_decoded.op_type == MEM;
     assign dcache.req_op       = ex_ex2_decoded.mem.op;
     assign dcache.req_amo      = ex_ex2_decoded.exception.mtval[31:25];
-    assign dcache.req_address  = ex_ex2_data;
+    assign dcache.req_address  = ex1_data;
     assign dcache.req_size     = ex_ex2_decoded.mem.size;
     assign dcache.req_unsigned = ex_ex2_decoded.mem.zeroext;
     assign dcache.req_value    = ex_ex2_data2;
