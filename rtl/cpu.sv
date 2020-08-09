@@ -118,16 +118,15 @@ module cpu #(
     end
 
     // EX-EX2 interfacing
-    logic ex_ex2_valid;
+    logic ex1_pending;
     logic ex_ex2_ready;
     decoded_instr_t ex_ex2_decoded;
 
     // Additional value passed from EX1 to EX2. E.g. store value
     logic [XLEN-1:0] ex_ex2_data2;
-    wire ex_ex2_handshaked = ex_ex2_valid && ex_ex2_ready;
+    wire ex_ex2_handshaked = ex1_pending && ex_ex2_ready;
 
     // EX2-WB interfacing
-    logic [XLEN-1:0] ex2_wb_pc;
     logic [XLEN-1:0] wb_tvec;
 
     //
@@ -162,18 +161,30 @@ module cpu #(
         SYS_WFI
     } sys_state_e;
 
+    typedef enum logic [1:0] {
+        FU_ALU,
+        FU_MEM,
+        FU_MUL,
+        FU_DIV
+    } func_unit_e;
+
     state_e ex_state_q, ex_state_d;
     sys_state_e sys_state_q, sys_state_d;
 
-    logic ex1_pending;
+    // logic ex1_pending;
     logic [4:0] ex1_rd;
     logic ex1_data_valid;
     logic [XLEN-1:0] ex1_data;
+    // Selecting which unit to choose from
+    func_unit_e ex1_select;
 
     logic ex2_pending;
     logic [4:0] ex2_rd;
     logic ex2_data_valid;
     logic [XLEN-1:0] ex2_data;
+    // Selecting which unit to choose from
+    func_unit_e ex2_select;
+    logic [XLEN-1:0] ex2_pc;
 
     // Source register bypass and stall detection logic
     always_comb begin
@@ -270,13 +281,6 @@ module cpu #(
 
     logic [XLEN-1:0] ex_expected_pc;
 
-    typedef enum logic [1:0] {
-        FU_ALU,
-        FU_MEM,
-        FU_MUL,
-        FU_DIV
-    } func_unit_e;
-
     exception_t exception_pending_q, exception_pending_d;
     logic exception_issue;
     logic ex2_int_valid;
@@ -310,7 +314,7 @@ module cpu #(
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
 
-        de_ex_ready = !ex_stalled && (ex_ex2_ready || !ex_ex2_valid);
+        de_ex_ready = !ex_stalled && (ex_ex2_ready || !ex1_pending);
         ex_can_issue = 1'b0;
         ex2_can_issue = 1'b0;
         no_drain = 1'b0;
@@ -494,8 +498,8 @@ module cpu #(
 
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
-            ex_ex2_valid <= 1'b0;
             ex1_pending <= 1'b0;
+            ex1_select <= FU_ALU;
             ex1_data_valid <= 1'b0;
             ex1_rd <= '0;
             ex1_data <= 'x;
@@ -505,8 +509,8 @@ module cpu #(
         end
         else begin
             if (ex_ex2_handshaked) begin
-                ex_ex2_valid <= 1'b0;
                 ex1_pending <= 1'b0;
+                ex1_select <= FU_ALU;
                 ex1_data_valid <= 1'b0;
                 ex1_rd <= '0;
                 ex1_data <= 'x;
@@ -514,8 +518,8 @@ module cpu #(
             end
 
             if (de_ex_handshaked && ex_can_issue) begin
-                ex_ex2_valid <= 1'b1;
                 ex1_pending <= 1'b1;
+                ex1_select <= FU_ALU;
                 ex1_rd <= de_ex_decoded.rd;
                 ex1_data_valid <= 1'b0;
                 ex1_data <= 'x;
@@ -535,14 +539,17 @@ module cpu #(
                         ex_expected_pc <= compare_result ? {sum[63:1], 1'b0} : npc;
                     end
                     MEM: begin
+                        ex1_select <= FU_MEM;
                         ex1_data <= sum;
                     end
                     MUL: begin
                         // Leave this to stage 2.
+                        ex1_select <= FU_MUL;
                         ex1_data <= ex_rs1;
                     end
                     DIV: begin
                         // Leave this to stage 2.
+                        ex1_select <= FU_DIV;
                         ex1_data <= ex_rs1;
                     end
                     SYSTEM: begin
@@ -558,11 +565,7 @@ module cpu #(
     // EX2 stage
     //
 
-    // Selecting which unit to choose from
-    func_unit_e ex2_select;
-
     // Results to mux from
-    logic ex2_alu_valid;
     logic [XLEN-1:0] ex2_alu_data;
     logic ex2_mem_valid;
     logic [XLEN-1:0] ex2_mem_data;
@@ -584,7 +587,7 @@ module cpu #(
         .operand_b (ex_ex2_data2),
         .i_32      (ex_ex2_decoded.is_32),
         .i_op      (ex_ex2_decoded.mul.op),
-        .i_valid   (ex2_valid && ex_ex2_decoded.op_type == MUL),
+        .i_valid   (ex2_valid && ex1_select == FU_MUL),
         .i_ready   (mul_ready),
         .o_value   (ex2_mul_data),
         .o_valid   (ex2_mul_valid)
@@ -601,7 +604,7 @@ module cpu #(
         .use_rem_i  (ex_ex2_decoded.div.rem),
         .i_32       (ex_ex2_decoded.is_32),
         .i_unsigned (ex_ex2_decoded.div.is_unsigned),
-        .i_valid    (ex2_valid && ex_ex2_decoded.op_type == DIV),
+        .i_valid    (ex2_valid && ex1_select == FU_DIV),
         .i_ready    (div_ready),
         .o_value    (ex2_div_data),
         .o_valid    (ex2_div_valid)
@@ -611,7 +614,7 @@ module cpu #(
     always_comb begin
         unique case (ex2_select)
             FU_ALU: begin
-                ex2_data_valid = ex2_alu_valid;
+                ex2_data_valid = 1'b1;
                 ex2_data = ex2_alu_data;
             end
             FU_MEM: begin
@@ -627,7 +630,7 @@ module cpu #(
                 ex2_data = ex2_div_data;
             end
             default: begin
-                ex2_data_valid = 1'b0;
+                ex2_data_valid = 1'bx;
                 ex2_data = 'x;
             end
         endcase
@@ -637,39 +640,23 @@ module cpu #(
         if (!resetn) begin
             ex2_pending <= 1'b0;
             ex2_select <= FU_ALU;
-            ex2_alu_valid <= 1'b0;
             ex2_alu_data <= 'x;
-            ex2_wb_pc <= 'x;
+            ex2_pc <= 'x;
             ex2_rd <= '0;
         end
         else begin
             if (ex_ex2_handshaked && ex2_can_issue) begin
                 ex2_pending <= 1'b1;
-                ex2_select <= FU_ALU;
-                ex2_alu_valid <= 1'b1;
+                ex2_select <= ex1_select;
                 ex2_alu_data <= 'x;
-                ex2_wb_pc <= ex_ex2_decoded.pc;
+                ex2_pc <= ex_ex2_decoded.pc;
                 ex2_rd <= ex1_rd;
-                case (ex_ex2_decoded.op_type)
-                    ALU, BRANCH, SYSTEM: begin
-                        ex2_alu_data <= ex1_data;
-                    end
-                    MEM: begin
-                        ex2_select <= FU_MEM;
-                    end
-                    MUL: begin
-                        ex2_select <= FU_MUL;
-                    end
-                    DIV: begin
-                        ex2_select <= FU_DIV;
-                    end
-                endcase
+                ex2_alu_data <= ex1_data;
             end
             else if (ex2_data_valid || ex2_mem_trap.valid) begin
                 // Reset to default values.
                 ex2_pending <= 1'b0;
                 ex2_rd <= '0;
-                ex2_alu_valid <= 1'b0;
                 ex2_select <= FU_ALU;
             end
         end
@@ -679,7 +666,7 @@ module cpu #(
     // EX stage - load & store
     //
 
-    assign dcache.req_valid    = ex2_valid && ex_ex2_decoded.op_type == MEM;
+    assign dcache.req_valid    = ex2_valid && ex1_select == FU_MEM;
     assign dcache.req_op       = ex_ex2_decoded.mem.op;
     assign dcache.req_amo      = ex_ex2_decoded.exception.mtval[31:25];
     assign dcache.req_address  = ex1_data;
@@ -730,7 +717,7 @@ module cpu #(
         .a_read (csr_read),
         .ex_valid (ex2_mem_trap.valid || exception_issue),
         .ex_exception (ex2_mem_trap.valid ? ex2_mem_trap : exception_pending_q),
-        .ex_epc (ex2_mem_trap.valid ? ex2_wb_pc : de_ex_decoded.pc),
+        .ex_epc (ex2_mem_trap.valid ? ex2_pc : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
         .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
@@ -769,11 +756,11 @@ module cpu #(
 
     always_ff @(posedge clk) begin
         if (ex2_mem_trap.valid || exception_issue) begin
-            $display("%t: trap %x", $time, ex2_mem_trap.valid ? ex2_wb_pc : de_ex_decoded.pc);
+            $display("%t: trap %x", $time, ex2_mem_trap.valid ? ex2_pc : de_ex_decoded.pc);
         end
     end
 
     // Debug connections
-    assign dbg_pc = ex2_wb_pc;
+    assign dbg_pc = ex2_pc;
 
 endmodule
