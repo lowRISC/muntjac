@@ -117,13 +117,6 @@ module cpu #(
         end
     end
 
-    // EX-EX2 interfacing
-    logic ex1_pending;
-    logic ex_ex2_ready;
-
-    // Additional value passed from EX1 to EX2. E.g. store value
-    wire ex_ex2_handshaked = ex1_pending && ex_ex2_ready;
-
     // EX2-WB interfacing
     logic [XLEN-1:0] wb_tvec;
 
@@ -138,7 +131,6 @@ module cpu #(
         ST_NORMAL,
         ST_MISPREDICT,
         ST_FLUSH,
-        ST_FLUSH2,
 
         // When the next instruction is an exception, an external interrupt is pending, or
         // when the next instruction is a SYSTEM instruction, we need to drain the pipeline,
@@ -169,22 +161,15 @@ module cpu #(
     state_e ex_state_q, ex_state_d;
     sys_state_e sys_state_q, sys_state_d;
 
-    // logic ex1_pending;
+    logic ex1_pending;
     logic [4:0] ex1_rd;
     logic ex1_data_valid;
-    logic [XLEN-1:0] ex1_alu_data;
     logic [XLEN-1:0] ex1_data;
-    // Selecting which unit to choose from
-    func_unit_e ex1_select;
-    logic [XLEN-1:0] ex1_pc;
 
     logic ex2_pending;
     logic [4:0] ex2_rd;
     logic ex2_data_valid;
     logic [XLEN-1:0] ex2_data;
-    // Selecting which unit to choose from
-    func_unit_e ex2_select;
-    logic [XLEN-1:0] ex2_pc;
 
     // Source register bypass and stall detection logic
     always_comb begin
@@ -288,7 +273,7 @@ module cpu #(
     logic ex2_wfi_valid;
     logic ex2_mem_notif_ready;
 
-    exception_t ex2_mem_trap;
+    exception_t mem_trap;
 
     // CSRs
     csr_t csr_select;
@@ -300,7 +285,6 @@ module cpu #(
 
     // Misprediction control
     logic ex_can_issue;
-    logic ex2_can_issue;
     logic no_drain;
 
     // Connection between control state machine and SYS control state machine
@@ -315,13 +299,14 @@ module cpu #(
     logic div_ready;
     assign mem_ready = dcache.req_ready;
 
+    logic ex1_ready;
+
     always_comb begin
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
 
-        de_ex_ready = !ex_stalled && (ex_ex2_ready || !ex1_pending);
+        de_ex_ready = !ex_stalled && ex1_ready;
         ex_can_issue = 1'b0;
-        ex2_can_issue = 1'b0;
         no_drain = 1'b0;
         ex_state_d = ex_state_q;
 
@@ -343,8 +328,7 @@ module cpu #(
 
         unique case (ex_state_q)
             ST_NORMAL, ST_MISPREDICT: begin
-                ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
-                ex2_can_issue = !ex2_mem_trap.valid;
+                ex_can_issue = ex_expected_pc == de_ex_decoded.pc && !mem_trap.valid;
 
                 if (de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
                     ex_state_d = ST_MISPREDICT;
@@ -358,17 +342,9 @@ module cpu #(
                     ex_state_d = ST_NORMAL;
                 end
             end
-            ST_FLUSH2: begin
-                ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
-                ex2_can_issue = 1'b1;
-                if (de_ex_handshaked && ex_can_issue) begin
-                    ex_state_d = ST_NORMAL;
-                end
-            end
             ST_DRAIN: begin
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
-                ex2_can_issue = !ex2_mem_trap.valid;
                 if (!ex1_pending && !ex2_pending) begin
                     if (exception_pending_q.valid) begin
                         de_ex_ready = 1'b1;
@@ -379,7 +355,7 @@ module cpu #(
                         if (sys_complete) begin
                             de_ex_ready = 1'b1;
                             ex_can_issue = 1'b1;
-                            ex_state_d = sys_pc_redirect_valid ? ST_FLUSH2 : ST_NORMAL;
+                            ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
                         end
                     end
                 end
@@ -389,7 +365,7 @@ module cpu #(
                 if (sys_complete) begin
                     de_ex_ready = 1'b1;
                     ex_can_issue = 1'b1;
-                    ex_state_d = sys_pc_redirect_valid ? ST_FLUSH2 : ST_NORMAL;
+                    ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
                 end
             end
             default:;
@@ -416,7 +392,7 @@ module cpu #(
             end
         end
 
-        if (ex2_mem_trap.valid) begin
+        if (mem_trap.valid) begin
             ex_state_d = ST_FLUSH;
         end
     end
@@ -515,6 +491,57 @@ module cpu #(
             exception_pending_q <= exception_pending_d;
         end
 
+    ///////////////
+    // EX1 stage //
+    ///////////////
+
+    // Results to mux from
+    logic mem_valid;
+    logic [XLEN-1:0] mem_data;
+    logic mul_valid;
+    logic [XLEN-1:0] mul_data;
+    logic div_valid;
+    logic [XLEN-1:0] div_data;
+
+    logic ex2_ready;
+    assign ex1_ready = ex2_ready || !ex1_pending;
+    assign ex2_ready = !ex2_pending || ex2_data_valid;
+
+    func_unit_e ex1_select;
+    logic [XLEN-1:0] ex1_alu_data;
+    logic [XLEN-1:0] ex1_pc;
+
+    func_unit_e ex2_select;
+    logic [XLEN-1:0] ex2_alu_data;
+    logic [XLEN-1:0] ex2_pc;
+
+    always_comb begin
+        unique case (ex1_select)
+            FU_ALU: begin
+                ex1_data_valid = 1'b1;
+                ex1_data = ex1_alu_data;
+            end
+            FU_MEM: begin
+                // If ex2_select matches ex1_select, then the valid signal is for EX2, so don;t
+                // rely on it. The same follows for FU_MUL and FU_DIV.
+                ex1_data_valid = mem_valid && ex2_select != FU_MEM;
+                ex1_data = mem_data;
+            end
+            FU_MUL: begin
+                ex1_data_valid = mul_valid && ex2_select != FU_MUL;
+                ex1_data = mul_data;
+            end
+            FU_DIV: begin
+                ex1_data_valid = div_valid && ex2_select != FU_DIV;
+                ex1_data = div_data;
+            end
+            default: begin
+                ex1_data_valid = 1'bx;
+                ex1_data = 'x;
+            end
+        endcase
+    end
+
     always_ff @(posedge clk or negedge resetn)
         if (!resetn) begin
             ex1_pending <= 1'b0;
@@ -532,7 +559,11 @@ module cpu #(
                 ex1_alu_data <= ex1_data;
             end
 
-            if (ex_ex2_handshaked) begin
+            // Reset to default values when the instruction progresses to EX2, or when the MEM
+            // instruction traps regardless whether it is trapped in EX1 or EX2.
+            // If it traps in EX1, then we should cancel it. If it traps in EX2, then any pending
+            // non-memory instruction should run to completion, and EX2 will pick that up for us.
+            if (ex2_ready || mem_trap.valid) begin
                 ex1_pending <= 1'b0;
                 ex1_select <= FU_ALU;
                 ex1_rd <= '0;
@@ -573,47 +604,9 @@ module cpu #(
             end
         end
 
-    //
-    // EX2 stage
-    //
-
-    // Results to mux from
-    logic [XLEN-1:0] ex2_alu_data;
-    logic mem_valid;
-    logic [XLEN-1:0] mem_data;
-    logic mul_valid;
-    logic [XLEN-1:0] mul_data;
-    logic div_valid;
-    logic [XLEN-1:0] div_data;
-
-    wire ex2_valid = ex_ex2_handshaked && ex2_can_issue;
-
-    assign ex_ex2_ready = !ex2_pending || ex2_data_valid || ex2_mem_trap.valid;
-
-    always_comb begin
-        unique case (ex1_select)
-            FU_ALU: begin
-                ex1_data_valid = 1'b1;
-                ex1_data = ex1_alu_data;
-            end
-            FU_MEM: begin
-                ex1_data_valid = mem_valid && ex2_select != FU_MEM;
-                ex1_data = mem_data;
-            end
-            FU_MUL: begin
-                ex1_data_valid = mul_valid && ex2_select != FU_MUL;
-                ex1_data = mul_data;
-            end
-            FU_DIV: begin
-                ex1_data_valid = div_valid && ex2_select != FU_DIV;
-                ex1_data = div_data;
-            end
-            default: begin
-                ex1_data_valid = 1'bx;
-                ex1_data = 'x;
-            end
-        endcase
-    end
+    ///////////////
+    // EX2 stage //
+    ///////////////
 
     always_comb begin
         unique case (ex2_select)
@@ -649,14 +642,32 @@ module cpu #(
             ex2_rd <= '0;
         end
         else begin
-            if (ex2_data_valid || ex2_mem_trap.valid) begin
-                // Reset to default values.
+            // Reset to default values when committed, or when the MEM traps in EX2 stage.
+            // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
+            // should still continue until commit.
+            if (ex2_data_valid || (ex2_select == FU_MEM && mem_trap.valid)) begin
                 ex2_pending <= 1'b0;
-                ex2_rd <= '0;
                 ex2_select <= FU_ALU;
+                ex2_rd <= '0;
+                ex2_alu_data <= 'x;
             end
 
-            if (ex_ex2_handshaked && ex2_can_issue) begin
+            // If a MEM trap happens in EX2 stage, and EX1 stage is executing a non-memory
+            // instruction and not yet completed, if we do nothing we might read out that value
+            // after pipeline restarts. As a safeguard, wait until that to complete but don't
+            // commit the value.
+            if (ex2_select == FU_MEM && mem_trap.valid && ex1_select != FU_MEM && !ex1_data_valid) begin
+                ex2_pending <= 1'b1;
+                ex2_select <= ex1_select;
+                ex2_rd <= '0;
+                ex2_alu_data <= 'x;
+            end
+
+            // Progress an instruction from EX1 to EX2.
+            // Do not progress an instruction if a MEM traps in EX1. (We don't need to check
+            // ex_select to ensure the MEM is not trapped in EX2 here, as otherwise ex_pending
+            // is true and ex2_data_valid is false, so this won't be executed anyway)
+            if (ex1_pending && ex2_ready && !mem_trap.valid) begin
                 ex2_pending <= 1'b1;
                 ex2_select <= ex1_select;
                 ex2_pc <= ex1_pc;
@@ -664,7 +675,7 @@ module cpu #(
                 ex2_alu_data <= 'x;
 
                 // If data is already valid, then move it to ALU register so that we don't wait
-                // for other components.
+                // for it.
                 if (ex1_data_valid) begin
                     ex2_select <= FU_ALU;
                     ex2_alu_data <= ex1_data;
@@ -719,7 +730,7 @@ module cpu #(
     assign dcache.req_atp      = data_atp;
     assign mem_valid = dcache.resp_valid;
     assign mem_data  = dcache.resp_value;
-    assign ex2_mem_trap  = dcache.resp_exception;
+    assign mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
     assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
@@ -755,9 +766,9 @@ module cpu #(
         .a_op (de_ex_decoded.csr.op),
         .a_data (csr_operand),
         .a_read (csr_read),
-        .ex_valid (ex2_mem_trap.valid || exception_issue),
-        .ex_exception (ex2_mem_trap.valid ? ex2_mem_trap : exception_pending_q),
-        .ex_epc (ex2_mem_trap.valid ? ex2_pc : de_ex_decoded.pc),
+        .ex_valid (mem_trap.valid || exception_issue),
+        .ex_exception (mem_trap.valid ? mem_trap : exception_pending_q),
+        .ex_epc (mem_trap.valid ? ex2_pc : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
         .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
@@ -776,7 +787,7 @@ module cpu #(
         wb_if_pc = 'x;
 
         // WB
-        if (ex2_mem_trap.valid || exception_issue) begin
+        if (mem_trap.valid || exception_issue) begin
             wb_if_pc = wb_tvec;
             wb_if_valid = 1'b1;
             // PRV change
@@ -795,8 +806,8 @@ module cpu #(
     end
 
     always_ff @(posedge clk) begin
-        if (ex2_mem_trap.valid || exception_issue) begin
-            $display("%t: trap %x", $time, ex2_mem_trap.valid ? ex2_pc : de_ex_decoded.pc);
+        if (mem_trap.valid || exception_issue) begin
+            $display("%t: trap %x", $time, mem_trap.valid ? ex2_pc : de_ex_decoded.pc);
         end
     end
 
