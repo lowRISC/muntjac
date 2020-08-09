@@ -236,13 +236,13 @@ module div_unit (
 
     input  logic [63:0] operand_a,
     input  logic [63:0] operand_b,
+    input  logic        use_rem_i,
     input  logic        i_unsigned,
     input  logic        i_32,
     input  logic        i_valid,
     output logic        i_ready,
 
-    output logic [63:0] o_quo,
-    output logic [63:0] o_rem,
+    output logic [63:0] o_value,
     output logic        o_valid
 );
 
@@ -251,6 +251,8 @@ module div_unit (
     logic [63:0] a_mag;
     logic [63:0] b_mag;
     logic [63:0] a_rev;
+
+    logic use_rem_d, use_rem_q;
 
     // Prepare the input by extracting sign, mangitude and deal with sign-extension
     always_comb begin
@@ -304,7 +306,7 @@ module div_unit (
     logic [63:0] quo, quo_d;
     logic [63:0] rem, rem_d;
     logic o_valid_d;
-    logic [63:0] o_quo_d, o_rem_d;
+    logic [63:0] o_value_d;
 
     assign i_ready = iter == 0;
     always_comb begin
@@ -319,11 +321,11 @@ module div_unit (
         quo_neg_d = quo_neg;
         rem_neg_d = rem_neg;
         o_32_d = o_32;
+        use_rem_d = use_rem_q;
 
         // Output are invalid unless otherwise specified
         o_valid_d = 1'b0;
-        o_quo_d = 'x;
-        o_rem_d = 'x;
+        o_value_d = 'x;
 
         if (iter == 0) begin
             if (i_valid) begin
@@ -337,6 +339,7 @@ module div_unit (
                 quo_neg_d = a_sign ^ b_sign && b_mag != 0;
                 rem_neg_d = a_sign;
                 o_32_d = i_32;
+                use_rem_d = use_rem_i;
             end else begin
                 iter_d = 0;
             end
@@ -348,11 +351,13 @@ module div_unit (
 
             if (iter_d == 0) begin
                 o_valid_d = 1'b1;
-                o_quo_d = quo_neg ? -quo_d : quo_d;
-                o_rem_d = rem_neg ? -rem_d : rem_d;
+                if (use_rem_q) begin
+                    o_value_d = rem_neg ? -rem_d : rem_d;
+                end else begin
+                    o_value_d = quo_neg ? -quo_d : quo_d;
+                end
                 if (o_32) begin
-                    o_quo_d = signed'(o_quo_d[31:0]);
-                    o_rem_d = signed'(o_rem_d[31:0]);
+                    o_value_d = signed'(o_value_d[31:0]);
                 end
             end
         end
@@ -368,9 +373,9 @@ module div_unit (
             quo_neg <= 'x;
             rem_neg <= 'x;
             o_32 <= 'x;
+            use_rem_q <= 'x;
             o_valid <= 1'b0;
-            o_quo <= 'x;
-            o_rem <= 'x;
+            o_value <= 'x;
         end else begin
             iter <= iter_d;
             quo <= quo_d;
@@ -380,9 +385,9 @@ module div_unit (
             quo_neg <= quo_neg_d;
             rem_neg <= rem_neg_d;
             o_32 <= o_32_d;
+            use_rem_q <= use_rem_d;
             o_valid <= o_valid_d;
-            o_quo <= o_quo_d;
-            o_rem <= o_rem_d;
+            o_value <= o_value_d;
         end
     end
 

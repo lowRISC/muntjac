@@ -592,20 +592,19 @@ module cpu #(
     );
 
     // Divider
-    logic [XLEN-1:0] ex2_div_quo, ex2_div_rem;
+    logic [XLEN-1:0] ex2_div_data;
     logic ex2_div_valid;
-    logic ex2_div_use_rem;
     div_unit div (
         .clk        (clk),
         .rstn       (resetn),
         .operand_a  (ex_ex2_data),
         .operand_b  (ex_ex2_data2),
+        .use_rem_i  (ex_ex2_decoded.div.rem),
         .i_32       (ex_ex2_decoded.is_32),
         .i_unsigned (ex_ex2_decoded.div.is_unsigned),
         .i_valid    (ex2_valid && ex_ex2_decoded.op_type == DIV),
         .i_ready    (div_ready),
-        .o_quo      (ex2_div_quo),
-        .o_rem      (ex2_div_rem),
+        .o_value    (ex2_div_data),
         .o_valid    (ex2_div_valid)
     );
 
@@ -626,7 +625,7 @@ module cpu #(
             end
             FU_DIV: begin
                 ex2_data_valid = ex2_div_valid;
-                ex2_data = ex2_div_use_rem ? ex2_div_rem : ex2_div_quo;
+                ex2_data = ex2_div_data;
             end
             default: begin
                 ex2_data_valid = 1'b0;
@@ -641,7 +640,6 @@ module cpu #(
             ex2_select <= FU_ALU;
             ex2_alu_valid <= 1'b0;
             ex2_alu_data <= 'x;
-            ex2_div_use_rem <= 'x;
             ex2_wb_pc <= 'x;
             ex2_rd <= '0;
         end
@@ -665,7 +663,6 @@ module cpu #(
                     end
                     DIV: begin
                         ex2_select <= FU_DIV;
-                        ex2_div_use_rem <= ex_ex2_decoded.div.rem;
                     end
                 endcase
             end
