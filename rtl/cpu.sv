@@ -67,9 +67,6 @@ module cpu #(
 
     // EX2-WB interfacing
     logic [XLEN-1:0] ex2_wb_pc;
-    logic [XLEN-1:0] ex2_wb_npc;
-    logic ex2_wb_pc_override;
-    if_reason_t ex2_wb_pc_override_reason;
     logic [XLEN-1:0] wb_tvec;
 
     //
@@ -149,6 +146,7 @@ module cpu #(
         ST_NORMAL,
         ST_MISPREDICT,
         ST_FLUSH,
+        ST_FLUSH2,
 
         // When the next instruction is an exception, an external interrupt is pending, or
         // when the next instruction is a SYSTEM instruction, we need to drain the pipeline,
@@ -161,6 +159,8 @@ module cpu #(
     // States of the control logic that handles SYSTEM instructions.
     typedef enum logic [1:0] {
         SYS_IDLE,
+        // SATP changed. Wait for cache to ack
+        SYS_SATP_CHANGED,
         // SFENCE.VMA is issued. Waiting for flush to completer
         SYS_SFENCE_VMA,
         // Waiting for interrupt to arrive. Clock can be stopped.
@@ -287,6 +287,14 @@ module cpu #(
     logic ex2_wfi_valid;
     logic ex2_mem_notif_ready;
 
+    // CSRs
+    csr_t csr_select;
+    logic [XLEN-1:0] csr_operand;
+    logic [XLEN-1:0] csr_read;
+    logic [XLEN-1:0] er_epc;
+    assign csr_select = csr_t'(de_ex_decoded.exception.mtval[31:20]);
+    assign csr_operand = de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1;
+
     // Misprediction control
     logic ex_can_issue;
     logic ex2_can_issue;
@@ -295,6 +303,9 @@ module cpu #(
     // Connection between control state machine and SYS control state machine
     logic sys_issue;
     logic sys_complete;
+    logic sys_pc_redirect_valid;
+    if_reason_t sys_pc_redirect_reason;
+    logic [XLEN-1:0] sys_pc_redirect_target;
 
     always_comb begin
         exception_pending_d = exception_pending_q;
@@ -312,7 +323,7 @@ module cpu #(
             ST_NORMAL, ST_MISPREDICT: begin
                 ex_can_issue = ex_expected_pc == de_ex_decoded.pc;
                 // TODO: Try to remove override from this equation
-                ex2_can_issue = !(ex2_pending && ex2_data_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
+                ex2_can_issue = !ex2_mem_trap.valid;
 
                 if (de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
                     ex_state_d = ST_MISPREDICT;
@@ -326,10 +337,17 @@ module cpu #(
                     ex_state_d = ST_NORMAL;
                 end
             end
+            ST_FLUSH2: begin
+                ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
+                ex2_can_issue = 1'b1;
+                if (de_ex_handshaked && ex_can_issue) begin
+                    ex_state_d = ST_NORMAL;
+                end
+            end
             ST_DRAIN: begin
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
-                ex2_can_issue = !(ex2_pending && ex2_data_valid && ex2_wb_pc_override) && !ex2_mem_trap.valid;
+                ex2_can_issue = !ex2_mem_trap.valid;
                 if (!ex1_pending && !ex2_pending) begin
                     if (exception_pending_q.valid) begin
                         de_ex_ready = 1'b1;
@@ -340,7 +358,7 @@ module cpu #(
                         if (sys_complete) begin
                             de_ex_ready = 1'b1;
                             ex_can_issue = 1'b1;
-                            ex_state_d = ST_NORMAL;
+                            ex_state_d = sys_pc_redirect_valid ? ST_FLUSH2 : ST_NORMAL;
                         end
                     end
                 end
@@ -350,7 +368,7 @@ module cpu #(
                 if (sys_complete) begin
                     de_ex_ready = 1'b1;
                     ex_can_issue = 1'b1;
-                    ex_state_d = ST_NORMAL;
+                    ex_state_d = sys_pc_redirect_valid ? ST_FLUSH2 : ST_NORMAL;
                 end
             end
             default:;
@@ -379,27 +397,77 @@ module cpu #(
 
         if (ex2_mem_trap.valid) begin
             ex_state_d = ST_FLUSH;
-        end else if (ex2_pending && ex2_data_valid && ex2_wb_pc_override) begin
-            ex_state_d = ST_FLUSH;
         end
     end
 
     always_comb begin
         sys_complete = 1'b0;
         sys_state_d = sys_state_q;
+        sys_pc_redirect_valid = 1'b0;
+        sys_pc_redirect_reason = if_reason_t'('x);
+        sys_pc_redirect_target = 'x;
 
         unique case (sys_state_q)
             SYS_IDLE: begin
-                unique case (de_ex_decoded.sys_op)
-                    SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
-                    WFI: sys_state_d = SYS_WFI;
-                    default: sys_complete = 1'b1;
-                endcase
+                if (sys_issue) begin
+                    unique case (de_ex_decoded.sys_op)
+                        // FIXME: Split the state machine
+                        CSR: begin
+                            sys_complete = 1'b1;
+                            sys_pc_redirect_target = npc;
+                            // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
+                            // the pipeline on CSRxxI instructions.
+                            if (de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm) begin
+                                case (csr_select)
+                                    CSR_SATP: begin
+                                        sys_complete = 1'b0;
+                                        sys_state_d = SYS_SATP_CHANGED;
+                                    end
+                                    CSR_MSTATUS: begin
+                                        sys_pc_redirect_valid = 1'b1;
+                                        sys_pc_redirect_reason = IF_PROT_CHANGED;
+                                    end
+                                    CSR_SSTATUS: begin
+                                        sys_pc_redirect_valid = 1'b1;
+                                        sys_pc_redirect_reason = IF_PROT_CHANGED;
+                                    end
+                                endcase
+                            end
+                        end
+                        ERET: begin
+                            sys_complete = 1'b1;
+                            sys_pc_redirect_valid = 1'b1;
+                            sys_pc_redirect_reason = IF_PROT_CHANGED;
+                            sys_pc_redirect_target = er_epc;
+                        end
+                        FENCE_I: begin
+                            sys_complete = 1'b1;
+                            sys_pc_redirect_valid = 1'b1;
+                            sys_pc_redirect_reason = IF_FENCE_I;
+                            sys_pc_redirect_target = npc;
+                        end
+                        SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
+                        WFI: sys_state_d = SYS_WFI;
+                        default: sys_complete = 1'b1;
+                    endcase
+                end
+            end
+            SYS_SATP_CHANGED: begin
+                if (ex2_mem_notif_ready) begin
+                    sys_complete = 1'b1;
+                    sys_state_d = SYS_IDLE;
+                    sys_pc_redirect_valid = 1'b1;
+                    sys_pc_redirect_reason = IF_SATP_CHANGED;
+                    sys_pc_redirect_target = npc;
+                end
             end
             SYS_SFENCE_VMA: begin
                 if (ex2_mem_notif_ready) begin
                     sys_complete = 1'b1;
                     sys_state_d = SYS_IDLE;
+                    sys_pc_redirect_valid = 1'b1;
+                    sys_pc_redirect_reason = IF_SFENCE_VMA;
+                    sys_pc_redirect_target = npc;
                 end
             end
             SYS_WFI: begin
@@ -479,10 +547,8 @@ module cpu #(
                         ex_ex2_data <= ex_rs1;
                     end
                     SYSTEM: begin
-                        ex_ex2_data <= ex_rs1;
-                        if (de_ex_decoded.sys_op == CSR) begin
-                            ex_ex2_data = de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1;
-                        end
+                        // All other SYSTEM instructions have no return value
+                        ex_ex2_data <= csr_read;
                     end
                 endcase
             end
@@ -502,15 +568,7 @@ module cpu #(
     logic [XLEN-1:0] ex2_mem_data;
     exception_t ex2_mem_trap;
 
-    // CSRs
-    csr_t ex2_csr_select;
-    logic [XLEN-1:0] ex2_csr_operand;
-    logic [XLEN-1:0] ex2_csr_read;
-    logic [XLEN-1:0] ex2_er_epc;
-    assign ex2_csr_select = csr_t'(ex_ex2_decoded.exception.mtval[31:20]);
-    assign ex2_csr_operand = ex_ex2_data;
-
-    wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
+    wire ex2_valid = ex_ex2_handshaked && ex2_can_issue;
 
     logic mem_ready;
     logic mul_ready;
@@ -586,9 +644,6 @@ module cpu #(
             ex2_div_use_rem <= 'x;
             ex2_wb_pc <= 'x;
             ex2_rd <= '0;
-            ex2_wb_npc <= '0;
-            ex2_wb_pc_override <= 1'b1;
-            ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
         end
         else begin
             if (ex_ex2_handshaked && ex2_can_issue) begin
@@ -598,51 +653,9 @@ module cpu #(
                 ex2_alu_data <= 'x;
                 ex2_wb_pc <= ex_ex2_decoded.pc;
                 ex2_rd <= ex_ex2_decoded.rd;
-                ex2_wb_npc <= ex_ex2_npc;
-                ex2_wb_pc_override <= 1'b0;
-                ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
                 case (ex_ex2_decoded.op_type)
-                    ALU, BRANCH: begin
+                    ALU, BRANCH, SYSTEM: begin
                         ex2_alu_data <= ex_ex2_data;
-                    end
-                    SYSTEM: begin
-                        case (ex_ex2_decoded.sys_op)
-                            CSR: begin
-                                ex2_alu_data <= ex2_csr_read;
-                                // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
-                                // the pipeline on CSRxxI instructions.
-                                if (ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm) begin
-                                    case (ex2_csr_select)
-                                        CSR_SATP: begin
-                                            ex2_wb_pc_override <= 1'b1;
-                                            ex2_wb_pc_override_reason <= IF_SATP_CHANGED;
-                                        end
-                                        CSR_MSTATUS: begin
-                                            ex2_wb_pc_override <= 1'b1;
-                                            ex2_wb_pc_override_reason <= IF_PROT_CHANGED;
-                                        end
-                                        CSR_SSTATUS: begin
-                                            ex2_wb_pc_override <= 1'b1;
-                                            ex2_wb_pc_override_reason <= IF_PROT_CHANGED;
-                                        end
-                                    endcase
-                                end
-                            end
-                            ERET: begin
-                                ex2_wb_pc_override <= 1'b1;
-                                ex2_wb_pc_override_reason <= IF_PROT_CHANGED;
-                                ex2_wb_npc <= ex2_er_epc;
-                            end
-                            SFENCE_VMA: begin
-                                ex2_wb_pc_override <= 1'b1;
-                                ex2_wb_pc_override_reason <= IF_SFENCE_VMA;
-                            end
-                            FENCE_I: begin
-                                ex2_wb_pc_override <= 1'b1;
-                                ex2_wb_pc_override_reason <= IF_FENCE_I;
-                            end
-                            WFI:; // NOP
-                        endcase
                     end
                     MEM: begin
                         ex2_select <= FU_MEM;
@@ -686,7 +699,7 @@ module cpu #(
     assign ex2_mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
-    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA;// || (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR && ex_ex2_decoded.csr.op != 2'b00 && !ex_ex2_decoded.csr.imm && ex2_csr_select == CSR_SATP);
+    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
 
     //
@@ -714,18 +727,18 @@ module cpu #(
         .pc_sel (de_csr_sel),
         .pc_op (de_csr_op),
         .pc_illegal (de_csr_illegal),
-        .a_valid (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == CSR),
-        .a_sel (ex2_csr_select),
-        .a_op (ex_ex2_decoded.csr.op),
-        .a_data (ex2_csr_operand),
-        .a_read (ex2_csr_read),
+        .a_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
+        .a_sel (csr_select),
+        .a_op (de_ex_decoded.csr.op),
+        .a_data (csr_operand),
+        .a_read (csr_read),
         .ex_valid (ex2_mem_trap.valid || exception_issue),
         .ex_exception (ex2_mem_trap.valid ? ex2_mem_trap : exception_pending_q),
         .ex_epc (ex2_mem_trap.valid ? ex2_wb_pc : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
-        .er_valid (ex2_valid && ex_ex2_decoded.op_type == SYSTEM && ex_ex2_decoded.sys_op == ERET),
-        .er_prv (ex_ex2_decoded.exception.mtval[29] ? PRV_M : PRV_S),
-        .er_epc (ex2_er_epc),
+        .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
+        .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
+        .er_epc (er_epc),
         .int_valid (ex2_int_valid),
         .int_cause (ex2_int_cause),
         .wfi_valid (ex2_wfi_valid),
@@ -746,10 +759,10 @@ module cpu #(
             // PRV change
             wb_if_reason = IF_PROT_CHANGED;
         end
-        else if (ex2_pending && ex2_data_valid && ex2_wb_pc_override) begin
-            wb_if_pc = ex2_wb_npc;
+        else if (sys_pc_redirect_valid) begin
+            wb_if_pc = sys_pc_redirect_target;
             wb_if_valid = 1'b1;
-            wb_if_reason = ex2_wb_pc_override_reason;
+            wb_if_reason = sys_pc_redirect_reason;
         end
         else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
             wb_if_pc = ex_expected_pc;
