@@ -449,6 +449,10 @@ module cpu #(
 
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue && !ex_ex2_decoded.exception.valid && !ex2_int_valid;
 
+    logic mem_ready;
+    logic mul_ready;
+    logic div_ready;
+    assign mem_ready = dcache.req_ready;
 
     // Multiplier
     logic [XLEN-1:0] ex2_mul_data;
@@ -461,6 +465,7 @@ module cpu #(
         .i_32      (ex_ex2_decoded.is_32),
         .i_op      (ex_ex2_decoded.mul.op),
         .i_valid   (ex2_valid && ex_ex2_decoded.op_type == MUL),
+        .i_ready   (mul_ready),
         .o_value   (ex2_mul_data),
         .o_valid   (ex2_mul_valid)
     );
@@ -477,6 +482,7 @@ module cpu #(
         .i_32       (ex_ex2_decoded.is_32),
         .i_unsigned (ex_ex2_decoded.div.is_unsigned),
         .i_valid    (ex2_valid && ex_ex2_decoded.op_type == DIV),
+        .i_ready    (div_ready),
         .o_quo      (ex2_div_quo),
         .o_rem      (ex2_div_rem),
         .o_valid    (ex2_div_valid)

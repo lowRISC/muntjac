@@ -8,6 +8,7 @@ interface dcache_intf #(
     input  logic rstn
 );
     logic            req_valid;
+    logic            req_ready;
     logic [XLEN-1:0] req_address;
     // Value to be stored or to be used in AMO operation.
     logic [XLEN-1:0] req_value;
@@ -41,6 +42,8 @@ interface dcache_intf #(
         input  rstn,
 
         input  req_valid,
+        output req_ready,
+
         input  req_address,
         input  req_value,
         input  req_op,
@@ -66,6 +69,8 @@ interface dcache_intf #(
         input  rstn,
 
         output req_valid,
+        input  req_ready,
+
         output req_address,
         output req_value,
         output req_op,

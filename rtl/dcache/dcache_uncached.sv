@@ -216,6 +216,8 @@ module dcache_uncached # (
 
     assign mem.b_ready = 1'b1;
 
+    assign cache.req_ready = state == STATE_IDLE;
+
     always_ff @(posedge clk or negedge rstn) begin
         if (!rstn) begin
             cache.resp_valid <= 1'b0;

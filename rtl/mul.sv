@@ -8,6 +8,7 @@ module mul_unit (
     input  logic [1:0]  i_op,
     input  logic        i_32,
     input  logic        i_valid,
+    output logic        i_ready,
 
     output logic [63:0] o_value,
     output logic        o_valid
@@ -25,6 +26,7 @@ module mul_unit (
         IDLE,
         BUSY
     } state = IDLE, state_d;
+
     logic [1:0] a_idx, a_idx_d;
     logic [1:0] b_idx, b_idx_d;
 
@@ -46,6 +48,7 @@ module mul_unit (
     logic [63:0] o_value_d;
 
     // Perform multiplication
+    assign i_ready = state == IDLE;
     always_comb begin
         unique case (a_idx)
             0: mac_op_a = op_a[15:0];
@@ -236,6 +239,7 @@ module div_unit (
     input  logic        i_unsigned,
     input  logic        i_32,
     input  logic        i_valid,
+    output logic        i_ready,
 
     output logic [63:0] o_quo,
     output logic [63:0] o_rem,
@@ -302,6 +306,7 @@ module div_unit (
     logic o_valid_d;
     logic [63:0] o_quo_d, o_rem_d;
 
+    assign i_ready = iter == 0;
     always_comb begin
         // Shifters
         iter_d = iter - 1;
