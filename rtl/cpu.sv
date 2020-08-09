@@ -597,15 +597,15 @@ module cpu #(
                 ex1_data = ex1_alu_data;
             end
             FU_MEM: begin
-                ex1_data_valid = mem_valid;
+                ex1_data_valid = mem_valid && ex2_select != FU_MEM;
                 ex1_data = mem_data;
             end
             FU_MUL: begin
-                ex1_data_valid = mul_valid;
+                ex1_data_valid = mul_valid && ex2_select != FU_MUL;
                 ex1_data = mul_data;
             end
             FU_DIV: begin
-                ex1_data_valid = div_valid;
+                ex1_data_valid = div_valid && ex2_select != FU_DIV;
                 ex1_data = div_data;
             end
             default: begin
