@@ -120,10 +120,8 @@ module cpu #(
     // EX-EX2 interfacing
     logic ex1_pending;
     logic ex_ex2_ready;
-    decoded_instr_t ex_ex2_decoded;
 
     // Additional value passed from EX1 to EX2. E.g. store value
-    logic [XLEN-1:0] ex_ex2_data2;
     wire ex_ex2_handshaked = ex1_pending && ex_ex2_ready;
 
     // EX2-WB interfacing
@@ -174,9 +172,11 @@ module cpu #(
     // logic ex1_pending;
     logic [4:0] ex1_rd;
     logic ex1_data_valid;
+    logic [XLEN-1:0] ex1_alu_data;
     logic [XLEN-1:0] ex1_data;
     // Selecting which unit to choose from
     func_unit_e ex1_select;
+    logic [XLEN-1:0] ex1_pc;
 
     logic ex2_pending;
     logic [4:0] ex2_rd;
@@ -310,6 +310,11 @@ module cpu #(
     if_reason_t sys_pc_redirect_reason;
     logic [XLEN-1:0] sys_pc_redirect_target;
 
+    logic mem_ready;
+    logic mul_ready;
+    logic div_ready;
+    assign mem_ready = dcache.req_ready;
+
     always_comb begin
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
@@ -319,6 +324,20 @@ module cpu #(
         ex2_can_issue = 1'b0;
         no_drain = 1'b0;
         ex_state_d = ex_state_q;
+
+        if (de_ex_valid && de_ex_ready) begin
+            case (de_ex_decoded.op_type)
+                MEM: begin
+                    if (!mem_ready) de_ex_ready = 1'b0;
+                end
+                MUL: begin
+                    if (!mul_ready) de_ex_ready = 1'b0;
+                end
+                DIV: begin
+                    if (!div_ready) de_ex_ready = 1'b0;
+                end
+            endcase
+        end
 
         sys_issue = 1'b0;
 
@@ -500,62 +519,55 @@ module cpu #(
         if (!resetn) begin
             ex1_pending <= 1'b0;
             ex1_select <= FU_ALU;
-            ex1_data_valid <= 1'b0;
             ex1_rd <= '0;
-            ex1_data <= 'x;
-            ex_ex2_data2 <= 'x;
-            ex_ex2_decoded <= decoded_instr_t'('x);
+            ex1_alu_data <= 'x;
+            ex1_pc <= 'x;
             ex_expected_pc <= '0;
         end
         else begin
+            // If data is already valid but we couldn't move it to EX2, we need to prevent
+            // it from being moved to next state.
+            if (ex1_data_valid) begin
+                ex1_select <= FU_ALU;
+                ex1_alu_data <= ex1_data;
+            end
+
             if (ex_ex2_handshaked) begin
                 ex1_pending <= 1'b0;
                 ex1_select <= FU_ALU;
-                ex1_data_valid <= 1'b0;
                 ex1_rd <= '0;
-                ex1_data <= 'x;
-                ex_ex2_data2 <= 'x;
+                ex1_alu_data <= 'x;
             end
 
             if (de_ex_handshaked && ex_can_issue) begin
                 ex1_pending <= 1'b1;
                 ex1_select <= FU_ALU;
+                ex1_pc <= de_ex_decoded.pc;
                 ex1_rd <= de_ex_decoded.rd;
-                ex1_data_valid <= 1'b0;
-                ex1_data <= 'x;
-                ex_ex2_data2 <= ex_rs2;
-                ex_ex2_decoded <= de_ex_decoded;
+                ex1_alu_data <= 'x;
 
                 ex_expected_pc <= npc;
 
                 case (de_ex_decoded.op_type)
                     ALU: begin
-                        ex1_data_valid <= 1'b1;
-                        ex1_data <= alu_result;
+                        ex1_alu_data <= alu_result;
                     end
                     BRANCH: begin
-                        ex1_data_valid <= 1'b1;
-                        ex1_data <= npc;
+                        ex1_alu_data <= npc;
                         ex_expected_pc <= compare_result ? {sum[63:1], 1'b0} : npc;
+                    end
+                    SYSTEM: begin
+                        // All other SYSTEM instructions have no return value
+                        ex1_alu_data <= csr_read;
                     end
                     MEM: begin
                         ex1_select <= FU_MEM;
-                        ex1_data <= sum;
                     end
                     MUL: begin
-                        // Leave this to stage 2.
                         ex1_select <= FU_MUL;
-                        ex1_data <= ex_rs1;
                     end
                     DIV: begin
-                        // Leave this to stage 2.
                         ex1_select <= FU_DIV;
-                        ex1_data <= ex_rs1;
-                    end
-                    SYSTEM: begin
-                        ex1_data_valid <= 1'b1;
-                        // All other SYSTEM instructions have no return value
-                        ex1_data <= csr_read;
                     end
                 endcase
             end
@@ -567,50 +579,42 @@ module cpu #(
 
     // Results to mux from
     logic [XLEN-1:0] ex2_alu_data;
-    logic ex2_mem_valid;
-    logic [XLEN-1:0] ex2_mem_data;
+    logic mem_valid;
+    logic [XLEN-1:0] mem_data;
+    logic mul_valid;
+    logic [XLEN-1:0] mul_data;
+    logic div_valid;
+    logic [XLEN-1:0] div_data;
 
     wire ex2_valid = ex_ex2_handshaked && ex2_can_issue;
 
-    logic mem_ready;
-    logic mul_ready;
-    logic div_ready;
-    assign mem_ready = dcache.req_ready;
-
-    // Multiplier
-    logic [XLEN-1:0] ex2_mul_data;
-    logic ex2_mul_valid;
-    mul_unit mul (
-        .clk       (clk),
-        .rstn      (resetn),
-        .operand_a (ex1_data),
-        .operand_b (ex_ex2_data2),
-        .i_32      (ex_ex2_decoded.is_32),
-        .i_op      (ex_ex2_decoded.mul.op),
-        .i_valid   (ex2_valid && ex1_select == FU_MUL),
-        .i_ready   (mul_ready),
-        .o_value   (ex2_mul_data),
-        .o_valid   (ex2_mul_valid)
-    );
-
-    // Divider
-    logic [XLEN-1:0] ex2_div_data;
-    logic ex2_div_valid;
-    div_unit div (
-        .clk        (clk),
-        .rstn       (resetn),
-        .operand_a  (ex1_data),
-        .operand_b  (ex_ex2_data2),
-        .use_rem_i  (ex_ex2_decoded.div.rem),
-        .i_32       (ex_ex2_decoded.is_32),
-        .i_unsigned (ex_ex2_decoded.div.is_unsigned),
-        .i_valid    (ex2_valid && ex1_select == FU_DIV),
-        .i_ready    (div_ready),
-        .o_value    (ex2_div_data),
-        .o_valid    (ex2_div_valid)
-    );
-
     assign ex_ex2_ready = !ex2_pending || ex2_data_valid || ex2_mem_trap.valid;
+
+    always_comb begin
+        unique case (ex1_select)
+            FU_ALU: begin
+                ex1_data_valid = 1'b1;
+                ex1_data = ex1_alu_data;
+            end
+            FU_MEM: begin
+                ex1_data_valid = mem_valid;
+                ex1_data = mem_data;
+            end
+            FU_MUL: begin
+                ex1_data_valid = mul_valid;
+                ex1_data = mul_data;
+            end
+            FU_DIV: begin
+                ex1_data_valid = div_valid;
+                ex1_data = div_data;
+            end
+            default: begin
+                ex1_data_valid = 1'bx;
+                ex1_data = 'x;
+            end
+        endcase
+    end
+
     always_comb begin
         unique case (ex2_select)
             FU_ALU: begin
@@ -618,16 +622,16 @@ module cpu #(
                 ex2_data = ex2_alu_data;
             end
             FU_MEM: begin
-                ex2_data_valid = ex2_mem_valid;
-                ex2_data = ex2_mem_data;
+                ex2_data_valid = mem_valid;
+                ex2_data = mem_data;
             end
             FU_MUL: begin
-                ex2_data_valid = ex2_mul_valid;
-                ex2_data = ex2_mul_data;
+                ex2_data_valid = mul_valid;
+                ex2_data = mul_data;
             end
             FU_DIV: begin
-                ex2_data_valid = ex2_div_valid;
-                ex2_data = ex2_div_data;
+                ex2_data_valid = div_valid;
+                ex2_data = div_data;
             end
             default: begin
                 ex2_data_valid = 1'bx;
@@ -645,40 +649,76 @@ module cpu #(
             ex2_rd <= '0;
         end
         else begin
-            if (ex_ex2_handshaked && ex2_can_issue) begin
-                ex2_pending <= 1'b1;
-                ex2_select <= ex1_select;
-                ex2_alu_data <= 'x;
-                ex2_pc <= ex_ex2_decoded.pc;
-                ex2_rd <= ex1_rd;
-                ex2_alu_data <= ex1_data;
-            end
-            else if (ex2_data_valid || ex2_mem_trap.valid) begin
+            if (ex2_data_valid || ex2_mem_trap.valid) begin
                 // Reset to default values.
                 ex2_pending <= 1'b0;
                 ex2_rd <= '0;
                 ex2_select <= FU_ALU;
             end
+
+            if (ex_ex2_handshaked && ex2_can_issue) begin
+                ex2_pending <= 1'b1;
+                ex2_select <= ex1_select;
+                ex2_pc <= ex1_pc;
+                ex2_rd <= ex1_rd;
+                ex2_alu_data <= 'x;
+
+                // If data is already valid, then move it to ALU register so that we don't wait
+                // for other components.
+                if (ex1_data_valid) begin
+                    ex2_select <= FU_ALU;
+                    ex2_alu_data <= ex1_data;
+                end
+            end
         end
     end
+
+    // Multiplier
+    mul_unit mul (
+        .clk       (clk),
+        .rstn      (resetn),
+        .operand_a (ex_rs1),
+        .operand_b (ex_rs2),
+        .i_32      (de_ex_decoded.is_32),
+        .i_op      (de_ex_decoded.mul.op),
+        .i_valid   (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == MUL),
+        .i_ready   (mul_ready),
+        .o_value   (mul_data),
+        .o_valid   (mul_valid)
+    );
+
+    // Divider
+    div_unit div (
+        .clk        (clk),
+        .rstn       (resetn),
+        .operand_a  (ex_rs1),
+        .operand_b  (ex_rs2),
+        .use_rem_i  (de_ex_decoded.div.rem),
+        .i_32       (de_ex_decoded.is_32),
+        .i_unsigned (de_ex_decoded.div.is_unsigned),
+        .i_valid    (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == DIV),
+        .i_ready    (div_ready),
+        .o_value    (div_data),
+        .o_valid    (div_valid)
+    );
 
     //
     // EX stage - load & store
     //
 
-    assign dcache.req_valid    = ex2_valid && ex1_select == FU_MEM;
-    assign dcache.req_op       = ex_ex2_decoded.mem.op;
-    assign dcache.req_amo      = ex_ex2_decoded.exception.mtval[31:25];
-    assign dcache.req_address  = ex1_data;
-    assign dcache.req_size     = ex_ex2_decoded.mem.size;
-    assign dcache.req_unsigned = ex_ex2_decoded.mem.zeroext;
-    assign dcache.req_value    = ex_ex2_data2;
+    assign dcache.req_valid    = de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == MEM;
+    assign dcache.req_op       = de_ex_decoded.mem.op;
+    assign dcache.req_amo      = de_ex_decoded.exception.mtval[31:25];
+    assign dcache.req_address  = sum;
+    assign dcache.req_size     = de_ex_decoded.mem.size;
+    assign dcache.req_unsigned = de_ex_decoded.mem.zeroext;
+    assign dcache.req_value    = ex_rs2;
     assign dcache.req_prv      = data_prv;
     assign dcache.req_sum      = status.sum;
     assign dcache.req_mxr      = status.mxr;
     assign dcache.req_atp      = data_atp;
-    assign ex2_mem_valid = dcache.resp_valid;
-    assign ex2_mem_data  = dcache.resp_value;
+    assign mem_valid = dcache.resp_valid;
+    assign mem_data  = dcache.resp_value;
     assign ex2_mem_trap  = dcache.resp_exception;
     assign ex2_mem_notif_ready = dcache.notif_ready;
 
