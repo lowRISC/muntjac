@@ -150,8 +150,9 @@ module cpu #(
     } state_e;
 
     // States of the control logic that handles SYSTEM instructions.
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         SYS_IDLE,
+        SYS_OP,
         // SATP changed. Wait for cache to ack
         SYS_SATP_CHANGED,
         // SFENCE.VMA is issued. Waiting for flush to completer
@@ -272,11 +273,9 @@ module cpu #(
 
     // CSRs
     csr_t csr_select;
-    logic [XLEN-1:0] csr_operand;
     logic [XLEN-1:0] csr_read;
     logic [XLEN-1:0] er_epc;
     assign csr_select = csr_t'(de_ex_decoded.exception.mtval[31:20]);
-    assign csr_operand = de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1;
 
     // Misprediction control
     logic ex_can_issue;
@@ -326,11 +325,7 @@ module cpu #(
                         ex_state_d = ST_FLUSH;
                     end else begin
                         sys_issue = 1'b1;
-                        if (sys_complete) begin
-                            de_ex_ready = 1'b1;
-                            ex_can_issue = 1'b1;
-                            ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
-                        end
+                        ex_state_d = ST_SYS;
                     end
                 end
             end
@@ -371,47 +366,55 @@ module cpu #(
         unique case (sys_state_q)
             SYS_IDLE: begin
                 if (sys_issue) begin
+                    sys_state_d = SYS_OP;
                     unique case (de_ex_decoded.sys_op)
-                        // FIXME: Split the state machine
                         CSR: begin
-                            sys_complete = 1'b1;
-                            sys_pc_redirect_target = npc;
                             // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
                             // the pipeline on CSRxxI instructions.
                             if (de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm) begin
-                                case (csr_select)
-                                    CSR_SATP: begin
-                                        sys_complete = 1'b0;
-                                        sys_state_d = SYS_SATP_CHANGED;
-                                    end
-                                    CSR_MSTATUS: begin
-                                        sys_pc_redirect_valid = 1'b1;
-                                        sys_pc_redirect_reason = IF_PROT_CHANGED;
-                                    end
-                                    CSR_SSTATUS: begin
-                                        sys_pc_redirect_valid = 1'b1;
-                                        sys_pc_redirect_reason = IF_PROT_CHANGED;
-                                    end
-                                endcase
+                                if (csr_select == CSR_SATP) sys_state_d = SYS_SATP_CHANGED;
                             end
-                        end
-                        ERET: begin
-                            sys_complete = 1'b1;
-                            sys_pc_redirect_valid = 1'b1;
-                            sys_pc_redirect_reason = IF_PROT_CHANGED;
-                            sys_pc_redirect_target = er_epc;
-                        end
-                        FENCE_I: begin
-                            sys_complete = 1'b1;
-                            sys_pc_redirect_valid = 1'b1;
-                            sys_pc_redirect_reason = IF_FENCE_I;
-                            sys_pc_redirect_target = npc;
                         end
                         SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
                         WFI: sys_state_d = SYS_WFI;
-                        default: sys_complete = 1'b1;
+                        default:;
                     endcase
                 end
+            end
+            SYS_OP: begin
+                sys_complete = 1'b1;
+                sys_state_d = SYS_IDLE;
+                unique case (de_ex_decoded.sys_op)
+                    // FIXME: Split the state machine
+                    CSR: begin
+                        sys_pc_redirect_target = npc;
+                        // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
+                        // the pipeline on CSRxxI instructions.
+                        if (de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm) begin
+                            case (csr_select)
+                                CSR_MSTATUS: begin
+                                    sys_pc_redirect_valid = 1'b1;
+                                    sys_pc_redirect_reason = IF_PROT_CHANGED;
+                                end
+                                CSR_SSTATUS: begin
+                                    sys_pc_redirect_valid = 1'b1;
+                                    sys_pc_redirect_reason = IF_PROT_CHANGED;
+                                end
+                            endcase
+                        end
+                    end
+                    ERET: begin
+                        sys_pc_redirect_valid = 1'b1;
+                        sys_pc_redirect_reason = IF_PROT_CHANGED;
+                        sys_pc_redirect_target = er_epc;
+                    end
+                    FENCE_I: begin
+                        sys_pc_redirect_valid = 1'b1;
+                        sys_pc_redirect_reason = IF_FENCE_I;
+                        sys_pc_redirect_target = npc;
+                    end
+                    default:;
+                endcase
             end
             SYS_SATP_CHANGED: begin
                 if (mem_notif_ready) begin
@@ -813,7 +816,7 @@ module cpu #(
         .a_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
         .a_sel (csr_select),
         .a_op (de_ex_decoded.csr.op),
-        .a_data (csr_operand),
+        .a_data (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
         .a_read (csr_read),
         .ex_valid (mem_trap.valid || exception_issue),
         .ex_exception (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
