@@ -380,11 +380,7 @@ module cpu #(
                     sys_state_d = SYS_OP;
                     unique case (de_ex_decoded.sys_op)
                         CSR: begin
-                            // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
-                            // the pipeline on CSRxxI instructions.
-                            if (de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm) begin
-                                if (csr_select == CSR_SATP) sys_state_d = SYS_SATP_CHANGED;
-                            end
+                            if (de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP) sys_state_d = SYS_SATP_CHANGED;
                         end
                         SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
                         WFI: sys_state_d = SYS_WFI;
@@ -399,9 +395,7 @@ module cpu #(
                     // FIXME: Split the state machine
                     CSR: begin
                         sys_pc_redirect_target = npc;
-                        // Because SUM and SATP's mode & ASID bits are all high, we don't need to flush
-                        // the pipeline on CSRxxI instructions.
-                        if (de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm) begin
+                        if (de_ex_decoded.csr.op != 2'b00) begin
                             case (csr_select)
                                 CSR_MSTATUS: begin
                                     sys_pc_redirect_valid = 1'b1;
@@ -797,7 +791,7 @@ module cpu #(
     assign mem_notif_ready = dcache.notif_ready;
     assign mem_ready = dcache.req_ready;
 
-    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
+    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
 
     //
