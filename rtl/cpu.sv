@@ -124,9 +124,8 @@ module cpu #(
     // EX stage
     //
 
-    typedef enum logic [2:0] {
+    typedef enum logic [1:0] {
         ST_NORMAL,
-        ST_MISPREDICT,
         ST_FLUSH,
 
         // When the next instruction is an exception, an external interrupt is pending, or
@@ -158,7 +157,11 @@ module cpu #(
     state_e ex_state_q, ex_state_d;
     sys_state_e sys_state_q, sys_state_d;
 
-    logic ex_stalled;
+    ///////////////////////////////////////////
+    // Data Bypass and Data Hazard Detection //
+    ///////////////////////////////////////////
+
+    logic data_hazard;
     logic [XLEN-1:0] ex_rs1;
     logic [XLEN-1:0] ex_rs2;
 
@@ -172,9 +175,8 @@ module cpu #(
     logic ex2_data_valid;
     logic [XLEN-1:0] ex2_data;
 
-    // Source register bypass and stall detection logic
     always_comb begin
-        ex_stalled = 1'b0;
+        data_hazard = 1'b0;
 
         ex_rs1 = de_ex_rs1;
         // RS1 bypass from EX2
@@ -183,7 +185,7 @@ module cpu #(
                 ex_rs1 = ex2_data;
             end
             else begin
-                ex_stalled = 1'b1;
+                data_hazard = 1'b1;
             end
         end
         // RS1 bypass from EX1
@@ -192,7 +194,7 @@ module cpu #(
                 ex_rs1 = ex1_data;
             end
             else begin
-                ex_stalled = 1'b1;
+                data_hazard = 1'b1;
             end
         end
 
@@ -203,7 +205,7 @@ module cpu #(
                 ex_rs2 = ex2_data;
             end
             else begin
-                ex_stalled = 1'b1;
+                data_hazard = 1'b1;
             end
         end
         // RS2 bypass from EX1
@@ -212,9 +214,36 @@ module cpu #(
                 ex_rs2 = ex1_data;
             end
             else begin
-                ex_stalled = 1'b1;
+                data_hazard = 1'b1;
             end
         end
+    end
+
+    ////////////////////////////////
+    // Structure Hazard Detection //
+    ////////////////////////////////
+
+    logic struct_hazard;
+
+    logic mem_ready;
+    logic mul_ready;
+    logic div_ready;
+    logic ex1_ready;
+
+    always_comb begin
+        struct_hazard = !ex1_ready;
+        unique case (de_ex_decoded.op_type)
+            MEM: begin
+                if (!mem_ready) struct_hazard = 1'b1;
+            end
+            MUL: begin
+                if (!mul_ready) struct_hazard = 1'b1;
+            end
+            DIV: begin
+                if (!div_ready) struct_hazard = 1'b1;
+            end
+            default:;
+        endcase
     end
 
     logic [63:0] npc;
@@ -250,55 +279,35 @@ module cpu #(
     if_reason_t sys_pc_redirect_reason;
     logic [XLEN-1:0] sys_pc_redirect_target;
 
-    logic mem_ready;
-    logic mul_ready;
-    logic div_ready;
-    assign mem_ready = dcache.req_ready;
-
-    logic ex1_ready;
+    logic mispredict_q, mispredict_d;
 
     always_comb begin
         exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
 
-        de_ex_ready = !ex_stalled && ex1_ready;
+        de_ex_ready = !data_hazard && !struct_hazard;
         ex_can_issue = 1'b0;
         no_drain = 1'b0;
         ex_state_d = ex_state_q;
-
-        if (de_ex_valid && de_ex_ready) begin
-            case (de_ex_decoded.op_type)
-                MEM: begin
-                    if (!mem_ready) de_ex_ready = 1'b0;
-                end
-                MUL: begin
-                    if (!mul_ready) de_ex_ready = 1'b0;
-                end
-                DIV: begin
-                    if (!div_ready) de_ex_ready = 1'b0;
-                end
-            endcase
-        end
+        mispredict_d = mispredict_q;
 
         sys_issue = 1'b0;
 
         unique case (ex_state_q)
-            ST_NORMAL, ST_MISPREDICT: begin
+            ST_NORMAL: begin
                 ex_can_issue = ex_expected_pc_q == de_ex_decoded.pc && !mem_trap.valid;
 
-                if (de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
-                    ex_state_d = ST_MISPREDICT;
-                end else if (de_ex_handshaked && ex_expected_pc_q == de_ex_decoded.pc) begin
-                    ex_state_d = ST_NORMAL;
-                end
+                if (de_ex_handshaked) mispredict_d = ex_expected_pc_q != de_ex_decoded.pc;
             end
             ST_FLUSH: begin
+                mispredict_d = 1'b0;
                 ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
                 if (de_ex_handshaked && ex_can_issue) begin
                     ex_state_d = ST_NORMAL;
                 end
             end
             ST_DRAIN: begin
+                mispredict_d = 1'b0;
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
                 if (!ex1_pending_q && !ex2_pending_q) begin
@@ -317,7 +326,9 @@ module cpu #(
                 end
             end
             ST_SYS: begin
+                mispredict_d = 1'b0;
                 no_drain = 1'b1;
+                de_ex_ready = 1'b0;
                 if (sys_complete) begin
                     de_ex_ready = 1'b1;
                     ex_can_issue = 1'b1;
@@ -438,12 +449,14 @@ module cpu #(
         if (!rst_ni) begin
             ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
+            mispredict_q <= 1'b0;
             exception_pending_q <= exception_t'('x);
             exception_pending_q.valid <= 1'b0;
         end
         else begin
             ex_state_q <= ex_state_d;
             sys_state_q <= sys_state_d;
+            mispredict_q <= mispredict_d;
             exception_pending_q <= exception_pending_d;
         end
 
@@ -773,6 +786,7 @@ module cpu #(
     assign mem_data  = dcache.resp_value;
     assign mem_trap  = dcache.resp_exception;
     assign mem_notif_ready = dcache.notif_ready;
+    assign mem_ready = dcache.req_ready;
 
     assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
@@ -839,7 +853,7 @@ module cpu #(
             wb_if_valid = 1'b1;
             wb_if_reason = sys_pc_redirect_reason;
         end
-        else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
+        else if (ex_state_q == ST_NORMAL && !mispredict_q && de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
             wb_if_pc = ex_expected_pc_q;
             wb_if_valid = 1'b1;
             wb_if_reason = IF_MISPREDICT;
