@@ -144,7 +144,7 @@ module cpu #(
         // When the next instruction is an exception, an external interrupt is pending, or
         // when the next instruction is a SYSTEM instruction, we need to drain the pipeline,
         // wait for all issued instructions to commit or trap.
-        ST_DRAIN,
+        ST_INT,
         // Waiting for a SYSTEM instruction to complete
         ST_SYS
     } state_e;
@@ -242,10 +242,13 @@ module cpu #(
     logic mem_ready;
     logic mul_ready;
     logic div_ready;
+    logic sys_ready;
     logic ex1_ready;
 
     always_comb begin
-        struct_hazard = !ex1_ready;
+        // Treat exception and SYSTEM instruction as a structure hazard, because they may influence
+        // control registers so they effectively conflict with any other instruction.
+        struct_hazard = !ex1_ready || de_ex_decoded.exception.valid;
         unique case (de_ex_decoded.op_type)
             MEM: begin
                 if (!mem_ready) struct_hazard = 1'b1;
@@ -256,99 +259,96 @@ module cpu #(
             DIV: begin
                 if (!div_ready) struct_hazard = 1'b1;
             end
+            SYSTEM: begin
+                if (!sys_ready) struct_hazard = 1'b1;
+            end
             default:;
         endcase
     end
 
+    //////////////////////////////
+    // Control Hazard Detection //
+    //////////////////////////////
+
+    logic control_hazard;
+    logic [XLEN-1:0] ex_expected_pc_q;
+
+    always_comb begin
+        control_hazard = 1'b0;
+        unique case (ex_state_q)
+            ST_NORMAL: begin
+                control_hazard = ex_expected_pc_q != de_ex_decoded.pc || mem_trap.valid;
+            end
+            ST_FLUSH: begin
+                control_hazard = de_ex_decoded.if_reason ==? 4'bxxx0;
+            end
+            ST_INT: begin
+                control_hazard = 1'b1;
+            end
+            default:;
+        endcase
+    end
+
+    ////////////////////////
+    // Core State Machine //
+    ////////////////////////
+
     logic [63:0] npc;
     assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
 
-    logic [XLEN-1:0] ex_expected_pc_q;
-
     logic exception_issue;
-    logic wfi_valid;
-    logic mem_notif_ready;
-
     exception_t mem_trap;
 
-    // CSRs
-    csr_t csr_select;
-    logic [XLEN-1:0] csr_read;
-    logic [XLEN-1:0] er_epc;
-    assign csr_select = csr_t'(de_ex_decoded.exception.mtval[31:20]);
-
-    // Misprediction control
-    logic ex_can_issue;
-    logic no_drain;
-
-    // Connection between control state machine and SYS control state machine
     logic sys_issue;
-    logic sys_complete;
     logic sys_pc_redirect_valid;
     if_reason_t sys_pc_redirect_reason;
     logic [XLEN-1:0] sys_pc_redirect_target;
 
     logic mispredict_q, mispredict_d;
 
+    wire ex_issue = de_ex_valid && !data_hazard && !struct_hazard && !control_hazard;
+    assign de_ex_ready = (!data_hazard && !struct_hazard) || control_hazard;
+
     always_comb begin
         exception_issue = 1'b0;
+        sys_issue = 1'b0;
 
-        de_ex_ready = !data_hazard && !struct_hazard;
-        ex_can_issue = 1'b0;
-        no_drain = 1'b0;
         ex_state_d = ex_state_q;
         mispredict_d = mispredict_q;
 
-        sys_issue = 1'b0;
-
         unique case (ex_state_q)
             ST_NORMAL: begin
-                ex_can_issue = ex_expected_pc_q == de_ex_decoded.pc && !mem_trap.valid;
-
-                if (de_ex_handshaked) mispredict_d = ex_expected_pc_q != de_ex_decoded.pc;
+                if (de_ex_valid && de_ex_ready) mispredict_d = ex_expected_pc_q != de_ex_decoded.pc;
             end
             ST_FLUSH: begin
                 mispredict_d = 1'b0;
-                ex_can_issue = de_ex_decoded.if_reason !=? 4'bxxx0;
-                if (de_ex_handshaked && ex_can_issue) begin
+                if (ex_issue) begin
                     ex_state_d = ST_NORMAL;
                 end
             end
-            ST_DRAIN: begin
+            ST_INT: begin
                 mispredict_d = 1'b0;
-                no_drain = 1'b1;
-                de_ex_ready = 1'b0;
-                if (!ex1_pending_q && !ex2_pending_q) begin
-                    if (de_ex_decoded.exception.valid) begin
-                        de_ex_ready = 1'b1;
-                        exception_issue = 1'b1;
-                        ex_state_d = ST_FLUSH;
-                    end else begin
-                        sys_issue = 1'b1;
-                        ex_state_d = ST_SYS;
-                    end
-                end
+                exception_issue = 1'b1;
+                ex_state_d = ST_FLUSH;
             end
             ST_SYS: begin
+                sys_issue = 1'b1;
                 mispredict_d = 1'b0;
-                no_drain = 1'b1;
-                de_ex_ready = 1'b0;
-                if (sys_complete) begin
-                    de_ex_ready = 1'b1;
-                    ex_can_issue = 1'b1;
+                if (sys_ready) begin
                     ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
                 end
             end
             default:;
         endcase
 
-        if (!no_drain && ex_can_issue && de_ex_valid && (
-            de_ex_decoded.exception.valid ||
-            (de_ex_decoded.op_type == SYSTEM)
-        )) begin
-            de_ex_ready = 1'b0;
-            ex_can_issue = 1'b0;
-            ex_state_d = ST_DRAIN;
+        if ((ex_state_q == ST_NORMAL || ex_state_q == ST_FLUSH) &&
+            de_ex_valid && !control_hazard && !ex1_pending_q && !ex2_pending_q) begin
+
+            if (de_ex_decoded.exception.valid) begin
+                ex_state_d = ST_INT;
+            end else if (de_ex_decoded.op_type == SYSTEM) begin
+                ex_state_d = ST_SYS;
+            end
         end
 
         if (mem_trap.valid) begin
@@ -356,8 +356,21 @@ module cpu #(
         end
     end
 
+    ///////////////////////////
+    // Control State Machine //
+    ///////////////////////////
+
+    // CSRs
+    csr_t csr_select;
+    logic [XLEN-1:0] csr_read;
+    logic [XLEN-1:0] er_epc;
+    assign csr_select = csr_t'(de_ex_decoded.exception.mtval[31:20]);
+
+    logic wfi_valid;
+    logic mem_notif_ready;
+
     always_comb begin
-        sys_complete = 1'b0;
+        sys_ready = 1'b0;
         sys_state_d = sys_state_q;
         sys_pc_redirect_valid = 1'b0;
         sys_pc_redirect_reason = if_reason_t'('x);
@@ -382,7 +395,7 @@ module cpu #(
                 end
             end
             SYS_OP: begin
-                sys_complete = 1'b1;
+                sys_ready = 1'b1;
                 sys_state_d = SYS_IDLE;
                 unique case (de_ex_decoded.sys_op)
                     // FIXME: Split the state machine
@@ -418,7 +431,7 @@ module cpu #(
             end
             SYS_SATP_CHANGED: begin
                 if (mem_notif_ready) begin
-                    sys_complete = 1'b1;
+                    sys_ready = 1'b1;
                     sys_state_d = SYS_IDLE;
                     sys_pc_redirect_valid = 1'b1;
                     sys_pc_redirect_reason = IF_SATP_CHANGED;
@@ -427,7 +440,7 @@ module cpu #(
             end
             SYS_SFENCE_VMA: begin
                 if (mem_notif_ready) begin
-                    sys_complete = 1'b1;
+                    sys_ready = 1'b1;
                     sys_state_d = SYS_IDLE;
                     sys_pc_redirect_valid = 1'b1;
                     sys_pc_redirect_reason = IF_SFENCE_VMA;
@@ -436,7 +449,7 @@ module cpu #(
             end
             SYS_WFI: begin
                 if (wfi_valid) begin
-                    sys_complete = 1'b1;
+                    sys_ready = 1'b1;
                     sys_state_d = SYS_IDLE;
                 end
             end
@@ -582,7 +595,7 @@ module cpu #(
             ex1_alu_data_d = 'x;
         end
 
-        if (de_ex_handshaked && ex_can_issue) begin
+        if (ex_issue) begin
             ex1_pending_d = 1'b1;
             ex1_select_d = FU_ALU;
             ex1_pc_d = de_ex_decoded.pc;
@@ -743,7 +756,7 @@ module cpu #(
         .operand_b (ex_rs2),
         .i_32      (de_ex_decoded.is_32),
         .i_op      (de_ex_decoded.mul.op),
-        .i_valid   (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == MUL),
+        .i_valid   (ex_issue && de_ex_decoded.op_type == MUL),
         .i_ready   (mul_ready),
         .o_value   (mul_data),
         .o_valid   (mul_valid)
@@ -758,7 +771,7 @@ module cpu #(
         .use_rem_i  (de_ex_decoded.div.rem),
         .i_32       (de_ex_decoded.is_32),
         .i_unsigned (de_ex_decoded.div.is_unsigned),
-        .i_valid    (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == DIV),
+        .i_valid    (ex_issue && de_ex_decoded.op_type == DIV),
         .i_ready    (div_ready),
         .o_value    (div_data),
         .o_valid    (div_valid)
@@ -768,7 +781,7 @@ module cpu #(
     // EX stage - load & store
     //
 
-    assign dcache.req_valid    = de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == MEM;
+    assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == MEM;
     assign dcache.req_op       = de_ex_decoded.mem.op;
     assign dcache.req_amo      = de_ex_decoded.exception.mtval[31:25];
     assign dcache.req_address  = sum;
@@ -813,7 +826,7 @@ module cpu #(
         .pc_sel (de_csr_sel),
         .pc_op (de_csr_op),
         .pc_illegal (de_csr_illegal),
-        .a_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
+        .a_valid (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
         .a_sel (csr_select),
         .a_op (de_ex_decoded.csr.op),
         .a_data (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
@@ -822,7 +835,7 @@ module cpu #(
         .ex_exception (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
-        .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
+        .er_valid (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
         .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
         .er_epc (er_epc),
         .int_valid (int_valid),
@@ -850,7 +863,7 @@ module cpu #(
             wb_if_valid = 1'b1;
             wb_if_reason = sys_pc_redirect_reason;
         end
-        else if (ex_state_q == ST_NORMAL && !mispredict_q && de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
+        else if (ex_state_q == ST_NORMAL && !mispredict_q && de_ex_valid && control_hazard) begin
             wb_if_pc = ex_expected_pc_q;
             wb_if_valid = 1'b1;
             wb_if_reason = IF_MISPREDICT;
