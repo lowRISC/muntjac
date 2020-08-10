@@ -91,12 +91,16 @@ module cpu #(
         .csr_illegal (de_csr_illegal)
     );
 
-    assign if_de_ready = de_ex_ready;
+    assign if_de_ready = !de_ex_valid || de_ex_ready;
+
+    logic int_valid;
+    logic [3:0] int_cause;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             de_ex_valid <= 1'b0;
             de_ex_decoded <= decoded_instr_t'('x);
+            de_ex_decoded.exception.valid <= 1'b0;
             de_rs1_select <= 'x;
             de_rs2_select <= 'x;
         end
@@ -105,6 +109,15 @@ module cpu #(
             if (if_de_valid && if_de_ready) begin
                 de_ex_valid <= 1'b1;
                 de_ex_decoded <= de_decoded;
+
+                // Interrupt injection
+                // FIXME: Prefer trap or interrupt?
+                if (!de_decoded.exception.valid && int_valid) begin
+                    de_ex_decoded.exception.valid <= 1'b1;
+                    de_ex_decoded.exception.mcause_interrupt <= 1'b1;
+                    de_ex_decoded.exception.mcause_code <= int_cause;
+                    de_ex_decoded.exception.mtval <= '0;
+                end
 
                 // Regfile will read register into rs1_value and rs2_value
                 de_rs1_select <= de_decoded.rs1;
@@ -251,10 +264,7 @@ module cpu #(
 
     logic [XLEN-1:0] ex_expected_pc_q;
 
-    exception_t exception_pending_q, exception_pending_d;
     logic exception_issue;
-    logic int_valid;
-    logic [3:0] int_cause;
     logic wfi_valid;
     logic mem_notif_ready;
 
@@ -282,7 +292,6 @@ module cpu #(
     logic mispredict_q, mispredict_d;
 
     always_comb begin
-        exception_pending_d = exception_pending_q;
         exception_issue = 1'b0;
 
         de_ex_ready = !data_hazard && !struct_hazard;
@@ -311,7 +320,7 @@ module cpu #(
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
                 if (!ex1_pending_q && !ex2_pending_q) begin
-                    if (exception_pending_q.valid) begin
+                    if (de_ex_decoded.exception.valid) begin
                         de_ex_ready = 1'b1;
                         exception_issue = 1'b1;
                         ex_state_d = ST_FLUSH;
@@ -340,23 +349,11 @@ module cpu #(
 
         if (!no_drain && ex_can_issue && de_ex_valid && (
             de_ex_decoded.exception.valid ||
-            int_valid ||
             (de_ex_decoded.op_type == SYSTEM)
         )) begin
             de_ex_ready = 1'b0;
             ex_can_issue = 1'b0;
             ex_state_d = ST_DRAIN;
-
-            exception_pending_d = exception_t'('x);
-            exception_pending_d.valid = 1'b0;
-            if (de_ex_decoded.exception.valid) begin
-                exception_pending_d = de_ex_decoded.exception;
-            end else if (int_valid) begin
-                exception_pending_d.valid = 1'b1;
-                exception_pending_d.mcause_interrupt <= 1'b1;
-                exception_pending_d.mcause_code <= int_cause;
-                exception_pending_d.mtval <= '0;
-            end
         end
 
         if (mem_trap.valid) begin
@@ -450,14 +447,11 @@ module cpu #(
             ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
             mispredict_q <= 1'b0;
-            exception_pending_q <= exception_t'('x);
-            exception_pending_q.valid <= 1'b0;
         end
         else begin
             ex_state_q <= ex_state_d;
             sys_state_q <= sys_state_d;
             mispredict_q <= mispredict_d;
-            exception_pending_q <= exception_pending_d;
         end
 
     /////////
@@ -822,7 +816,7 @@ module cpu #(
         .a_data (csr_operand),
         .a_read (csr_read),
         .ex_valid (mem_trap.valid || exception_issue),
-        .ex_exception (mem_trap.valid ? mem_trap : exception_pending_q),
+        .ex_exception (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
