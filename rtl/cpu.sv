@@ -69,8 +69,6 @@ module cpu #(
     decoded_instr_t de_ex_decoded;
     logic [XLEN-1:0] de_ex_rs1;
     logic [XLEN-1:0] de_ex_rs2;
-    logic de_ex_handshaked;
-    assign de_ex_handshaked = de_ex_valid && de_ex_ready;
 
     //
     // DE stage
@@ -458,7 +456,7 @@ module cpu #(
     end
 
     // State machine state assignments
-    always_ff @(posedge clk_i or negedge rst_ni)
+    always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
@@ -469,6 +467,7 @@ module cpu #(
             sys_state_q <= sys_state_d;
             mispredict_q <= mispredict_d;
         end
+    end
 
     /////////
     // ALU //
@@ -798,7 +797,7 @@ module cpu #(
     assign mem_notif_ready = dcache.notif_ready;
     assign mem_ready = dcache.req_ready;
 
-    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
+    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
 
     //
