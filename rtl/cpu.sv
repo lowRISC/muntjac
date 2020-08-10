@@ -5,8 +5,8 @@ module cpu #(
     parameter XLEN = 64
 ) (
     // Clock and reset
-    input  logic            clk,
-    input  logic            resetn,
+    input  logic            clk_i,
+    input  logic            rst_ni,
 
     // Memory interfaces
     icache_intf.user icache,
@@ -49,8 +49,8 @@ module cpu #(
         .XLEN(XLEN),
         .BRANCH_PRED (BRANCH_PRED)
     ) fetcher (
-        .clk (clk),
-        .resetn (resetn),
+        .clk (clk_i),
+        .resetn (rst_ni),
         .cache_uncompressed (icache),
         .i_pc (wb_if_pc),
         .i_valid (wb_if_valid),
@@ -93,8 +93,8 @@ module cpu #(
 
     assign if_de_ready = de_ex_ready;
 
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
             de_ex_valid <= 1'b0;
             de_ex_decoded <= decoded_instr_t'('x);
             de_rs1_select <= 'x;
@@ -123,9 +123,6 @@ module cpu #(
     //
     // EX stage
     //
-    logic ex_stalled;
-    logic [XLEN-1:0] ex_rs1;
-    logic [XLEN-1:0] ex_rs2;
 
     typedef enum logic [2:0] {
         ST_NORMAL,
@@ -161,13 +158,17 @@ module cpu #(
     state_e ex_state_q, ex_state_d;
     sys_state_e sys_state_q, sys_state_d;
 
-    logic ex1_pending;
-    logic [4:0] ex1_rd;
+    logic ex_stalled;
+    logic [XLEN-1:0] ex_rs1;
+    logic [XLEN-1:0] ex_rs2;
+
+    logic ex1_pending_q;
+    logic [4:0] ex1_rd_q;
     logic ex1_data_valid;
     logic [XLEN-1:0] ex1_data;
 
-    logic ex2_pending;
-    logic [4:0] ex2_rd;
+    logic ex2_pending_q;
+    logic [4:0] ex2_rd_q;
     logic ex2_data_valid;
     logic [XLEN-1:0] ex2_data;
 
@@ -177,7 +178,7 @@ module cpu #(
 
         ex_rs1 = de_ex_rs1;
         // RS1 bypass from EX2
-        if (ex2_pending && ex2_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+        if (ex2_pending_q && ex2_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
             if (ex2_data_valid) begin
                 ex_rs1 = ex2_data;
             end
@@ -186,7 +187,7 @@ module cpu #(
             end
         end
         // RS1 bypass from EX1
-        if (ex1_pending && ex1_rd == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+        if (ex1_pending_q && ex1_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
             if (ex1_data_valid) begin
                 ex_rs1 = ex1_data;
             end
@@ -197,7 +198,7 @@ module cpu #(
 
         ex_rs2 = de_ex_rs2;
         // RS2 bypass from EX2
-        if (ex2_pending && ex2_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+        if (ex2_pending_q && ex2_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
             if (ex2_data_valid) begin
                 ex_rs2 = ex2_data;
             end
@@ -206,7 +207,7 @@ module cpu #(
             end
         end
         // RS2 bypass from EX1
-        if (ex1_pending && ex1_rd == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+        if (ex1_pending_q && ex1_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
             if (ex1_data_valid) begin
                 ex_rs2 = ex1_data;
             end
@@ -216,62 +217,17 @@ module cpu #(
         end
     end
 
-    //
-    // ALU
-    //
-
     logic [63:0] npc;
     assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
 
-    wire [63:0] operand_b = de_ex_decoded.use_imm ? de_ex_decoded.immediate : ex_rs2;
-
-    // Adder.
-    // This is the core component of the EX stage.
-    // It is used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
-    logic [63:0] sum;
-    assign sum = (de_ex_decoded.adder.use_pc ? de_ex_decoded.pc : ex_rs1) + (de_ex_decoded.adder.use_imm ? de_ex_decoded.immediate : ex_rs2);
-
-    // Subtractor.
-    // It is used for SUB, BRANCH, SLT, SLTU
-    logic [63:0] difference;
-    assign difference = ex_rs1 - operand_b;
-
-    // Comparator. Used in BRANCH, SLT, and SLTU
-    logic compare_result;
-    comparator comparator (
-        .operand_a_i  (ex_rs1),
-        .operand_b_i  (operand_b),
-        .condition_i  (de_ex_decoded.condition),
-        .difference_i (difference),
-        .result_o     (compare_result)
-    );
-
-    // ALU
-    logic [63:0] alu_result;
-    alu alu (
-        .operator      (de_ex_decoded.op),
-        .decoded_instr (de_ex_decoded),
-        .is_32         (de_ex_decoded.is_32),
-        .operand_a     (ex_rs1),
-        .operand_b     (operand_b),
-        .sum_i         (sum),
-        .difference_i  (difference),
-        .compare_result_i (compare_result),
-        .result           (alu_result)
-    );
-
-    //
-    // End ALU
-    //
-
-    logic [XLEN-1:0] ex_expected_pc;
+    logic [XLEN-1:0] ex_expected_pc_q;
 
     exception_t exception_pending_q, exception_pending_d;
     logic exception_issue;
-    logic ex2_int_valid;
-    logic [3:0] ex2_int_cause;
-    logic ex2_wfi_valid;
-    logic ex2_mem_notif_ready;
+    logic int_valid;
+    logic [3:0] int_cause;
+    logic wfi_valid;
+    logic mem_notif_ready;
 
     exception_t mem_trap;
 
@@ -328,11 +284,11 @@ module cpu #(
 
         unique case (ex_state_q)
             ST_NORMAL, ST_MISPREDICT: begin
-                ex_can_issue = ex_expected_pc == de_ex_decoded.pc && !mem_trap.valid;
+                ex_can_issue = ex_expected_pc_q == de_ex_decoded.pc && !mem_trap.valid;
 
-                if (de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
+                if (de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
                     ex_state_d = ST_MISPREDICT;
-                end else if (de_ex_handshaked && ex_expected_pc == de_ex_decoded.pc) begin
+                end else if (de_ex_handshaked && ex_expected_pc_q == de_ex_decoded.pc) begin
                     ex_state_d = ST_NORMAL;
                 end
             end
@@ -345,7 +301,7 @@ module cpu #(
             ST_DRAIN: begin
                 no_drain = 1'b1;
                 de_ex_ready = 1'b0;
-                if (!ex1_pending && !ex2_pending) begin
+                if (!ex1_pending_q && !ex2_pending_q) begin
                     if (exception_pending_q.valid) begin
                         de_ex_ready = 1'b1;
                         exception_issue = 1'b1;
@@ -373,7 +329,7 @@ module cpu #(
 
         if (!no_drain && ex_can_issue && de_ex_valid && (
             de_ex_decoded.exception.valid ||
-            ex2_int_valid ||
+            int_valid ||
             (de_ex_decoded.op_type == SYSTEM)
         )) begin
             de_ex_ready = 1'b0;
@@ -384,10 +340,10 @@ module cpu #(
             exception_pending_d.valid = 1'b0;
             if (de_ex_decoded.exception.valid) begin
                 exception_pending_d = de_ex_decoded.exception;
-            end else if (ex2_int_valid) begin
+            end else if (int_valid) begin
                 exception_pending_d.valid = 1'b1;
                 exception_pending_d.mcause_interrupt <= 1'b1;
-                exception_pending_d.mcause_code <= ex2_int_cause;
+                exception_pending_d.mcause_code <= int_cause;
                 exception_pending_d.mtval <= '0;
             end
         end
@@ -450,7 +406,7 @@ module cpu #(
                 end
             end
             SYS_SATP_CHANGED: begin
-                if (ex2_mem_notif_ready) begin
+                if (mem_notif_ready) begin
                     sys_complete = 1'b1;
                     sys_state_d = SYS_IDLE;
                     sys_pc_redirect_valid = 1'b1;
@@ -459,7 +415,7 @@ module cpu #(
                 end
             end
             SYS_SFENCE_VMA: begin
-                if (ex2_mem_notif_ready) begin
+                if (mem_notif_ready) begin
                     sys_complete = 1'b1;
                     sys_state_d = SYS_IDLE;
                     sys_pc_redirect_valid = 1'b1;
@@ -468,7 +424,7 @@ module cpu #(
                 end
             end
             SYS_WFI: begin
-                if (ex2_wfi_valid) begin
+                if (wfi_valid) begin
                     sys_complete = 1'b1;
                     sys_state_d = SYS_IDLE;
                 end
@@ -478,8 +434,8 @@ module cpu #(
     end
 
     // State machine state assignments
-    always_ff @(posedge clk or negedge resetn)
-        if (!resetn) begin
+    always_ff @(posedge clk_i or negedge rst_ni)
+        if (!rst_ni) begin
             ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
             exception_pending_q <= exception_t'('x);
@@ -490,6 +446,47 @@ module cpu #(
             sys_state_q <= sys_state_d;
             exception_pending_q <= exception_pending_d;
         end
+
+    /////////
+    // ALU //
+    /////////
+
+    wire [63:0] operand_b = de_ex_decoded.use_imm ? de_ex_decoded.immediate : ex_rs2;
+
+    // Adder.
+    // This is the core component of the EX stage.
+    // It is used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
+    logic [63:0] sum;
+    assign sum = (de_ex_decoded.adder.use_pc ? de_ex_decoded.pc : ex_rs1) + (de_ex_decoded.adder.use_imm ? de_ex_decoded.immediate : ex_rs2);
+
+    // Subtractor.
+    // It is used for SUB, BRANCH, SLT, SLTU
+    logic [63:0] difference;
+    assign difference = ex_rs1 - operand_b;
+
+    // Comparator. Used in BRANCH, SLT, and SLTU
+    logic compare_result;
+    comparator comparator (
+        .operand_a_i  (ex_rs1),
+        .operand_b_i  (operand_b),
+        .condition_i  (de_ex_decoded.condition),
+        .difference_i (difference),
+        .result_o     (compare_result)
+    );
+
+    // ALU
+    logic [63:0] alu_result;
+    alu alu (
+        .operator      (de_ex_decoded.op),
+        .decoded_instr (de_ex_decoded),
+        .is_32         (de_ex_decoded.is_32),
+        .operand_a     (ex_rs1),
+        .operand_b     (operand_b),
+        .sum_i         (sum),
+        .difference_i  (difference),
+        .compare_result_i (compare_result),
+        .result           (alu_result)
+    );
 
     ///////////////
     // EX1 stage //
@@ -504,35 +501,35 @@ module cpu #(
     logic [XLEN-1:0] div_data;
 
     logic ex2_ready;
-    assign ex1_ready = ex2_ready || !ex1_pending;
-    assign ex2_ready = !ex2_pending || ex2_data_valid;
+    assign ex1_ready = ex2_ready || !ex1_pending_q;
+    assign ex2_ready = !ex2_pending_q || ex2_data_valid;
 
-    func_unit_e ex1_select;
-    logic [XLEN-1:0] ex1_alu_data;
-    logic [XLEN-1:0] ex1_pc;
+    func_unit_e ex1_select_q;
+    logic [XLEN-1:0] ex1_alu_data_q;
+    logic [XLEN-1:0] ex1_pc_q;
 
-    func_unit_e ex2_select;
-    logic [XLEN-1:0] ex2_alu_data;
-    logic [XLEN-1:0] ex2_pc;
+    func_unit_e ex2_select_q;
+    logic [XLEN-1:0] ex2_alu_data_q;
+    logic [XLEN-1:0] ex2_pc_q;
 
     always_comb begin
-        unique case (ex1_select)
+        unique case (ex1_select_q)
             FU_ALU: begin
                 ex1_data_valid = 1'b1;
-                ex1_data = ex1_alu_data;
+                ex1_data = ex1_alu_data_q;
             end
             FU_MEM: begin
-                // If ex2_select matches ex1_select, then the valid signal is for EX2, so don;t
+                // If ex2_select_q matches ex1_select_q, then the valid signal is for EX2, so don;t
                 // rely on it. The same follows for FU_MUL and FU_DIV.
-                ex1_data_valid = mem_valid && ex2_select != FU_MEM;
+                ex1_data_valid = mem_valid && ex2_select_q != FU_MEM;
                 ex1_data = mem_data;
             end
             FU_MUL: begin
-                ex1_data_valid = mul_valid && ex2_select != FU_MUL;
+                ex1_data_valid = mul_valid && ex2_select_q != FU_MUL;
                 ex1_data = mul_data;
             end
             FU_DIV: begin
-                ex1_data_valid = div_valid && ex2_select != FU_DIV;
+                ex1_data_valid = div_valid && ex2_select_q != FU_DIV;
                 ex1_data = div_data;
             end
             default: begin
@@ -542,77 +539,101 @@ module cpu #(
         endcase
     end
 
-    always_ff @(posedge clk or negedge resetn)
-        if (!resetn) begin
-            ex1_pending <= 1'b0;
-            ex1_select <= FU_ALU;
-            ex1_rd <= '0;
-            ex1_alu_data <= 'x;
-            ex1_pc <= 'x;
-            ex_expected_pc <= '0;
+    logic ex1_pending_d;
+    func_unit_e ex1_select_d;
+    logic [XLEN-1:0] ex1_alu_data_d;
+    logic [XLEN-1:0] ex1_pc_d;
+    logic [4:0] ex1_rd_d;
+    logic [XLEN-1:0] ex_expected_pc_d;
+
+    always_comb begin
+        ex1_pending_d = ex1_pending_q;
+        ex1_select_d = ex1_select_q;
+        ex1_alu_data_d = ex1_alu_data_q;
+        ex1_pc_d = ex1_pc_q;
+        ex1_rd_d = ex1_rd_q;
+        ex_expected_pc_d = ex_expected_pc_q;
+
+        // If data is already valid but we couldn't move it to EX2, we need to prevent
+        // it from being moved to next state.
+        if (ex1_data_valid) begin
+            ex1_select_d = FU_ALU;
+            ex1_alu_data_d = ex1_data;
+        end
+
+        // Reset to default values when the instruction progresses to EX2, or when the MEM
+        // instruction traps regardless whether it is trapped in EX1 or EX2.
+        // If it traps in EX1, then we should cancel it. If it traps in EX2, then any pending
+        // non-memory instruction should run to completion, and EX2 will pick that up for us.
+        if (ex2_ready || mem_trap.valid) begin
+            ex1_pending_d = 1'b0;
+            ex1_select_d = FU_ALU;
+            ex1_rd_d = '0;
+            ex1_alu_data_d = 'x;
+        end
+
+        if (de_ex_handshaked && ex_can_issue) begin
+            ex1_pending_d = 1'b1;
+            ex1_select_d = FU_ALU;
+            ex1_pc_d = de_ex_decoded.pc;
+            ex1_rd_d = de_ex_decoded.rd;
+            ex1_alu_data_d = 'x;
+
+            ex_expected_pc_d = npc;
+
+            case (de_ex_decoded.op_type)
+                ALU: begin
+                    ex1_alu_data_d = alu_result;
+                end
+                BRANCH: begin
+                    ex1_alu_data_d = npc;
+                    ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
+                end
+                SYSTEM: begin
+                    // All other SYSTEM instructions have no return value
+                    ex1_alu_data_d = csr_read;
+                end
+                MEM: begin
+                    ex1_select_d = FU_MEM;
+                end
+                MUL: begin
+                    ex1_select_d = FU_MUL;
+                end
+                DIV: begin
+                    ex1_select_d = FU_DIV;
+                end
+            endcase
+        end
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            ex1_pending_q <= 1'b0;
+            ex1_select_q <= FU_ALU;
+            ex1_rd_q <= '0;
+            ex1_alu_data_q <= 'x;
+            ex1_pc_q <= 'x;
+            ex_expected_pc_q <= '0;
         end
         else begin
-            // If data is already valid but we couldn't move it to EX2, we need to prevent
-            // it from being moved to next state.
-            if (ex1_data_valid) begin
-                ex1_select <= FU_ALU;
-                ex1_alu_data <= ex1_data;
-            end
-
-            // Reset to default values when the instruction progresses to EX2, or when the MEM
-            // instruction traps regardless whether it is trapped in EX1 or EX2.
-            // If it traps in EX1, then we should cancel it. If it traps in EX2, then any pending
-            // non-memory instruction should run to completion, and EX2 will pick that up for us.
-            if (ex2_ready || mem_trap.valid) begin
-                ex1_pending <= 1'b0;
-                ex1_select <= FU_ALU;
-                ex1_rd <= '0;
-                ex1_alu_data <= 'x;
-            end
-
-            if (de_ex_handshaked && ex_can_issue) begin
-                ex1_pending <= 1'b1;
-                ex1_select <= FU_ALU;
-                ex1_pc <= de_ex_decoded.pc;
-                ex1_rd <= de_ex_decoded.rd;
-                ex1_alu_data <= 'x;
-
-                ex_expected_pc <= npc;
-
-                case (de_ex_decoded.op_type)
-                    ALU: begin
-                        ex1_alu_data <= alu_result;
-                    end
-                    BRANCH: begin
-                        ex1_alu_data <= npc;
-                        ex_expected_pc <= compare_result ? {sum[63:1], 1'b0} : npc;
-                    end
-                    SYSTEM: begin
-                        // All other SYSTEM instructions have no return value
-                        ex1_alu_data <= csr_read;
-                    end
-                    MEM: begin
-                        ex1_select <= FU_MEM;
-                    end
-                    MUL: begin
-                        ex1_select <= FU_MUL;
-                    end
-                    DIV: begin
-                        ex1_select <= FU_DIV;
-                    end
-                endcase
-            end
+            ex1_pending_q <= ex1_pending_d;
+            ex1_select_q <= ex1_select_d;
+            ex1_alu_data_q <= ex1_alu_data_d;
+            ex1_pc_q <= ex1_pc_d;
+            ex1_rd_q <= ex1_rd_d;
+            ex_expected_pc_q <= ex_expected_pc_d;
         end
+    end
 
     ///////////////
     // EX2 stage //
     ///////////////
 
     always_comb begin
-        unique case (ex2_select)
+        unique case (ex2_select_q)
             FU_ALU: begin
                 ex2_data_valid = 1'b1;
-                ex2_data = ex2_alu_data;
+                ex2_data = ex2_alu_data_q;
             end
             FU_MEM: begin
                 ex2_data_valid = mem_valid;
@@ -633,61 +654,81 @@ module cpu #(
         endcase
     end
 
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            ex2_pending <= 1'b0;
-            ex2_select <= FU_ALU;
-            ex2_alu_data <= 'x;
-            ex2_pc <= 'x;
-            ex2_rd <= '0;
+    logic ex2_pending_d;
+    func_unit_e ex2_select_d;
+    logic [XLEN-1:0] ex2_alu_data_d;
+    logic [XLEN-1:0] ex2_pc_d;
+    logic [4:0] ex2_rd_d;
+
+    always_comb begin
+        ex2_pending_d = ex2_pending_q;
+        ex2_select_d = ex2_select_q;
+        ex2_alu_data_d = ex2_alu_data_q;
+        ex2_pc_d = ex2_pc_q;
+        ex2_rd_d = ex2_rd_q;
+
+        // Reset to default values when committed, or when the MEM traps in EX2 stage.
+        // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
+        // should still continue until commit.
+        if (ex2_data_valid || (ex2_select_q == FU_MEM && mem_trap.valid)) begin
+            ex2_pending_d = 1'b0;
+            ex2_select_d = FU_ALU;
+            ex2_rd_d = '0;
+            ex2_alu_data_d = 'x;
+        end
+
+        // If a MEM trap happens in EX2 stage, and EX1 stage is executing a non-memory
+        // instruction and not yet completed, if we do nothing we might read out that value
+        // after pipeline restarts. As a safeguard, wait until that to complete but don't
+        // commit the value.
+        if (ex2_select_q == FU_MEM && mem_trap.valid && ex1_select_q != FU_MEM && !ex1_data_valid) begin
+            ex2_pending_d = 1'b1;
+            ex2_select_d = ex1_select_q;
+            ex2_rd_d = '0;
+            ex2_alu_data_d = 'x;
+        end
+
+        // Progress an instruction from EX1 to EX2.
+        // Do not progress an instruction if a MEM traps in EX1. (We don't need to check
+        // ex_select to ensure the MEM is not trapped in EX2 here, as otherwise ex_pending
+        // is true and ex2_data_valid is false, so this won't be executed anyway)
+        if (ex1_pending_q && ex2_ready && !mem_trap.valid) begin
+            ex2_pending_d = 1'b1;
+            ex2_select_d = ex1_select_q;
+            ex2_pc_d = ex1_pc_q;
+            ex2_rd_d = ex1_rd_q;
+            ex2_alu_data_d = 'x;
+
+            // If data is already valid, then move it to ALU register so that we don't wait
+            // for it.
+            if (ex1_data_valid) begin
+                ex2_select_d = FU_ALU;
+                ex2_alu_data_d = ex1_data;
+            end
+        end
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            ex2_pending_q <= 1'b0;
+            ex2_select_q <= FU_ALU;
+            ex2_alu_data_q <= 'x;
+            ex2_pc_q <= 'x;
+            ex2_rd_q <= '0;
         end
         else begin
-            // Reset to default values when committed, or when the MEM traps in EX2 stage.
-            // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
-            // should still continue until commit.
-            if (ex2_data_valid || (ex2_select == FU_MEM && mem_trap.valid)) begin
-                ex2_pending <= 1'b0;
-                ex2_select <= FU_ALU;
-                ex2_rd <= '0;
-                ex2_alu_data <= 'x;
-            end
-
-            // If a MEM trap happens in EX2 stage, and EX1 stage is executing a non-memory
-            // instruction and not yet completed, if we do nothing we might read out that value
-            // after pipeline restarts. As a safeguard, wait until that to complete but don't
-            // commit the value.
-            if (ex2_select == FU_MEM && mem_trap.valid && ex1_select != FU_MEM && !ex1_data_valid) begin
-                ex2_pending <= 1'b1;
-                ex2_select <= ex1_select;
-                ex2_rd <= '0;
-                ex2_alu_data <= 'x;
-            end
-
-            // Progress an instruction from EX1 to EX2.
-            // Do not progress an instruction if a MEM traps in EX1. (We don't need to check
-            // ex_select to ensure the MEM is not trapped in EX2 here, as otherwise ex_pending
-            // is true and ex2_data_valid is false, so this won't be executed anyway)
-            if (ex1_pending && ex2_ready && !mem_trap.valid) begin
-                ex2_pending <= 1'b1;
-                ex2_select <= ex1_select;
-                ex2_pc <= ex1_pc;
-                ex2_rd <= ex1_rd;
-                ex2_alu_data <= 'x;
-
-                // If data is already valid, then move it to ALU register so that we don't wait
-                // for it.
-                if (ex1_data_valid) begin
-                    ex2_select <= FU_ALU;
-                    ex2_alu_data <= ex1_data;
-                end
-            end
+            ex2_pending_q <= ex2_pending_d;
+            ex2_select_q <= ex2_select_d;
+            ex2_alu_data_q <= ex2_alu_data_d;
+            ex2_pc_q <= ex2_pc_d;
+            ex2_rd_q <= ex2_rd_d;
         end
     end
 
     // Multiplier
     mul_unit mul (
-        .clk       (clk),
-        .rstn      (resetn),
+        .clk       (clk_i),
+        .rstn      (rst_ni),
         .operand_a (ex_rs1),
         .operand_b (ex_rs2),
         .i_32      (de_ex_decoded.is_32),
@@ -700,8 +741,8 @@ module cpu #(
 
     // Divider
     div_unit div (
-        .clk        (clk),
-        .rstn       (resetn),
+        .clk        (clk_i),
+        .rstn       (rst_ni),
         .operand_a  (ex_rs1),
         .operand_b  (ex_rs2),
         .use_rem_i  (de_ex_decoded.div.rem),
@@ -731,7 +772,7 @@ module cpu #(
     assign mem_valid = dcache.resp_valid;
     assign mem_data  = dcache.resp_value;
     assign mem_trap  = dcache.resp_exception;
-    assign ex2_mem_notif_ready = dcache.notif_ready;
+    assign mem_notif_ready = dcache.notif_ready;
 
     assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && !de_ex_decoded.csr.imm && csr_select == CSR_SATP);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
@@ -742,22 +783,22 @@ module cpu #(
     reg_file # (
         .XLEN (XLEN)
     ) regfile (
-        .clk (clk),
-        .rstn (resetn),
+        .clk (clk_i),
+        .rstn (rst_ni),
         .ra_sel (de_rs1_select),
         .ra_data (de_ex_rs1),
         .rb_sel (de_rs2_select),
         .rb_data (de_ex_rs2),
-        .w_sel (ex2_rd),
+        .w_sel (ex2_rd_q),
         .w_data (ex2_data),
-        .w_en (ex2_pending && ex2_data_valid)
+        .w_en (ex2_pending_q && ex2_data_valid)
     );
 
     csr_regfile # (
         .XLEN (XLEN)
     ) csr_regfile (
-        .clk (clk),
-        .resetn (resetn),
+        .clk (clk_i),
+        .resetn (rst_ni),
         .pc_sel (de_csr_sel),
         .pc_op (de_csr_op),
         .pc_illegal (de_csr_illegal),
@@ -768,16 +809,16 @@ module cpu #(
         .a_read (csr_read),
         .ex_valid (mem_trap.valid || exception_issue),
         .ex_exception (mem_trap.valid ? mem_trap : exception_pending_q),
-        .ex_epc (mem_trap.valid ? ex2_pc : de_ex_decoded.pc),
+        .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (de_ex_handshaked && ex_can_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
         .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
         .er_epc (er_epc),
-        .int_valid (ex2_int_valid),
-        .int_cause (ex2_int_cause),
-        .wfi_valid (ex2_wfi_valid),
+        .int_valid (int_valid),
+        .int_cause (int_cause),
+        .wfi_valid (wfi_valid),
         .mhartid (mhartid),
-        .hpm_instret (ex2_pending && ex2_data_valid),
+        .hpm_instret (ex2_pending_q && ex2_data_valid),
         .*
     );
 
@@ -798,20 +839,20 @@ module cpu #(
             wb_if_valid = 1'b1;
             wb_if_reason = sys_pc_redirect_reason;
         end
-        else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc != de_ex_decoded.pc) begin
-            wb_if_pc = ex_expected_pc;
+        else if (ex_state_q == ST_NORMAL && de_ex_handshaked && ex_expected_pc_q != de_ex_decoded.pc) begin
+            wb_if_pc = ex_expected_pc_q;
             wb_if_valid = 1'b1;
             wb_if_reason = IF_MISPREDICT;
         end
     end
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_i) begin
         if (mem_trap.valid || exception_issue) begin
-            $display("%t: trap %x", $time, mem_trap.valid ? ex2_pc : de_ex_decoded.pc);
+            $display("%t: trap %x", $time, mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc);
         end
     end
 
     // Debug connections
-    assign dbg_pc = ex2_pc;
+    assign dbg_pc = ex2_pc_q;
 
 endmodule
