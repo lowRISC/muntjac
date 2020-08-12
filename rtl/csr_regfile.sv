@@ -19,14 +19,14 @@ module csr_regfile import muntjac_pkg::*; # (
     output priv_lvl_e          priv_mode_lsu_o,
 
     // Interface to registers (SRAM like)
-    input  csr_t               csr_addr_i,
+    input  csr_num_e           csr_addr_i,
     input  logic [63:0]        csr_wdata_i,
     input  csr_op_e            csr_op_i,
     input                      csr_op_en_i,
     output logic [63:0]        csr_rdata_o,
 
     // Privilege check port used by the decoding stage
-    input  csr_t               pc_sel,
+    input  csr_num_e           pc_sel,
     input  logic [1:0]         pc_op,
     output logic               pc_illegal,
 
@@ -72,8 +72,6 @@ module csr_regfile import muntjac_pkg::*; # (
     localparam BIT_STI = 5;
     localparam BIT_MSI = 3;
     localparam BIT_SSI = 1;
-
-  localparam logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
 
   // misa
   localparam logic [63:0] MISA_VALUE =

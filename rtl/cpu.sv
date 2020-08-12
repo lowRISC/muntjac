@@ -75,7 +75,7 @@ module cpu #(
     // DE stage
     //
     logic [4:0] de_rs1_select, de_rs2_select;
-    csr_t de_csr_sel;
+    csr_num_e de_csr_sel;
     logic [1:0] de_csr_op;
     logic de_csr_illegal;
     decoded_instr_t de_decoded;
@@ -371,10 +371,10 @@ module cpu #(
     ///////////////////////////
 
     // CSRs
-    csr_t csr_select;
+    csr_num_e csr_select;
     logic [XLEN-1:0] csr_read;
     logic [XLEN-1:0] er_epc;
-    assign csr_select = csr_t'(de_ex_decoded.exception.mtval[31:20]);
+    assign csr_select = csr_num_e'(de_ex_decoded.exception.mtval[31:20]);
 
     logic wfi_valid;
     logic mem_notif_ready;

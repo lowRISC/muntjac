@@ -14,7 +14,7 @@ module decoder # (
     // Status for determining if certain operations are allowed.
     input  status_t status,
 
-    output csr_t csr_sel,
+    output csr_num_e csr_sel,
     output logic [1:0] csr_op,
     input  logic csr_illegal
 );
@@ -53,7 +53,7 @@ module decoder # (
     logic [31:0] immediate;
 
     // Wire to CSR privilege checker
-    assign csr_sel = csr_t'(instr_word[31:20]);
+    assign csr_sel = csr_num_e'(instr_word[31:20]);
     assign csr_op = funct3[1] == 1'b1 && rs1 == 0 ? 2'b00 : funct3[1:0];
 
     always_comb begin
