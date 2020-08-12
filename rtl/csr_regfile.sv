@@ -2,13 +2,10 @@ import cpu_common::*;
 import riscv::*;
 
 module csr_regfile # (
-    parameter XLEN = 64,
-    parameter A_EXT = 1'b1,
-    parameter D_EXT = 1'b0,
-    parameter F_EXT = 1'b0,
-    parameter M_EXT = 1'b1,
-    parameter ASIDLEN = XLEN == 64 ? 16 : 9,
-    parameter PHYSLEN = XLEN == 64 ? 56 : 34
+    parameter bit RV64D = 0,
+    parameter bit RV64F = 0,
+    parameter AsidLen = 16,
+    parameter PhysLen = 56
 ) (
     // Clock and reset
     input  logic               clk,
@@ -23,19 +20,19 @@ module csr_regfile # (
     input  logic               a_valid,
     input  csr_t               a_sel,
     input  logic [1:0]         a_op,
-    input  logic [XLEN-1:0]    a_data,
-    output logic [XLEN-1:0]    a_read,
+    input  logic [63:0]        a_data,
+    output logic [63:0]        a_read,
 
     // Exception port. When ex_valid is true, ex_exception.valid is assumed to be true.
     input  logic               ex_valid,
     input  exception_t         ex_exception,
-    input  logic [XLEN-1:0]    ex_epc,
-    output logic [XLEN-1:0]    ex_tvec,
+    input  logic [63:0]        ex_epc,
+    output logic [63:0]        ex_tvec,
 
     // Exception return port
     input  logic               er_valid,
     input  prv_t               er_prv,
-    output logic [XLEN-1:0]    er_epc,
+    output logic [63:0]        er_epc,
 
     // Interrupt pending registers
     input  logic               irq_m_external,
@@ -53,14 +50,14 @@ module csr_regfile # (
 
     // Effective ATP for data access. It is computed from current privilege level, MPRV and SATP.
     output logic               data_prv,
-    output logic [XLEN-1:0]    data_atp,
+    output logic [63:0]        data_atp,
     // Effective ATP for instruction access. It is computed from current privilege level.
-    output logic [XLEN-1:0]    insn_atp,
+    output logic [63:0]        insn_atp,
     output prv_t               prv,
     output status_t            status,
 
     // ID of the current hart
-    input  logic [XLEN-1:0]    mhartid,
+    input  logic [63:0]        mhartid,
 
     // Performance counters
     input  logic               hpm_instret
@@ -73,15 +70,22 @@ module csr_regfile # (
     localparam BIT_MSI = 3;
     localparam BIT_SSI = 1;
 
-    localparam MISA_VAL =
-        {XLEN == 64 ? 2'b10 : 2'b01, {(XLEN-28){1'b0}}, 26'h100} // Base ISA
-        | 26'h40000 // S-Mode
-        | (A_EXT ? 26'h1 : 0) // A-extension
-        | 26'h4 // C-extension
-        | (D_EXT ? 26'h8 : 0) // D-extension
-        | (F_EXT ? 26'h20 : 0) // F-extension
-        | (M_EXT ? 26'h1000 : 0) // M-extension
-        | 26'h100000; // U-Mode
+  localparam logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
+
+  // misa
+  localparam logic [63:0] MISA_VALUE =
+      (1                 <<  0)  // A - Atomic Instructions extension
+    | (1                 <<  2)  // C - Compressed extension
+    | (64'(RV64D)        <<  3)  // D - Double precision floating-point extension
+    | (0                 <<  4)  // E - RV32E base ISA
+    | (64'(RV64F)        <<  5)  // F - Single precision floating-point extension
+    | (1                 <<  8)  // I - RV32I/64I/128I base ISA
+    | (1                 << 12)  // M - Integer Multiply/Divide extension
+    | (0                 << 13)  // N - User level interrupts supported
+    | (1                 << 18)  // S - Supervisor mode implemented
+    | (1                 << 20)  // U - User mode implemented
+    | (0                 << 23)  // X - Non-standard extensions present
+    | (64'(CSR_MISA_MXL) << 62); // M-XLEN
 
     // Current privilege level. prv is defined at port.
     prv_t prv_d;
@@ -114,19 +118,19 @@ module csr_regfile # (
     // End of Interrupt-releated
 
     // The last two bits of these registers must be zero. We don't support vectored mode.
-    logic [XLEN-1:0] mtvec, mtvec_d;
-    logic [XLEN-1:0] stvec, stvec_d;
+    logic [63:0] mtvec, mtvec_d;
+    logic [63:0] stvec, stvec_d;
 
     // The last two bit must be zero.
-    logic [XLEN-1:0] mepc, mepc_d;
-    logic [XLEN-1:0] sepc, sepc_d;
+    logic [63:0] mepc, mepc_d;
+    logic [63:0] sepc, sepc_d;
 
-    logic [XLEN-1:0] mscratch, mscratch_d;
-    logic [XLEN-1:0] mtval, mtval_d;
+    logic [63:0] mscratch, mscratch_d;
+    logic [63:0] mtval, mtval_d;
     logic mcause_interrupt, mcause_interrupt_d;
     logic [3:0] mcause_code, mcause_code_d;
-    logic [XLEN-1:0] sscratch, sscratch_d;
-    logic [XLEN-1:0] stval, stval_d;
+    logic [63:0] sscratch, sscratch_d;
+    logic [63:0] stval, stval_d;
     logic scause_interrupt, scause_interrupt_d;
     logic [3:0] scause_code, scause_code_d;
 
@@ -136,8 +140,8 @@ module csr_regfile # (
 
     // Address Translation
     logic satp_mode, satp_mode_d;
-    logic [ASIDLEN-1:0] satp_asid, satp_asid_d;
-    logic [PHYSLEN-12-1:0] satp_ppn, satp_ppn_d;
+    logic [AsidLen-1:0] satp_asid, satp_asid_d;
+    logic [PhysLen-12-1:0] satp_ppn, satp_ppn_d;
 
     // Counter Enable
     logic [2:0] mcounteren, mcounteren_d;
@@ -149,49 +153,32 @@ module csr_regfile # (
 
     // CSRs assembled from multiple paets
     logic sd;
-    logic [XLEN-1:0] mstatus;
-    logic [XLEN-1:0] sstatus;
-    logic [XLEN-1:0] mcause;
-    logic [XLEN-1:0] scause;
+    logic [63:0] mstatus;
+    logic [63:0] sstatus;
     logic data_atp_mode;
     logic insn_atp_mode;
-    logic [XLEN-1:0] satp;
+    logic [63:0] satp;
 
     assign sd = &status.fs;
-    assign mcause = {mcause_interrupt, {(XLEN-5){1'b0}}, mcause_code};
-    assign scause = {scause_interrupt, {(XLEN-5){1'b0}}, scause_code};
 
     // This value is only relevant when data_atp_mode is not zero.
     assign data_prv = prv == PRV_M ? status.mpp[0] : prv[0];
 
     assign data_atp_mode = prv == PRV_M && (!status.mprv || status.mpp == PRV_M) ? 1'b0 : satp_mode;
     assign insn_atp_mode = prv == PRV_M ? 1'b0 : satp_mode;
-    if (XLEN == 64) begin
-        // Hardwire UXL to 64.
-        assign mstatus = {
-            sd, 27'b0, 2'b10, 2'b10, 9'b0, status.tsr, status.tw, status.tvm, status.mxr, status.sum, status.mprv, 2'b0,
-            status.fs, status.mpp, 2'b0, status.spp, status.mpie, 1'b0, status.spie, 1'b0, status.mie, 1'b0, status.sie, 1'b0
-        };
-        assign sstatus = {
-            sd, 29'b0, 2'b10, 12'b0, status.mxr, status.sum, 3'b0,
-            status.fs, 4'b0, status.spp, 2'b0, status.spie, 3'b0, status.sie, 1'b0
-        };
-        assign satp = {satp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
-        assign data_atp = {data_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
-        assign insn_atp = {insn_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
-    end else begin
-        assign mstatus = {
-            sd, 8'b0, status.tsr, status.tw, status.tvm, status.mxr, status.sum, status.mprv, 2'b0,
-            status.fs, status.mpp, 2'b0, status.spp, status.mpie, 1'b0, status.spie, 1'b0, status.mie, 1'b0, status.sie, 1'b0
-        };
-        assign sstatus = {
-            sd, 11'b0, status.mxr, status.sum, 3'b0,
-            status.fs, 4'b0, status.spp, 2'b0, status.spie, 3'b0, status.sie, 1'b0
-        };
-        assign satp = {satp_mode, 9'(satp_asid), 22'(satp_ppn)};
-        assign data_atp = {data_atp_mode, 9'(satp_asid), 22'(satp_ppn)};
-        assign insn_atp = {insn_atp_mode, 9'(satp_asid), 22'(satp_ppn)};
-    end
+
+    // Hardwire UXL to 64.
+    assign mstatus = {
+        sd, 27'b0, 2'b10, 2'b10, 9'b0, status.tsr, status.tw, status.tvm, status.mxr, status.sum, status.mprv, 2'b0,
+        status.fs, status.mpp, 2'b0, status.spp, status.mpie, 1'b0, status.spie, 1'b0, status.mie, 1'b0, status.sie, 1'b0
+    };
+    assign sstatus = {
+        sd, 29'b0, 2'b10, 12'b0, status.mxr, status.sum, 3'b0,
+        status.fs, 4'b0, status.spp, 2'b0, status.spie, 3'b0, status.sie, 1'b0
+    };
+    assign satp = {satp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
+    assign data_atp = {data_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
+    assign insn_atp = {insn_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
 
     // Privilege checking logic
     logic illegal;
@@ -204,7 +191,7 @@ module csr_regfile # (
         illegal_prv = pc_sel[9:8] > prv;
 
         priority casez (pc_sel)
-            CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!F_EXT || status.fs == 2'b00) illegal = 1'b1;
+            CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!RV64F || status.fs == 2'b00) illegal = 1'b1;
             CSR_CYCLE: if (!((prv > PRV_S || mcounteren[0]) && (prv > PRV_U || scounteren[0]))) illegal = 1'b1;
             CSR_INSTRET: if (!((prv > PRV_S || mcounteren[2]) && (prv > PRV_U || scounteren[2]))) illegal = 1'b1;
             CSR_SSTATUS, CSR_SIE, CSR_STVEC, CSR_SCOUNTEREN:;
@@ -220,8 +207,8 @@ module csr_regfile # (
         pc_illegal = illegal | illegal_readonly | illegal_prv;
     end
 
-    logic [XLEN-1:0] old_value;
-    logic [XLEN-1:0] new_value;
+    logic [63:0] old_value;
+    logic [63:0] new_value;
 
     // CSR reading logic
     always_comb begin
@@ -232,9 +219,9 @@ module csr_regfile # (
             // User Trap Handling CSRs not supported
 
             // User Floating-point CSRs
-            CSR_FFLAGS: if (F_EXT) old_value = fflags;
-            CSR_FRM: if (F_EXT) old_value = frm;
-            CSR_FCSR: if (F_EXT) old_value = {frm, fflags};
+            CSR_FFLAGS: if (RV64F) old_value = fflags;
+            CSR_FRM: if (RV64F) old_value = frm;
+            CSR_FCSR: if (RV64F) old_value = {frm, fflags};
 
             // User Counter/Timers CSRs
             CSR_CYCLE: old_value = mcycle;
@@ -250,7 +237,7 @@ module csr_regfile # (
 
             CSR_SSCRATCH: old_value = sscratch;
             CSR_SEPC: old_value = sepc;
-            CSR_SCAUSE: old_value = scause;
+            CSR_SCAUSE: old_value = {scause_interrupt, 59'b0, scause_code};
             CSR_STVAL: old_value = stval;
             CSR_SIP: old_value = mip & mideleg;
 
@@ -260,7 +247,10 @@ module csr_regfile # (
             CSR_MHARTID: old_value = mhartid;
 
             CSR_MSTATUS: old_value = mstatus;
-            CSR_MISA: old_value = MISA_VAL;
+
+            // misa
+            CSR_MISA: old_value = MISA_VALUE;
+
             CSR_MEDELEG: old_value = medeleg;
             CSR_MIDELEG: old_value = mideleg;
             CSR_MIE: old_value = mie;
@@ -269,7 +259,7 @@ module csr_regfile # (
 
             CSR_MSCRATCH: old_value = mscratch;
             CSR_MEPC: old_value = mepc;
-            CSR_MCAUSE: old_value = mcause;
+            CSR_MCAUSE: old_value = {mcause_interrupt, 59'b0, mcause_code};
             CSR_MTVAL: old_value = mtval;
             CSR_MIP: old_value = mip;
 
@@ -344,13 +334,13 @@ module csr_regfile # (
         unique case (1'b1)
             ex_valid: begin
                 // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
-                if (prv_d != PRV_M &&
+                if (prv != PRV_M &&
                     (ex_exception.mcause_interrupt ? mideleg[ex_exception.mcause_code] : medeleg[ex_exception.mcause_code])) begin
                     ex_tvec = stvec;
 
                     scause_interrupt_d = ex_exception.mcause_interrupt;
                     scause_code_d = ex_exception.mcause_code;
-                    stval_d = ex_exception.mtval[XLEN-1:0];
+                    stval_d = ex_exception.mtval[63:0];
                     sepc_d = ex_epc;
 
                     prv_d = PRV_S;
@@ -364,7 +354,7 @@ module csr_regfile # (
                     // Exception info registers
                     mcause_interrupt_d = ex_exception.mcause_interrupt;
                     mcause_code_d = ex_exception.mcause_code;
-                    mtval_d = ex_exception.mtval[XLEN-1:0];
+                    mtval_d = ex_exception.mtval[63:0];
                     mepc_d = ex_epc;
 
                     // Switch privilege level and set mstatus
@@ -400,9 +390,9 @@ module csr_regfile # (
                         // User Trap Handling CSRs not supported
 
                         // User Floating-point CSRs
-                        CSR_FFLAGS: if (F_EXT) fflags_d = new_value[4:0];
-                        CSR_FRM: if (F_EXT) frm_d = new_value[2:0];
-                        CSR_FCSR: if (F_EXT) begin
+                        CSR_FFLAGS: if (RV64F) fflags_d = new_value[4:0];
+                        CSR_FRM: if (RV64F) frm_d = new_value[2:0];
+                        CSR_FCSR: if (RV64F) begin
                             fflags_d = new_value[4:0];
                             frm_d = new_value[7:5];
                         end
@@ -418,13 +408,13 @@ module csr_regfile # (
                         // SEDELEG does not exist.
                         // SIDELEG does not exist.
                         CSR_SIE: mie_d = (mie &~ mideleg) | (new_value[11:0] & mideleg);
-                        CSR_STVEC: stvec_d = {new_value[XLEN-1:2], 2'b0};
+                        CSR_STVEC: stvec_d = {new_value[63:2], 2'b0};
                         CSR_SCOUNTEREN: scounteren_d = new_value[2:0] & 3'b101;
 
                         CSR_SSCRATCH: sscratch_d = new_value;
-                        CSR_SEPC: sepc_d = {new_value[XLEN-1:1], 1'b0};
+                        CSR_SEPC: sepc_d = {new_value[63:1], 1'b0};
                         CSR_SCAUSE: begin
-                            scause_interrupt_d = new_value[XLEN-1];
+                            scause_interrupt_d = new_value[63];
                             scause_code_d = new_value[3:0];
                         end
                         CSR_STVAL: stval_d = new_value;
@@ -432,9 +422,9 @@ module csr_regfile # (
                             if (mideleg[BIT_SSI]) ssip_d = new_value[BIT_SSI];
                         end
                         CSR_SATP: begin
-                            satp_mode_d = new_value[XLEN-1];
-                            satp_asid_d = new_value[PHYSLEN-12 +: ASIDLEN];
-                            satp_ppn_d  = new_value[0 +: PHYSLEN-12];
+                            satp_mode_d = new_value[63];
+                            satp_asid_d = new_value[PhysLen-12 +: AsidLen];
+                            satp_ppn_d  = new_value[0 +: PhysLen-12];
                         end
 
                         CSR_MSTATUS: begin
@@ -457,13 +447,13 @@ module csr_regfile # (
                         CSR_MEDELEG: medeleg_d = new_value[15:0] & 'hB35D;
                         CSR_MIDELEG: mideleg_d = new_value[11:0] & 'h222;
                         CSR_MIE: mie_d = new_value[11:0] & 'hAAA;
-                        CSR_MTVEC: mtvec_d = {new_value[XLEN-1:2], 2'b0};
+                        CSR_MTVEC: mtvec_d = {new_value[63:2], 2'b0};
                         CSR_MCOUNTEREN: mcounteren_d = new_value[2:0] & 3'b101;
 
                         CSR_MSCRATCH: mscratch_d = new_value;
-                        CSR_MEPC: mepc_d = {new_value[XLEN-1:1], 1'b0};
+                        CSR_MEPC: mepc_d = {new_value[63:1], 1'b0};
                         CSR_MCAUSE: begin
-                            mcause_interrupt_d = new_value[XLEN-1];
+                            mcause_interrupt_d = new_value[63];
                             mcause_code_d = new_value[3:0];
                         end
                         CSR_MTVAL: mtval_d = new_value;

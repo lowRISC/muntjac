@@ -354,6 +354,17 @@ module cpu #(
         end
     end
 
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            ex_state_q <= ST_FLUSH;
+            mispredict_q <= 1'b0;
+        end
+        else begin
+            ex_state_q <= ex_state_d;
+            mispredict_q <= mispredict_d;
+        end
+    end
+
     ///////////////////////////
     // Control State Machine //
     ///////////////////////////
@@ -452,14 +463,10 @@ module cpu #(
     // State machine state assignments
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            ex_state_q <= ST_FLUSH;
             sys_state_q <= SYS_IDLE;
-            mispredict_q <= 1'b0;
         end
         else begin
-            ex_state_q <= ex_state_d;
             sys_state_q <= sys_state_d;
-            mispredict_q <= mispredict_d;
         end
     end
 
@@ -811,9 +818,7 @@ module cpu #(
         .w_en (ex2_pending_q && ex2_data_valid)
     );
 
-    csr_regfile # (
-        .XLEN (XLEN)
-    ) csr_regfile (
+    csr_regfile csr_regfile (
         .clk (clk_i),
         .resetn (rst_ni),
         .pc_sel (de_csr_sel),

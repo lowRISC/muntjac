@@ -31,7 +31,7 @@ interface dcache_intf #(
     logic [XLEN-1:0] resp_value;
     exception_t      resp_exception;
 
-    // Notification on SFENCE.VMA 
+    // Notification on SFENCE.VMA
     logic            notif_valid;
     // 1'b0 -> SATP changed, 1'b1 -> SFENCE.VMA
     logic            notif_reason;
