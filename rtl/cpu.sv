@@ -27,10 +27,9 @@ module cpu #(
     localparam BRANCH_PRED = 1;
 
     // CSR
-    logic data_prv;
-    logic [XLEN-1:0] data_atp;
-    logic [XLEN-1:0] insn_atp;
+    logic [XLEN-1:0] satp;
     priv_lvl_e prv;
+    priv_lvl_e data_prv;
     status_t status;
 
     // WB-IF interfacing, valid only when a PC override is required.
@@ -58,7 +57,7 @@ module cpu #(
         .i_reason (wb_if_reason),
         .i_prv (prv[0]),
         .i_sum (status.sum),
-        .i_atp (insn_atp),
+        .i_atp ({prv == PRIV_LVL_M ? 4'd0 : satp[63:60], satp[59:0]}),
         .o_valid (if_de_valid),
         .o_ready (if_de_ready),
         .o_fetched_instr (if_de_instr)
@@ -789,10 +788,10 @@ module cpu #(
     assign dcache.req_size     = de_ex_decoded.mem.size;
     assign dcache.req_unsigned = de_ex_decoded.mem.zeroext;
     assign dcache.req_value    = ex_rs2;
-    assign dcache.req_prv      = data_prv;
+    assign dcache.req_prv      = data_prv[0];
     assign dcache.req_sum      = status.sum;
     assign dcache.req_mxr      = status.mxr;
-    assign dcache.req_atp      = data_atp;
+    assign dcache.req_atp      = {data_prv == PRIV_LVL_M ? 4'd0 : satp[63:60], satp[59:0]};
     assign mem_valid = dcache.resp_valid;
     assign mem_data  = dcache.resp_value;
     assign mem_trap  = dcache.resp_exception;
@@ -824,15 +823,20 @@ module cpu #(
         .rst_ni,
         .hart_id_i (mhartid),
         .priv_mode_o (prv),
-        .priv_mode_lsu_o (),
-        .pc_sel (de_csr_sel),
-        .pc_op (de_csr_op),
-        .pc_illegal (de_csr_illegal),
+        .priv_mode_lsu_o (data_prv),
+        .check_addr_i (de_csr_sel),
+        .check_op_i (csr_op_e'(de_csr_op)),
+        .check_illegal_o (de_csr_illegal),
         .csr_addr_i (csr_select),
         .csr_wdata_i (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
         .csr_op_i (csr_op_e'(de_ex_decoded.csr.op)),
         .csr_op_en_i (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
         .csr_rdata_o (csr_read),
+        .irq_m_software_i (irq_m_software),
+        .irq_m_timer_i (irq_m_timer),
+        .irq_m_external_i (irq_m_external),
+        .irq_s_external_i (irq_s_external),
+        .satp_o (satp),
         .ex_valid (mem_trap.valid || exception_issue),
         .ex_exception (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
@@ -844,7 +848,7 @@ module cpu #(
         .int_cause (int_cause),
         .wfi_valid (wfi_valid),
         .hpm_instret (ex2_pending_q && ex2_data_valid),
-        .*
+        .status
     );
 
     always_comb begin

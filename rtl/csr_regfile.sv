@@ -18,6 +18,11 @@ module csr_regfile import muntjac_pkg::*; # (
     output priv_lvl_e          priv_mode_o,
     output priv_lvl_e          priv_mode_lsu_o,
 
+    // CSR Access check port (in ID stage)
+    input  csr_num_e           check_addr_i,
+    input  csr_op_e            check_op_i,
+    output logic               check_illegal_o,
+
     // Interface to registers (SRAM like)
     input  csr_num_e           csr_addr_i,
     input  logic [63:0]        csr_wdata_i,
@@ -25,10 +30,14 @@ module csr_regfile import muntjac_pkg::*; # (
     input                      csr_op_en_i,
     output logic [63:0]        csr_rdata_o,
 
-    // Privilege check port used by the decoding stage
-    input  csr_num_e           pc_sel,
-    input  logic [1:0]         pc_op,
-    output logic               pc_illegal,
+    // Interrupts
+    input  logic               irq_m_software_i,
+    input  logic               irq_m_timer_i,
+    input  logic               irq_m_external_i,
+    input  logic               irq_s_external_i,
+
+    // SATP
+    output logic [63:0]        satp_o,
 
     // Exception port. When ex_valid is true, ex_exception.valid is assumed to be true.
     input  logic               ex_valid,
@@ -41,12 +50,6 @@ module csr_regfile import muntjac_pkg::*; # (
     input  priv_lvl_e          er_prv,
     output logic [63:0]        er_epc,
 
-    // Interrupt pending registers
-    input  logic               irq_m_external,
-    input  logic               irq_m_software,
-    input  logic               irq_m_timer,
-    input  logic               irq_s_external,
-
     // Interrupt output port
     output logic               int_valid,
     output logic [3:0]         int_cause,
@@ -55,11 +58,7 @@ module csr_regfile import muntjac_pkg::*; # (
     // according to MSTATUS.
     output logic               wfi_valid,
 
-    // Effective ATP for data access. It is computed from current privilege level, MPRV and SATP.
-    output logic               data_prv,
-    output logic [63:0]        data_atp,
     // Effective ATP for instruction access. It is computed from current privilege level.
-    output logic [63:0]        insn_atp,
     output status_t            status,
 
     // Performance counters
@@ -88,7 +87,7 @@ module csr_regfile import muntjac_pkg::*; # (
     | (0                 << 23)  // X - Non-standard extensions present
     | (64'(CSR_MISA_MXL) << 62); // M-XLEN
 
-    // Current privilege level. prv is defined at port.
+    // Current privilege level.
     priv_lvl_e prv, prv_d;
 
     assign priv_mode_o = prv;
@@ -113,9 +112,9 @@ module csr_regfile import muntjac_pkg::*; # (
     // Assemble the full MIP register from parts.
     logic [11:0] mip;
     assign mip = {
-        irq_m_external, 1'b0, seip, 1'b0,
-        irq_m_timer, 1'b0, stip, 1'b0,
-        irq_m_software, 1'b0, ssip, 1'b0
+        irq_m_external_i, 1'b0, seip, 1'b0,
+        irq_m_timer_i, 1'b0, stip, 1'b0,
+        irq_m_software_i, 1'b0, ssip, 1'b0
     };
 
     //
@@ -159,17 +158,8 @@ module csr_regfile import muntjac_pkg::*; # (
     logic sd;
     logic [63:0] mstatus;
     logic [63:0] sstatus;
-    logic data_atp_mode;
-    logic insn_atp_mode;
-    logic [63:0] satp;
 
     assign sd = &status.fs;
-
-    // This value is only relevant when data_atp_mode is not zero.
-    assign data_prv = prv == PRIV_LVL_M ? status.mpp[0] : prv[0];
-
-    assign data_atp_mode = priv_mode_lsu_o == PRIV_LVL_M ? 1'b0 : satp_mode;
-    assign insn_atp_mode = prv == PRIV_LVL_M ? 1'b0 : satp_mode;
 
     // Hardwire UXL to 64.
     assign mstatus = {
@@ -180,9 +170,7 @@ module csr_regfile import muntjac_pkg::*; # (
         sd, 29'b0, 2'b10, 12'b0, status.mxr, status.sum, 3'b0,
         status.fs, 4'b0, status.spp, 2'b0, status.spie, 3'b0, status.sie, 1'b0
     };
-    assign satp = {satp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
-    assign data_atp = {data_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
-    assign insn_atp = {insn_atp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
+    assign satp_o = {satp_mode, 3'b0, 16'(satp_asid), 44'(satp_ppn)};
 
     // Privilege checking logic
     logic illegal;
@@ -191,10 +179,10 @@ module csr_regfile import muntjac_pkg::*; # (
 
     always_comb begin
         illegal = 1'b0;
-        illegal_readonly = pc_sel[11:10] == 2'b11 && pc_op != 2'b00;
-        illegal_prv = pc_sel[9:8] > prv;
+        illegal_readonly = check_addr_i[11:10] == 2'b11 && check_op_i != CSR_OP_READ;
+        illegal_prv = check_addr_i[9:8] > prv;
 
-        priority casez (pc_sel)
+        priority casez (check_addr_i)
             CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!RV64F || status.fs == 2'b00) illegal = 1'b1;
             CSR_CYCLE: if (!((prv > PRIV_LVL_S || mcounteren[0]) && (prv > PRIV_LVL_U || scounteren[0]))) illegal = 1'b1;
             CSR_INSTRET: if (!((prv > PRIV_LVL_S || mcounteren[2]) && (prv > PRIV_LVL_U || scounteren[2]))) illegal = 1'b1;
@@ -208,7 +196,7 @@ module csr_regfile import muntjac_pkg::*; # (
             CSR_MHPMCOUNTERS, CSR_MHPMEVENTS, CSR_MCOUNTINHIBIT:;
             default: illegal = 1'b1;
         endcase
-        pc_illegal = illegal | illegal_readonly | illegal_prv;
+        check_illegal_o = illegal | illegal_readonly | illegal_prv;
     end
 
     logic [63:0] old_value;
@@ -245,7 +233,7 @@ module csr_regfile import muntjac_pkg::*; # (
             CSR_STVAL: old_value = stval;
             CSR_SIP: old_value = mip & mideleg;
 
-            CSR_SATP: old_value = satp;
+            CSR_SATP: old_value = satp_o;
 
             CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID: old_value = '0;
             CSR_MHARTID: old_value = hart_id_i;
@@ -278,8 +266,8 @@ module csr_regfile import muntjac_pkg::*; # (
             default: old_value = 'x;
         endcase
         priority casez (csr_addr_i)
-            CSR_SIP: csr_rdata_o = old_value | {irq_s_external, 9'b0} & mideleg;
-            CSR_MIP: csr_rdata_o = old_value | {irq_s_external, 9'b0};
+            CSR_SIP: csr_rdata_o = old_value | {irq_s_external_i, 9'b0} & mideleg;
+            CSR_MIP: csr_rdata_o = old_value | {irq_s_external_i, 9'b0};
             default: csr_rdata_o = old_value;
         endcase
     end
@@ -494,9 +482,9 @@ module csr_regfile import muntjac_pkg::*; # (
 
     always_comb begin
         irq_high = {
-            irq_m_external, 1'b0, irq_s_external | seip_d, 1'b0,
-            irq_m_timer, 1'b0, stip_d, 1'b0,
-            irq_m_software, 1'b0, ssip_d, 1'b0
+            irq_m_external_i, 1'b0, irq_s_external_i | seip_d, 1'b0,
+            irq_m_timer_i, 1'b0, stip_d, 1'b0,
+            irq_m_software_i, 1'b0, ssip_d, 1'b0
         };
         irq_high_enable = irq_high & mie_d;
         irq_pending_m_d = irq_high_enable & ~mideleg_d;
