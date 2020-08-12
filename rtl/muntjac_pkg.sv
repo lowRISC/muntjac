@@ -125,6 +125,24 @@ typedef struct packed {
   logic sie;
 } status_t;
 
+// CSR status bits
+parameter int unsigned CSR_MSTATUS_SIE_BIT      = 1;
+parameter int unsigned CSR_MSTATUS_MIE_BIT      = 3;
+parameter int unsigned CSR_MSTATUS_SPIE_BIT     = 5;
+parameter int unsigned CSR_MSTATUS_MPIE_BIT     = 7;
+parameter int unsigned CSR_MSTATUS_SPP_BIT      = 8;
+parameter int unsigned CSR_MSTATUS_MPP_BIT_LOW  = 11;
+parameter int unsigned CSR_MSTATUS_MPP_BIT_HIGH = 12;
+parameter int unsigned CSR_MSTATUS_FS_BIT_LOW   = 13;
+parameter int unsigned CSR_MSTATUS_FS_BIT_HIGH  = 14;
+parameter int unsigned CSR_MSTATUS_MPRV_BIT     = 17;
+parameter int unsigned CSR_MSTATUS_SUM_BIT      = 18;
+parameter int unsigned CSR_MSTATUS_MXR_BIT      = 19;
+parameter int unsigned CSR_MSTATUS_TVM_BIT      = 20;
+parameter int unsigned CSR_MSTATUS_TW_BIT       = 21;
+parameter int unsigned CSR_MSTATUS_TSR_BIT      = 22;
+parameter int unsigned CSR_MSTATUS_SD_BIT       = 63;
+
 // CSR machine ISA
 parameter logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
 

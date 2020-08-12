@@ -153,22 +153,6 @@ module csr_regfile import muntjac_pkg::*; # (
   logic [63:0] mcycle_q, mcycle_d;
   logic [63:0] minstret_q, minstret_d;
 
-  // CSRs assembled from multiple paets
-  logic sd;
-  logic [63:0] mstatus;
-  logic [63:0] sstatus;
-
-  assign sd = &mstatus_q.fs;
-
-  // Hardwire UXL to 64.
-  assign mstatus = {
-      sd, 27'b0, 2'b10, 2'b10, 9'b0, mstatus_q.tsr, mstatus_q.tw, mstatus_q.tvm, mstatus_q.mxr, mstatus_q.sum, mstatus_q.mprv, 2'b0,
-      mstatus_q.fs, mstatus_q.mpp, 2'b0, mstatus_q.spp, mstatus_q.mpie, 1'b0, mstatus_q.spie, 1'b0, mstatus_q.mie, 1'b0, mstatus_q.sie, 1'b0
-  };
-  assign sstatus = {
-      sd, 29'b0, 2'b10, 12'b0, mstatus_q.mxr, mstatus_q.sum, 3'b0,
-      mstatus_q.fs, 4'b0, mstatus_q.spp, 2'b0, mstatus_q.spie, 3'b0, mstatus_q.sie, 1'b0
-  };
   assign satp_o = {satp_mode_q, 3'b0, 16'(satp_asid_q), 44'(satp_ppn_q)};
 
   // Privilege checking logic
@@ -219,7 +203,16 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_INSTRET: old_value = minstret_q;
       // TIME and HPMCOUNTERS does not exist MCOUNTEREN bits are hardwired to zero.
 
-      CSR_SSTATUS: old_value = sstatus;
+      CSR_SSTATUS: begin
+        old_value = '0;
+        old_value[CSR_MSTATUS_SIE_BIT]                            = mstatus_q.sie;
+        old_value[CSR_MSTATUS_SPIE_BIT]                           = mstatus_q.spie;
+        old_value[CSR_MSTATUS_SPP_BIT]                            = mstatus_q.spp;
+        old_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW] = mstatus_q.fs;
+        old_value[CSR_MSTATUS_SUM_BIT]                            = mstatus_q.sum;
+        old_value[CSR_MSTATUS_MXR_BIT]                            = mstatus_q.mxr;
+        old_value[CSR_MSTATUS_SD_BIT]                             = &mstatus_q.fs;
+      end
       // SEDELEG does not exist.
       // SIDELEG does not exist.
       CSR_SIE: old_value = mie_q & mideleg_q;
@@ -237,7 +230,23 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID: old_value = '0;
       CSR_MHARTID: old_value = hart_id_i;
 
-      CSR_MSTATUS: old_value = mstatus;
+      CSR_MSTATUS: begin
+        old_value = '0;
+        old_value[CSR_MSTATUS_SIE_BIT]                              = mstatus_q.sie;
+        old_value[CSR_MSTATUS_MIE_BIT]                              = mstatus_q.mie;
+        old_value[CSR_MSTATUS_SPIE_BIT]                             = mstatus_q.spie;
+        old_value[CSR_MSTATUS_MPIE_BIT]                             = mstatus_q.mpie;
+        old_value[CSR_MSTATUS_SPP_BIT]                              = mstatus_q.spp;
+        old_value[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW] = mstatus_q.mpp;
+        old_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW]   = mstatus_q.fs;
+        old_value[CSR_MSTATUS_MPRV_BIT]                             = mstatus_q.mprv;
+        old_value[CSR_MSTATUS_SUM_BIT]                              = mstatus_q.sum;
+        old_value[CSR_MSTATUS_MXR_BIT]                              = mstatus_q.mxr;
+        old_value[CSR_MSTATUS_TVM_BIT]                              = mstatus_q.tvm;
+        old_value[CSR_MSTATUS_TW_BIT]                               = mstatus_q.tw;
+        old_value[CSR_MSTATUS_TSR_BIT]                              = mstatus_q.tsr;
+        old_value[CSR_MSTATUS_SD_BIT]                               = &mstatus_q.fs;
+      end
 
       // misa
       CSR_MISA: old_value = MISA_VALUE;
@@ -389,12 +398,12 @@ module csr_regfile import muntjac_pkg::*; # (
             end
 
             CSR_SSTATUS: begin
-                mstatus_d.mxr    = new_value[19];
-                mstatus_d.sum    = new_value[18];
-                mstatus_d.fs     = new_value[14:13];
-                mstatus_d.spp    = new_value[8];
-                mstatus_d.spie   = new_value[5];
-                mstatus_d.sie    = new_value[1];
+              mstatus_d.sie  = new_value[CSR_MSTATUS_SIE_BIT];
+              mstatus_d.spie = new_value[CSR_MSTATUS_SPIE_BIT];
+              mstatus_d.spp  = new_value[CSR_MSTATUS_SPP_BIT];
+              mstatus_d.fs   = new_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
+              mstatus_d.sum  = new_value[CSR_MSTATUS_SUM_BIT];
+              mstatus_d.mxr  = new_value[CSR_MSTATUS_MXR_BIT];
             end
             // SEDELEG does not exist.
             // SIDELEG does not exist.
@@ -419,20 +428,23 @@ module csr_regfile import muntjac_pkg::*; # (
             end
 
             CSR_MSTATUS: begin
-                mstatus_d.tsr    = new_value[22];
-                mstatus_d.tw     = new_value[21];
-                mstatus_d.tvm    = new_value[20];
-                mstatus_d.mxr    = new_value[19];
-                mstatus_d.sum    = new_value[18];
-                mstatus_d.mprv   = new_value[17];
-                mstatus_d.fs     = new_value[14:13];
-                // We don't support H-Mode
-                if (new_value[12:11] != 2'b10) mstatus_d.mpp = priv_lvl_e'(new_value[12:11]);
-                mstatus_d.spp    = new_value[8];
-                mstatus_d.mpie   = new_value[7];
-                mstatus_d.spie   = new_value[5];
-                mstatus_d.mie    = new_value[3];
-                mstatus_d.sie    = new_value[1];
+              mstatus_d.sie  = new_value[CSR_MSTATUS_SIE_BIT];
+              mstatus_d.mie  = new_value[CSR_MSTATUS_MIE_BIT];
+              mstatus_d.spie = new_value[CSR_MSTATUS_SPIE_BIT];
+              mstatus_d.mpie = new_value[CSR_MSTATUS_MPIE_BIT];
+              mstatus_d.spp  = new_value[CSR_MSTATUS_SPP_BIT];
+              mstatus_d.mpp  = priv_lvl_e'(new_value[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW]);
+              mstatus_d.fs   = new_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
+              mstatus_d.mprv = new_value[CSR_MSTATUS_MPRV_BIT];
+              mstatus_d.sum  = new_value[CSR_MSTATUS_SUM_BIT];
+              mstatus_d.mxr  = new_value[CSR_MSTATUS_MXR_BIT];
+              mstatus_d.tvm  = new_value[CSR_MSTATUS_TVM_BIT];
+              mstatus_d.tw   = new_value[CSR_MSTATUS_TW_BIT];
+              mstatus_d.tsr  = new_value[CSR_MSTATUS_TSR_BIT];
+              // Convert illegal values to M-mode
+              if (mstatus_d.mpp == PRIV_LVL_H) begin
+                mstatus_d.mpp = PRIV_LVL_M;
+              end
             end
             CSR_MISA:;
             CSR_MEDELEG: medeleg_d = new_value[15:0] & 'hB35D;
