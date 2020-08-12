@@ -18,17 +18,17 @@ module csr_regfile import muntjac_pkg::*; # (
     output priv_lvl_e          priv_mode_o,
     output priv_lvl_e          priv_mode_lsu_o,
 
+    // Interface to registers (SRAM like)
+    input  csr_t               csr_addr_i,
+    input  logic [63:0]        csr_wdata_i,
+    input  csr_op_e            csr_op_i,
+    input                      csr_op_en_i,
+    output logic [63:0]        csr_rdata_o,
+
     // Privilege check port used by the decoding stage
     input  csr_t               pc_sel,
     input  logic [1:0]         pc_op,
     output logic               pc_illegal,
-
-    // Access port
-    input  logic               a_valid,
-    input  csr_t               a_sel,
-    input  logic [1:0]         a_op,
-    input  logic [63:0]        a_data,
-    output logic [63:0]        a_read,
 
     // Exception port. When ex_valid is true, ex_exception.valid is assumed to be true.
     input  logic               ex_valid,
@@ -220,7 +220,7 @@ module csr_regfile import muntjac_pkg::*; # (
     always_comb begin
         old_value = 'x;
 
-        priority casez (a_sel)
+        priority casez (csr_addr_i)
             // User Trap Setup CSRs not supported
             // User Trap Handling CSRs not supported
 
@@ -279,20 +279,20 @@ module csr_regfile import muntjac_pkg::*; # (
             CSR_MCOUNTINHIBIT: old_value = '0;
             default: old_value = 'x;
         endcase
-        priority casez (a_sel)
-            CSR_SIP: a_read = old_value | {irq_s_external, 9'b0} & mideleg;
-            CSR_MIP: a_read = old_value | {irq_s_external, 9'b0};
-            default: a_read = old_value;
+        priority casez (csr_addr_i)
+            CSR_SIP: csr_rdata_o = old_value | {irq_s_external, 9'b0} & mideleg;
+            CSR_MIP: csr_rdata_o = old_value | {irq_s_external, 9'b0};
+            default: csr_rdata_o = old_value;
         endcase
     end
 
     // Perform read-modify-write operations.
     always_comb begin
-        unique case (a_op)
-            2'b01: new_value = a_data;
-            2'b10: new_value = old_value | a_data;
-            2'b11: new_value = old_value &~ a_data;
-            // This catches both `a_op = 'x` case and `a_op = 2'b00` case (don't modify)
+        unique case (csr_op_i)
+            CSR_OP_WRITE: new_value = csr_wdata_i;
+            CSR_OP_SET: new_value = old_value | csr_wdata_i;
+            CSR_OP_CLEAR: new_value = old_value &~ csr_wdata_i;
+            // This catches both `csr_op_i = 'x` case and `csr_op_i = 2'b00` case (don't modify)
             default: new_value = 'x;
         endcase
     end
@@ -389,9 +389,9 @@ module csr_regfile import muntjac_pkg::*; # (
                     if (status.mpp != PRIV_LVL_M) status_d.mprv = 1'b0;
                 end
             end
-            a_valid: begin
-                if (a_op != 2'b00) begin
-                    priority casez (a_sel)
+            csr_op_en_i: begin
+                if (csr_op_i != CSR_OP_READ) begin
+                    priority casez (csr_addr_i)
                         // User Trap Setup CSRs not supported
                         // User Trap Handling CSRs not supported
 
