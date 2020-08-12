@@ -1,5 +1,6 @@
 import riscv::*;
 import cpu_common::*;
+import muntjac_pkg::*;
 
 module cpu #(
     parameter XLEN = 64
@@ -29,7 +30,7 @@ module cpu #(
     logic data_prv;
     logic [XLEN-1:0] data_atp;
     logic [XLEN-1:0] insn_atp;
-    prv_t prv;
+    priv_lvl_e prv;
     status_t status;
 
     // WB-IF interfacing, valid only when a PC override is required.
@@ -819,8 +820,11 @@ module cpu #(
     );
 
     csr_regfile csr_regfile (
-        .clk (clk_i),
-        .resetn (rst_ni),
+        .clk_i,
+        .rst_ni,
+        .hart_id_i (mhartid),
+        .priv_mode_o (prv),
+        .priv_mode_lsu_o (),
         .pc_sel (de_csr_sel),
         .pc_op (de_csr_op),
         .pc_illegal (de_csr_illegal),
@@ -834,12 +838,11 @@ module cpu #(
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
-        .er_prv (de_ex_decoded.exception.mtval[29] ? PRV_M : PRV_S),
+        .er_prv (de_ex_decoded.exception.mtval[29] ? PRIV_LVL_M : PRIV_LVL_S),
         .er_epc (er_epc),
         .int_valid (int_valid),
         .int_cause (int_cause),
         .wfi_valid (wfi_valid),
-        .mhartid (mhartid),
         .hpm_instret (ex2_pending_q && ex2_data_valid),
         .*
     );

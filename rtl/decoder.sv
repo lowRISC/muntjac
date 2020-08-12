@@ -1,5 +1,6 @@
 import cpu_common::*;
 import riscv::*;
+import muntjac_pkg::*;
 
 module decoder # (
     // Decide the base ISA to use. Note that the decoded immediate length will always be 32 bits.
@@ -9,7 +10,7 @@ module decoder # (
     output decoded_instr_t decoded_instr,
 
     // Currently privilege, for decode-stage privilege checking.
-    input  prv_t prv,
+    input  muntjac_pkg::priv_lvl_e prv,
     // Status for determining if certain operations are allowed.
     input  status_t status,
 
@@ -412,7 +413,7 @@ module decoder # (
                             decoded_instr.sys_op  = ERET;
 
                             // MRET is only allowed if currently in M-mode
-                            if (prv != PRV_M) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M) decoded_instr.exception.valid = 1'b1;
                         end
                         12'b0001000_00010: begin
                             decoded_instr.op_type = SYSTEM;
@@ -421,7 +422,7 @@ module decoder # (
                             // SRET is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TVM is not 1.
-                            if (prv != PRV_M && (prv != PRV_S || status.tsr)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tsr)) decoded_instr.exception.valid = 1'b1;
                         end
                         12'b0001000_00101: begin
                             decoded_instr.op_type = SYSTEM;
@@ -430,7 +431,7 @@ module decoder # (
                             // WFI is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TW is not 1.
-                            if (prv != PRV_M && (prv != PRV_S || status.tw)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tw)) decoded_instr.exception.valid = 1'b1;
                         end
                         // Decode SFENCE.VMA
                         12'b0001001_?????: begin
@@ -442,7 +443,7 @@ module decoder # (
                             // SFENCE.VMA is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TVM is not 1.
-                            if (prv != PRV_M && (prv != PRV_S || status.tvm)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tvm)) decoded_instr.exception.valid = 1'b1;
                         end
                         default: decoded_instr.exception.valid = 1'b1;
                     endcase

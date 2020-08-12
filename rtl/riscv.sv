@@ -103,12 +103,4 @@ typedef enum logic [11:0] {
     CSR_DSCRATCH        = 12'h7B2
 } csr_t;
 
-// Privilege mode
-typedef enum logic [1:0] {
-    PRV_U = 2'b00,
-    PRV_S = 2'b01,
-    PRV_H = 2'b10,
-    PRV_M = 2'b11
-} prv_t;
-
 endpackage

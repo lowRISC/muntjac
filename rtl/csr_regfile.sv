@@ -1,15 +1,22 @@
 import cpu_common::*;
 import riscv::*;
 
-module csr_regfile # (
+module csr_regfile import muntjac_pkg::*; # (
     parameter bit RV64D = 0,
     parameter bit RV64F = 0,
     parameter AsidLen = 16,
     parameter PhysLen = 56
 ) (
-    // Clock and reset
-    input  logic               clk,
-    input  logic               resetn,
+    // Clock and Reset
+    input  logic               clk_i,
+    input  logic               rst_ni,
+
+    // Hart ID
+    input  logic [63:0]        hart_id_i,
+
+    // Privilege mode
+    output priv_lvl_e          priv_mode_o,
+    output priv_lvl_e          priv_mode_lsu_o,
 
     // Privilege check port used by the decoding stage
     input  csr_t               pc_sel,
@@ -31,7 +38,7 @@ module csr_regfile # (
 
     // Exception return port
     input  logic               er_valid,
-    input  prv_t               er_prv,
+    input  priv_lvl_e          er_prv,
     output logic [63:0]        er_epc,
 
     // Interrupt pending registers
@@ -53,11 +60,7 @@ module csr_regfile # (
     output logic [63:0]        data_atp,
     // Effective ATP for instruction access. It is computed from current privilege level.
     output logic [63:0]        insn_atp,
-    output prv_t               prv,
     output status_t            status,
-
-    // ID of the current hart
-    input  logic [63:0]        mhartid,
 
     // Performance counters
     input  logic               hpm_instret
@@ -88,7 +91,10 @@ module csr_regfile # (
     | (64'(CSR_MISA_MXL) << 62); // M-XLEN
 
     // Current privilege level. prv is defined at port.
-    prv_t prv_d;
+    priv_lvl_e prv, prv_d;
+
+    assign priv_mode_o = prv;
+    assign priv_mode_lsu_o = status.mprv ? status.mpp : prv;
 
     // Status fields
     status_t status_d;
@@ -162,10 +168,10 @@ module csr_regfile # (
     assign sd = &status.fs;
 
     // This value is only relevant when data_atp_mode is not zero.
-    assign data_prv = prv == PRV_M ? status.mpp[0] : prv[0];
+    assign data_prv = prv == PRIV_LVL_M ? status.mpp[0] : prv[0];
 
-    assign data_atp_mode = prv == PRV_M && (!status.mprv || status.mpp == PRV_M) ? 1'b0 : satp_mode;
-    assign insn_atp_mode = prv == PRV_M ? 1'b0 : satp_mode;
+    assign data_atp_mode = priv_mode_lsu_o == PRIV_LVL_M ? 1'b0 : satp_mode;
+    assign insn_atp_mode = prv == PRIV_LVL_M ? 1'b0 : satp_mode;
 
     // Hardwire UXL to 64.
     assign mstatus = {
@@ -192,11 +198,11 @@ module csr_regfile # (
 
         priority casez (pc_sel)
             CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!RV64F || status.fs == 2'b00) illegal = 1'b1;
-            CSR_CYCLE: if (!((prv > PRV_S || mcounteren[0]) && (prv > PRV_U || scounteren[0]))) illegal = 1'b1;
-            CSR_INSTRET: if (!((prv > PRV_S || mcounteren[2]) && (prv > PRV_U || scounteren[2]))) illegal = 1'b1;
+            CSR_CYCLE: if (!((prv > PRIV_LVL_S || mcounteren[0]) && (prv > PRIV_LVL_U || scounteren[0]))) illegal = 1'b1;
+            CSR_INSTRET: if (!((prv > PRIV_LVL_S || mcounteren[2]) && (prv > PRIV_LVL_U || scounteren[2]))) illegal = 1'b1;
             CSR_SSTATUS, CSR_SIE, CSR_STVEC, CSR_SCOUNTEREN:;
             CSR_SSCRATCH, CSR_SEPC, CSR_SCAUSE, CSR_STVAL, CSR_SIP:;
-            CSR_SATP: if (prv != PRV_M && status.tvm) illegal = 1'b1;
+            CSR_SATP: if (prv != PRIV_LVL_M && status.tvm) illegal = 1'b1;
             CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID, CSR_MHARTID:;
             CSR_MSTATUS, CSR_MISA, CSR_MEDELEG, CSR_MIDELEG, CSR_MIE, CSR_MTVEC, CSR_MCOUNTEREN:;
             CSR_MSCRATCH, CSR_MEPC, CSR_MCAUSE, CSR_MTVAL, CSR_MIP:;
@@ -244,7 +250,7 @@ module csr_regfile # (
             CSR_SATP: old_value = satp;
 
             CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID: old_value = '0;
-            CSR_MHARTID: old_value = mhartid;
+            CSR_MHARTID: old_value = hart_id_i;
 
             CSR_MSTATUS: old_value = mstatus;
 
@@ -334,7 +340,7 @@ module csr_regfile # (
         unique case (1'b1)
             ex_valid: begin
                 // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
-                if (prv != PRV_M &&
+                if (prv != PRIV_LVL_M &&
                     (ex_exception.mcause_interrupt ? mideleg[ex_exception.mcause_code] : medeleg[ex_exception.mcause_code])) begin
                     ex_tvec = stvec;
 
@@ -343,7 +349,7 @@ module csr_regfile # (
                     stval_d = ex_exception.mtval[63:0];
                     sepc_d = ex_epc;
 
-                    prv_d = PRV_S;
+                    prv_d = PRIV_LVL_S;
                     status_d.sie = 1'b0;
                     status_d.spie = status.sie;
                     status_d.spp = prv[0];
@@ -358,17 +364,17 @@ module csr_regfile # (
                     mepc_d = ex_epc;
 
                     // Switch privilege level and set mstatus
-                    prv_d = PRV_M;
+                    prv_d = PRIV_LVL_M;
                     status_d.mie = 1'b0;
                     status_d.mpie = status.mie;
                     status_d.mpp = prv;
                 end
             end
             er_valid: begin
-                if (er_prv != PRV_M) begin
+                if (er_prv != PRIV_LVL_M) begin
                     er_epc = sepc;
 
-                    prv_d = status.spp ? PRV_S : PRV_U;
+                    prv_d = status.spp ? PRIV_LVL_S : PRIV_LVL_U;
                     status_d.spie = 1'b1;
                     status_d.sie = status.spie;
                     status_d.spp = 1'b0;
@@ -378,9 +384,9 @@ module csr_regfile # (
                     prv_d = status.mpp;
                     status_d.mpie = 1'b1;
                     status_d.mie = status.mpie;
-                    status_d.mpp = PRV_U;
+                    status_d.mpp = PRIV_LVL_U;
                     // Clear MPRV when leaving M-mode
-                    if (status.mpp != PRV_M) status_d.mprv = 1'b0;
+                    if (status.mpp != PRIV_LVL_M) status_d.mprv = 1'b0;
                 end
             end
             a_valid: begin
@@ -436,7 +442,7 @@ module csr_regfile # (
                             status_d.mprv   = new_value[17];
                             status_d.fs     = new_value[14:13];
                             // We don't support H-Mode
-                            if (new_value[12:11] != 2'b10) status_d.mpp = prv_t'(new_value[12:11]);
+                            if (new_value[12:11] != 2'b10) status_d.mpp = priv_lvl_e'(new_value[12:11]);
                             status_d.spp    = new_value[8];
                             status_d.mpie   = new_value[7];
                             status_d.spie   = new_value[5];
@@ -498,8 +504,8 @@ module csr_regfile # (
         irq_pending_m_d = irq_high_enable & ~mideleg_d;
         irq_pending_s_d = irq_high_enable & mideleg_d;
         irq_pending_d =
-            ((prv_d != PRV_M || status_d.mie) ? irq_pending_m_d : 0) |
-            ((prv_d == PRV_U || prv_d == PRV_S && status_d.sie) ? irq_pending_s_d : 0);
+            ((prv_d != PRIV_LVL_M || status_d.mie) ? irq_pending_m_d : 0) |
+            ((prv_d == PRIV_LVL_U || prv_d == PRIV_LVL_S && status_d.sie) ? irq_pending_s_d : 0);
 
         int_valid = |irq_pending;
         wfi_valid_d = |irq_high_enable;
@@ -515,9 +521,9 @@ module csr_regfile # (
     end
 
     // State update
-    always_ff @(posedge clk or negedge resetn) begin
-        if (!resetn) begin
-            prv <= PRV_M;
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            prv <= PRIV_LVL_M;
             status <= status_t'('0);
             stip <= '0;
             ssip <= '0;

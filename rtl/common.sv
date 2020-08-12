@@ -173,7 +173,7 @@ typedef struct packed {
     logic sum;
     logic mprv;
     logic [1:0] fs;
-    riscv::prv_t mpp;
+    muntjac_pkg::priv_lvl_e mpp;
     logic spp;
     logic mpie;
     logic spie;
