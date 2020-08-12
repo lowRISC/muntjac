@@ -837,6 +837,7 @@ module cpu #(
         .irq_m_external_i (irq_m_external),
         .irq_s_external_i (irq_s_external),
         .satp_o (satp),
+        .status_o (status),
         .ex_valid (mem_trap.valid || exception_issue),
         .ex_exception (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
@@ -847,8 +848,7 @@ module cpu #(
         .int_valid (int_valid),
         .int_cause (int_cause),
         .wfi_valid (wfi_valid),
-        .hpm_instret (ex2_pending_q && ex2_data_valid),
-        .status
+        .hpm_instret (ex2_pending_q && ex2_data_valid)
     );
 
     always_comb begin

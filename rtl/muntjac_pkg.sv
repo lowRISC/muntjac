@@ -108,6 +108,23 @@ typedef enum logic [1:0] {
   PRIV_LVL_U = 2'b00
 } priv_lvl_e;
 
+// Status register
+typedef struct packed {
+  logic tsr;
+  logic tw;
+  logic tvm;
+  logic mxr;
+  logic sum;
+  logic mprv;
+  logic [1:0] fs;
+  priv_lvl_e mpp;
+  logic spp;
+  logic mpie;
+  logic spie;
+  logic mie;
+  logic sie;
+} status_t;
+
 // CSR machine ISA
 parameter logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
 

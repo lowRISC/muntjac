@@ -165,20 +165,4 @@ typedef struct packed {
     exception_t  exception;
 } fetched_instr_t;
 
-typedef struct packed {
-    logic tsr;
-    logic tw;
-    logic tvm;
-    logic mxr;
-    logic sum;
-    logic mprv;
-    logic [1:0] fs;
-    muntjac_pkg::priv_lvl_e mpp;
-    logic spp;
-    logic mpie;
-    logic spie;
-    logic mie;
-    logic sie;
-} status_t;
-
 endpackage

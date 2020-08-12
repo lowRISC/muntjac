@@ -36,8 +36,9 @@ module csr_regfile import muntjac_pkg::*; # (
     input  logic               irq_m_external_i,
     input  logic               irq_s_external_i,
 
-    // SATP
+    // CSR exports
     output logic [63:0]        satp_o,
+    output status_t            status_o,
 
     // Exception port. When ex_valid is true, ex_exception.valid is assumed to be true.
     input  logic               ex_valid,
@@ -57,9 +58,6 @@ module csr_regfile import muntjac_pkg::*; # (
     // Whether there is an interrupt pending at all, regardless if interrupts are enabled
     // according to MSTATUS.
     output logic               wfi_valid,
-
-    // Effective ATP for instruction access. It is computed from current privilege level.
-    output status_t            status,
 
     // Performance counters
     input  logic               hpm_instret
@@ -94,7 +92,8 @@ module csr_regfile import muntjac_pkg::*; # (
   assign priv_mode_lsu_o = status.mprv ? status.mpp : prv;
 
   // Status fields
-  status_t status_d;
+  status_t status, status_d;
+  assign status_o = status;
 
   // Interrupt-related
   //
