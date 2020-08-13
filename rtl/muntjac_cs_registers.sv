@@ -246,13 +246,14 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
       CSR_SSTATUS: begin
         csr_rdata_int = '0;
-        csr_rdata_int[CSR_MSTATUS_SIE_BIT]                            = mstatus_q.sie;
-        csr_rdata_int[CSR_MSTATUS_SPIE_BIT]                           = mstatus_q.spie;
-        csr_rdata_int[CSR_MSTATUS_SPP_BIT]                            = mstatus_q.spp;
-        csr_rdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW] = mstatus_q.fs;
-        csr_rdata_int[CSR_MSTATUS_SUM_BIT]                            = mstatus_q.sum;
-        csr_rdata_int[CSR_MSTATUS_MXR_BIT]                            = mstatus_q.mxr;
-        csr_rdata_int[CSR_MSTATUS_SD_BIT]                             = &mstatus_q.fs;
+        csr_rdata_int[CSR_MSTATUS_SIE_BIT]                              = mstatus_q.sie;
+        csr_rdata_int[CSR_MSTATUS_SPIE_BIT]                             = mstatus_q.spie;
+        csr_rdata_int[CSR_MSTATUS_SPP_BIT]                              = mstatus_q.spp;
+        csr_rdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW]   = mstatus_q.fs;
+        csr_rdata_int[CSR_MSTATUS_SUM_BIT]                              = mstatus_q.sum;
+        csr_rdata_int[CSR_MSTATUS_MXR_BIT]                              = mstatus_q.mxr;
+        csr_rdata_int[CSR_MSTATUS_UXL_BIT_HIGH:CSR_MSTATUS_UXL_BIT_LOW] = CSR_MSTATUS_UXL;
+        csr_rdata_int[CSR_MSTATUS_SD_BIT]                               = &mstatus_q.fs;
       end
       // SEDELEG does not exist.
       // SIDELEG does not exist.
@@ -296,6 +297,8 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         csr_rdata_int[CSR_MSTATUS_TVM_BIT]                              = mstatus_q.tvm;
         csr_rdata_int[CSR_MSTATUS_TW_BIT]                               = mstatus_q.tw;
         csr_rdata_int[CSR_MSTATUS_TSR_BIT]                              = mstatus_q.tsr;
+        csr_rdata_int[CSR_MSTATUS_UXL_BIT_HIGH:CSR_MSTATUS_UXL_BIT_LOW] = CSR_MSTATUS_UXL;
+        csr_rdata_int[CSR_MSTATUS_SXL_BIT_HIGH:CSR_MSTATUS_SXL_BIT_LOW] = CSR_MSTATUS_SXL;
         csr_rdata_int[CSR_MSTATUS_SD_BIT]                               = &mstatus_q.fs;
       end
 
@@ -528,6 +531,9 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
             end
             CSR_MISA:;
             CSR_MEDELEG: begin
+              // This exeception will not happen with C-ext enabled, but riscv-isa-test seems to
+              // require it.
+              medeleg_d[EXC_CAUSE_INSN_ADDR_MISA    ] = csr_wdata_int[EXC_CAUSE_INSN_ADDR_MISA    ];
               medeleg_d[EXC_CAUSE_INSTR_ACCESS_FAULT] = csr_wdata_int[EXC_CAUSE_INSTR_ACCESS_FAULT];
               medeleg_d[EXC_CAUSE_ILLEGAL_INSN      ] = csr_wdata_int[EXC_CAUSE_ILLEGAL_INSN      ];
               medeleg_d[EXC_CAUSE_BREAKPOINT        ] = csr_wdata_int[EXC_CAUSE_BREAKPOINT        ];

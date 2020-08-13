@@ -143,6 +143,7 @@ typedef enum logic [4:0] {
   EXC_CAUSE_IRQ_TIMER_M        = {1'b1, 4'd07},
   EXC_CAUSE_IRQ_EXTERNAL_S     = {1'b1, 4'd09},
   EXC_CAUSE_IRQ_EXTERNAL_M     = {1'b1, 4'd11},
+  EXC_CAUSE_INSN_ADDR_MISA     = {1'b0, 4'd00},
   EXC_CAUSE_INSTR_ACCESS_FAULT = {1'b0, 4'd01},
   EXC_CAUSE_ILLEGAL_INSN       = {1'b0, 4'd02},
   EXC_CAUSE_BREAKPOINT         = {1'b0, 4'd03},
@@ -179,10 +180,16 @@ parameter int unsigned CSR_MSTATUS_MXR_BIT      = 19;
 parameter int unsigned CSR_MSTATUS_TVM_BIT      = 20;
 parameter int unsigned CSR_MSTATUS_TW_BIT       = 21;
 parameter int unsigned CSR_MSTATUS_TSR_BIT      = 22;
+parameter int unsigned CSR_MSTATUS_UXL_BIT_LOW  = 32;
+parameter int unsigned CSR_MSTATUS_UXL_BIT_HIGH = 33;
+parameter int unsigned CSR_MSTATUS_SXL_BIT_LOW  = 34;
+parameter int unsigned CSR_MSTATUS_SXL_BIT_HIGH = 35;
 parameter int unsigned CSR_MSTATUS_SD_BIT       = 63;
 
 // CSR machine ISA
 parameter logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
+parameter logic [1:0] CSR_MSTATUS_UXL = 2'b10; // U-XLEN: XLEN in U-Mode for RV64
+parameter logic [1:0] CSR_MSTATUS_SXL = 2'b10; // S-XLEN: XLEN in S-Mode for RV64
 
 // CSR interrupt pending/enable bits
 parameter int unsigned CSR_SSIX_BIT = 1;
