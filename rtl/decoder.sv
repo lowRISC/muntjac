@@ -57,17 +57,16 @@ module decoder # (
 
     always_comb begin
         decoded_instr = decoded_instr_t'('x);
-        decoded_instr.op_type = ALU;
+        decoded_instr.op_type = OP_ALU;
         decoded_instr.rs1 = '0;
         decoded_instr.rs2 = '0;
         decoded_instr.rd  = '0;
 
-        decoded_instr.is_32 = 1'b0;
+        decoded_instr.word = 1'b0;
         decoded_instr.adder.use_pc = 1'b0;
 
-        decoded_instr.op = op_t'('x);
-        decoded_instr.shifter_left = 1'bx;
-        decoded_instr.shifter_arithmetic = 1'bx;
+        decoded_instr.alu_op = alu_op_e'('x);
+        decoded_instr.shift_op = shift_op_e'('x);
         decoded_instr.condition = condition_code_e'('x);
 
         // Set exception to be illegal instruction, but do not enable it yet.
@@ -81,7 +80,7 @@ module decoder # (
 
         case (opcode)
             OPCODE_LOAD: begin
-                decoded_instr.op_type = MEM;
+                decoded_instr.op_type = OP_MEM;
                 decoded_instr.rs1 = rs1;
                 decoded_instr.rd  = rd;
 
@@ -105,9 +104,9 @@ module decoder # (
                     3'b001: begin
                         // XXX: fence.i is somewhat special compared to normal fence
                         // because it need to wait all previous instructions to commit
-                        // and flush the pipeline, so decode as SYSTEM instrution for now
-                        decoded_instr.op_type = SYSTEM;
-                        decoded_instr.sys_op = FENCE_I;
+                        // and flush the pipeline, so decode as OP_SYSTEM instrution for now
+                        decoded_instr.op_type = OP_SYSTEM;
+                        decoded_instr.sys_op = SYS_FENCE_I;
                     end
                     default: decoded_instr.ex_valid = 1'b1;
                 endcase
@@ -119,24 +118,23 @@ module decoder # (
 
                 unique case (funct3)
                     3'b000: begin
-                        decoded_instr.op = ADD;
+                        decoded_instr.alu_op = ALU_ADD;
                     end
                     3'b010: begin
-                        decoded_instr.op = SCC;
+                        decoded_instr.alu_op = ALU_SCC;
                         decoded_instr.condition = CC_LT;
                     end
                     3'b011: begin
-                        decoded_instr.op = SCC;
+                        decoded_instr.alu_op = ALU_SCC;
                         decoded_instr.condition = CC_LTU;
                     end
-                    3'b100: decoded_instr.op = L_XOR;
-                    3'b110: decoded_instr.op = L_OR;
-                    3'b111: decoded_instr.op = L_AND;
+                    3'b100: decoded_instr.alu_op = ALU_XOR;
+                    3'b110: decoded_instr.alu_op = ALU_OR;
+                    3'b111: decoded_instr.alu_op = ALU_AND;
 
                     3'b001: begin
-                        decoded_instr.op = SHIFT;
-                        decoded_instr.shifter_left = 1'b1;
-                        decoded_instr.shifter_arithmetic = 1'b0;
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SLL;
 
                         // Shift is invalid if imm is larger than XLEN.
                         if (funct7[6:1] != 6'b0) decoded_instr.ex_valid = 1'b1;
@@ -144,11 +142,10 @@ module decoder # (
                     end
 
                     3'b101: begin
-                        decoded_instr.op = SHIFT;
-                        decoded_instr.shifter_left = 1'b0;
+                        decoded_instr.alu_op = ALU_SHIFT;
 
-                        if (funct7[6:1] == 6'b0) decoded_instr.shifter_arithmetic = 1'b0;
-                        else if (funct7[6:1] == 6'b010000) decoded_instr.shifter_arithmetic = 1'b1;
+                        if (funct7[6:1] == 6'b0) decoded_instr.shift_op = SHIFT_OP_SRL;
+                        else if (funct7[6:1] == 6'b010000) decoded_instr.shift_op = SHIFT_OP_SRA;
                         // Shift is invalid if imm is larger than XLEN.
                         else decoded_instr.ex_valid = 1'b1;
 
@@ -159,8 +156,8 @@ module decoder # (
 
             OPCODE_AUIPC: begin
                 decoded_instr.rd = rd;
-                decoded_instr.op_type = ALU;
-                decoded_instr.op = ADD;
+                decoded_instr.op_type = OP_ALU;
+                decoded_instr.alu_op = ALU_ADD;
                 decoded_instr.adder.use_pc = 1'b1;
             end
 
@@ -169,27 +166,25 @@ module decoder # (
                 else begin
                     decoded_instr.rs1   = rs1;
                     decoded_instr.rd    = rd;
-                    decoded_instr.is_32 = 1'b1;
+                    decoded_instr.word = 1'b1;
 
                     unique case (funct3)
                         3'b000: begin
-                            decoded_instr.op = ADD;
+                            decoded_instr.alu_op = ALU_ADD;
                         end
                         3'b001: begin
-                            decoded_instr.op = SHIFT;
-                            decoded_instr.shifter_left = 1'b1;
-                            decoded_instr.shifter_arithmetic = 1'b0;
+                            decoded_instr.alu_op = ALU_SHIFT;
+                            decoded_instr.shift_op = SHIFT_OP_SLL;
 
                             // Shift is invalid if imm is larger than 32.
                             if (funct7 != 7'b0) decoded_instr.ex_valid = 1'b1;
                         end
 
                         3'b101: begin
-                            decoded_instr.op = SHIFT;
-                            decoded_instr.shifter_left = 1'b0;
+                            decoded_instr.alu_op = ALU_SHIFT;
 
-                            if (funct7 == 7'b0) decoded_instr.shifter_arithmetic = 1'b0;
-                            else if (funct7 == 7'b0100000) decoded_instr.shifter_arithmetic = 1'b1;
+                            if (funct7 == 7'b0) decoded_instr.shift_op = SHIFT_OP_SRL;
+                            else if (funct7 == 7'b0100000) decoded_instr.shift_op = SHIFT_OP_SRA;
                             // Shift is invalid if imm is larger than 32.
                             else decoded_instr.ex_valid = 1'b1;
                         end
@@ -200,7 +195,7 @@ module decoder # (
             end
 
             OPCODE_STORE: begin
-                decoded_instr.op_type = MEM;
+                decoded_instr.op_type = OP_MEM;
                 decoded_instr.rs1 = rs1;
                 decoded_instr.rs2 = rs2;
                 decoded_instr.mem.op = MEM_STORE;
@@ -210,7 +205,7 @@ module decoder # (
             end
 
             OPCODE_AMO: begin
-                decoded_instr.op_type = MEM;
+                decoded_instr.op_type = OP_MEM;
                 decoded_instr.rs1 = rs1;
                 decoded_instr.rs2 = rs2;
                 decoded_instr.rd  = rd;
@@ -255,45 +250,42 @@ module decoder # (
 
                 unique casez ({funct7, funct3})
                     {7'b0000001, 3'b0??}: begin
-                        decoded_instr.op_type = MUL;
+                        decoded_instr.op_type = OP_MUL;
                         decoded_instr.mul.op = funct3[1:0];
                     end
                     {7'b0000001, 3'b1??}: begin
-                        decoded_instr.op_type = DIV;
+                        decoded_instr.op_type = OP_DIV;
                         decoded_instr.div.is_unsigned = funct3[0];
                         decoded_instr.div.rem = funct3[1];
                     end
                     {7'b0000000, 3'b000}: begin
-                        decoded_instr.op = ADD;
+                        decoded_instr.alu_op = ALU_ADD;
                     end
                     {7'b0100000, 3'b000}: begin
-                        decoded_instr.op = SUB;
+                        decoded_instr.alu_op = ALU_SUB;
                     end
                     {7'b0000000, 3'b010}: begin
-                        decoded_instr.op = SCC;
+                        decoded_instr.alu_op = ALU_SCC;
                         decoded_instr.condition = CC_LT;
                     end
                     {7'b0000000, 3'b011}: begin
-                        decoded_instr.op = SCC;
+                        decoded_instr.alu_op = ALU_SCC;
                         decoded_instr.condition = CC_LTU;
                     end
-                    {7'b0000000, 3'b100}: decoded_instr.op = L_XOR;
-                    {7'b0000000, 3'b110}: decoded_instr.op = L_OR;
-                    {7'b0000000, 3'b111}: decoded_instr.op = L_AND;
+                    {7'b0000000, 3'b100}: decoded_instr.alu_op = ALU_XOR;
+                    {7'b0000000, 3'b110}: decoded_instr.alu_op = ALU_OR;
+                    {7'b0000000, 3'b111}: decoded_instr.alu_op = ALU_AND;
                     {7'b0000000, 3'b001}: begin
-                        decoded_instr.op = SHIFT;
-                        decoded_instr.shifter_left = 1'b1;
-                        decoded_instr.shifter_arithmetic = 1'b0;
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SLL;
                     end
                     {7'b0000000, 3'b101}: begin
-                        decoded_instr.op = SHIFT;
-                        decoded_instr.shifter_left = 1'b0;
-                        decoded_instr.shifter_arithmetic = 1'b0;
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SRL;
                     end
                     {7'b0100000, 3'b101}: begin
-                        decoded_instr.op = SHIFT;
-                        decoded_instr.shifter_left = 1'b0;
-                        decoded_instr.shifter_arithmetic = 1'b1;
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SRA;
                     end
                     default: decoded_instr.ex_valid = 1'b1;
                 endcase
@@ -301,8 +293,8 @@ module decoder # (
 
             OPCODE_LUI: begin
                 decoded_instr.rd = rd;
-                decoded_instr.op_type = ALU;
-                decoded_instr.op = ADD;
+                decoded_instr.op_type = OP_ALU;
+                decoded_instr.alu_op = ALU_ADD;
             end
 
             OPCODE_OP_32: begin
@@ -311,38 +303,35 @@ module decoder # (
                     decoded_instr.rs1   = rs1;
                     decoded_instr.rs2   = rs2;
                     decoded_instr.rd    = rd;
-                    decoded_instr.is_32 = 1'b1;
+                    decoded_instr.word = 1'b1;
 
                     unique casez ({funct7, funct3})
                         {7'b0000001, 3'b000}: begin
-                            decoded_instr.op_type = MUL;
+                            decoded_instr.op_type = OP_MUL;
                             decoded_instr.mul.op = 2'b00;
                         end
                         {7'b0000001, 3'b1??}: begin
-                            decoded_instr.op_type = DIV;
+                            decoded_instr.op_type = OP_DIV;
                             decoded_instr.div.is_unsigned = funct3[0];
                             decoded_instr.div.rem = funct3[1];
                         end
                         {7'b0000000, 3'b000}: begin
-                            decoded_instr.op = ADD;
+                            decoded_instr.alu_op = ALU_ADD;
                         end
                         {7'b0100000, 3'b000}: begin
-                            decoded_instr.op = SUB;
+                            decoded_instr.alu_op = ALU_SUB;
                         end
                         {7'b0000000, 3'b001}: begin
-                            decoded_instr.op = SHIFT;
-                            decoded_instr.shifter_left = 1'b1;
-                            decoded_instr.shifter_arithmetic = 1'b0;
+                            decoded_instr.alu_op = ALU_SHIFT;
+                            decoded_instr.shift_op = SHIFT_OP_SLL;
                         end
                         {7'b0000000, 3'b101}: begin
-                            decoded_instr.op = SHIFT;
-                            decoded_instr.shifter_left = 1'b0;
-                            decoded_instr.shifter_arithmetic = 1'b0;
+                            decoded_instr.alu_op = ALU_SHIFT;
+                            decoded_instr.shift_op = SHIFT_OP_SRL;
                         end
                         {7'b0100000, 3'b101}: begin
-                            decoded_instr.op = SHIFT;
-                            decoded_instr.shifter_left = 1'b0;
-                            decoded_instr.shifter_arithmetic = 1'b1;
+                            decoded_instr.alu_op = ALU_SHIFT;
+                            decoded_instr.shift_op = SHIFT_OP_SRA;
                         end
                         default: decoded_instr.ex_valid = 1'b1;
                     endcase
@@ -350,7 +339,7 @@ module decoder # (
             end
 
             OPCODE_BRANCH: begin
-                decoded_instr.op_type = BRANCH;
+                decoded_instr.op_type = OP_BRANCH;
                 decoded_instr.rs1     = rs1;
                 decoded_instr.rs2     = rs2;
                 decoded_instr.adder.use_pc = 1'b1;
@@ -367,7 +356,7 @@ module decoder # (
             end
 
             OPCODE_JALR: begin
-                decoded_instr.op_type = BRANCH;
+                decoded_instr.op_type = OP_BRANCH;
                 decoded_instr.rs1     = rs1;
                 decoded_instr.rd      = rd;
                 decoded_instr.condition = CC_TRUE;
@@ -375,7 +364,7 @@ module decoder # (
             end
 
             OPCODE_JAL: begin
-                decoded_instr.op_type = BRANCH;
+                decoded_instr.op_type = OP_BRANCH;
                 decoded_instr.rd      = rd;
                 decoded_instr.adder.use_pc = 1'b1;
                 decoded_instr.condition = CC_TRUE;
@@ -383,8 +372,8 @@ module decoder # (
 
             OPCODE_SYSTEM: begin
                 if (funct3[1:0] != 2'b00) begin
-                    decoded_instr.op_type = SYSTEM;
-                    decoded_instr.sys_op  = CSR;
+                    decoded_instr.op_type = OP_SYSTEM;
+                    decoded_instr.sys_op  = SYS_CSR;
                     decoded_instr.rs1     = rs1;
                     decoded_instr.rd      = rd;
                     decoded_instr.csr.op  = csr_op;
@@ -407,15 +396,15 @@ module decoder # (
                             decoded_instr.exception.tval = 0;
                         end
                         12'b0011000_00010: begin
-                            decoded_instr.op_type = SYSTEM;
-                            decoded_instr.sys_op  = ERET;
+                            decoded_instr.op_type = OP_SYSTEM;
+                            decoded_instr.sys_op  = SYS_ERET;
 
                             // MRET is only allowed if currently in M-mode
                             if (prv != PRIV_LVL_M) decoded_instr.ex_valid = 1'b1;
                         end
                         12'b0001000_00010: begin
-                            decoded_instr.op_type = SYSTEM;
-                            decoded_instr.sys_op  = ERET;
+                            decoded_instr.op_type = OP_SYSTEM;
+                            decoded_instr.sys_op  = SYS_ERET;
 
                             // SRET is only allowed if
                             // * Currently in M-mode
@@ -423,8 +412,8 @@ module decoder # (
                             if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tsr)) decoded_instr.ex_valid = 1'b1;
                         end
                         12'b0001000_00101: begin
-                            decoded_instr.op_type = SYSTEM;
-                            decoded_instr.sys_op  = WFI;
+                            decoded_instr.op_type = OP_SYSTEM;
+                            decoded_instr.sys_op  = SYS_WFI;
 
                             // WFI is only allowed if
                             // * Currently in M-mode
@@ -433,8 +422,8 @@ module decoder # (
                         end
                         // Decode SFENCE.VMA
                         12'b0001001_?????: begin
-                            decoded_instr.op_type = SYSTEM;
-                            decoded_instr.sys_op  = SFENCE_VMA;
+                            decoded_instr.op_type = OP_SYSTEM;
+                            decoded_instr.sys_op  = SYS_SFENCE_VMA;
                             decoded_instr.rs1 = rs1;
                             decoded_instr.rs2 = rs2;
 

@@ -147,14 +147,14 @@ module cpu #(
 
     // States of the control logic that handles SYSTEM instructions.
     typedef enum logic [2:0] {
-        SYS_IDLE,
-        SYS_OP,
+        SYS_ST_IDLE,
+        SYS_ST_OP,
         // SATP changed. Wait for cache to ack
-        SYS_SATP_CHANGED,
+        SYS_ST_SATP_CHANGED,
         // SFENCE.VMA is issued. Waiting for flush to completer
-        SYS_SFENCE_VMA,
+        SYS_ST_SFENCE_VMA,
         // Waiting for interrupt to arrive. Clock can be stopped.
-        SYS_WFI
+        SYS_ST_WFI
     } sys_state_e;
 
     typedef enum logic [1:0] {
@@ -245,16 +245,16 @@ module cpu #(
         // control registers so they effectively conflict with any other instruction.
         struct_hazard = !ex1_ready || de_ex_decoded.ex_valid;
         unique case (de_ex_decoded.op_type)
-            MEM: begin
+            OP_MEM: begin
                 if (!mem_ready) struct_hazard = 1'b1;
             end
-            MUL: begin
+            OP_MUL: begin
                 if (!mul_ready) struct_hazard = 1'b1;
             end
-            DIV: begin
+            OP_DIV: begin
                 if (!div_ready) struct_hazard = 1'b1;
             end
-            SYSTEM: struct_hazard = 1'b1;
+            OP_SYSTEM: struct_hazard = 1'b1;
             default:;
         endcase
     end
@@ -346,7 +346,7 @@ module cpu #(
 
             if (de_ex_decoded.ex_valid) begin
                 ex_state_d = ST_INT;
-            end else if (de_ex_decoded.op_type == SYSTEM) begin
+            end else if (de_ex_decoded.op_type == OP_SYSTEM) begin
                 sys_issue = 1'b1;
                 ex_state_d = ST_SYS;
             end
@@ -392,32 +392,32 @@ module cpu #(
         eret_pc_d = 'x;
 
         unique case (sys_state_q)
-            SYS_IDLE: begin
+            SYS_ST_IDLE: begin
                 if (sys_issue) begin
-                    sys_state_d = SYS_OP;
+                    sys_state_d = SYS_ST_OP;
                     unique case (de_ex_decoded.sys_op)
-                        CSR: begin
+                        SYS_CSR: begin
                             if (de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP) begin
-                                sys_state_d = SYS_SATP_CHANGED;
+                                sys_state_d = SYS_ST_SATP_CHANGED;
                             end
                         end
-                        ERET: begin
+                        SYS_ERET: begin
                             eret_pc_d = er_epc;
                         end
-                        SFENCE_VMA: begin
-                            sys_state_d = SYS_SFENCE_VMA;
+                        SYS_SFENCE_VMA: begin
+                            sys_state_d = SYS_ST_SFENCE_VMA;
                         end
-                        WFI: sys_state_d = SYS_WFI;
+                        SYS_WFI: sys_state_d = SYS_ST_WFI;
                         default:;
                     endcase
                 end
             end
-            SYS_OP: begin
+            SYS_ST_OP: begin
                 sys_ready = 1'b1;
-                sys_state_d = SYS_IDLE;
+                sys_state_d = SYS_ST_IDLE;
                 unique case (de_ex_decoded.sys_op)
                     // FIXME: Split the state machine
-                    CSR: begin
+                    SYS_CSR: begin
                         sys_pc_redirect_target = npc;
                         if (de_ex_decoded.csr.op != 2'b00) begin
                             case (csr_select)
@@ -432,12 +432,12 @@ module cpu #(
                             endcase
                         end
                     end
-                    ERET: begin
+                    SYS_ERET: begin
                         sys_pc_redirect_valid = 1'b1;
                         sys_pc_redirect_reason = IF_PROT_CHANGED;
                         sys_pc_redirect_target = eret_pc_q;
                     end
-                    FENCE_I: begin
+                    SYS_FENCE_I: begin
                         sys_pc_redirect_valid = 1'b1;
                         sys_pc_redirect_reason = IF_FENCE_I;
                         sys_pc_redirect_target = npc;
@@ -445,28 +445,28 @@ module cpu #(
                     default:;
                 endcase
             end
-            SYS_SATP_CHANGED: begin
+            SYS_ST_SATP_CHANGED: begin
                 if (mem_notif_ready) begin
                     sys_ready = 1'b1;
-                    sys_state_d = SYS_IDLE;
+                    sys_state_d = SYS_ST_IDLE;
                     sys_pc_redirect_valid = 1'b1;
                     sys_pc_redirect_reason = IF_SATP_CHANGED;
                     sys_pc_redirect_target = npc;
                 end
             end
-            SYS_SFENCE_VMA: begin
+            SYS_ST_SFENCE_VMA: begin
                 if (mem_notif_ready) begin
                     sys_ready = 1'b1;
-                    sys_state_d = SYS_IDLE;
+                    sys_state_d = SYS_ST_IDLE;
                     sys_pc_redirect_valid = 1'b1;
                     sys_pc_redirect_reason = IF_SFENCE_VMA;
                     sys_pc_redirect_target = npc;
                 end
             end
-            SYS_WFI: begin
+            SYS_ST_WFI: begin
                 if (wfi_valid) begin
                     sys_ready = 1'b1;
-                    sys_state_d = SYS_IDLE;
+                    sys_state_d = SYS_ST_IDLE;
                 end
             end
             default:;
@@ -476,7 +476,7 @@ module cpu #(
     // State machine state assignments
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
-            sys_state_q <= SYS_IDLE;
+            sys_state_q <= SYS_ST_IDLE;
             eret_pc_q <= 'x;
         end
         else begin
@@ -489,41 +489,17 @@ module cpu #(
     // ALU //
     /////////
 
-    wire [63:0] operand_b = de_ex_decoded.use_imm ? de_ex_decoded.immediate : ex_rs2;
-
-    // Adder.
-    // This is the core component of the EX stage.
-    // It is used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
-    logic [63:0] sum;
-    assign sum = (de_ex_decoded.adder.use_pc ? de_ex_decoded.pc : ex_rs1) + (de_ex_decoded.adder.use_imm ? de_ex_decoded.immediate : ex_rs2);
-
-    // Subtractor.
-    // It is used for SUB, BRANCH, SLT, SLTU
-    logic [63:0] difference;
-    assign difference = ex_rs1 - operand_b;
-
-    // Comparator. Used in BRANCH, SLT, and SLTU
-    logic compare_result;
-    comparator comparator (
-        .operand_a_i  (ex_rs1),
-        .operand_b_i  (operand_b),
-        .condition_i  (de_ex_decoded.condition),
-        .difference_i (difference),
-        .result_o     (compare_result)
-    );
-
     // ALU
+    logic [63:0] sum;
+    logic        compare_result;
     logic [63:0] alu_result;
-    alu alu (
-        .operator      (de_ex_decoded.op),
-        .decoded_instr (de_ex_decoded),
-        .is_32         (de_ex_decoded.is_32),
-        .operand_a     (ex_rs1),
-        .operand_b     (operand_b),
-        .sum_i         (sum),
-        .difference_i  (difference),
-        .compare_result_i (compare_result),
-        .result           (alu_result)
+    muntjac_alu alu (
+        .decoded_op_i     (de_ex_decoded),
+        .rs1_i            (ex_rs1),
+        .rs2_i            (ex_rs2),
+        .sum_o            (sum),
+        .compare_result_o (compare_result),
+        .result_o         (alu_result)
     );
 
     ///////////////
@@ -621,20 +597,20 @@ module cpu #(
                 ex_expected_pc_d = npc;
 
                 unique case (de_ex_decoded.op_type)
-                    ALU: begin
+                    OP_ALU: begin
                         ex1_alu_data_d = alu_result;
                     end
-                    BRANCH: begin
+                    OP_BRANCH: begin
                         ex1_alu_data_d = npc;
                         ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
                     end
-                    MEM: begin
+                    OP_MEM: begin
                         ex1_select_d = FU_MEM;
                     end
-                    MUL: begin
+                    OP_MUL: begin
                         ex1_select_d = FU_MUL;
                     end
-                    DIV: begin
+                    OP_DIV: begin
                         ex1_select_d = FU_DIV;
                     end
                     default:;
@@ -783,9 +759,9 @@ module cpu #(
         .rstn      (rst_ni),
         .operand_a (ex_rs1),
         .operand_b (ex_rs2),
-        .i_32      (de_ex_decoded.is_32),
+        .i_32      (de_ex_decoded.word),
         .i_op      (de_ex_decoded.mul.op),
-        .i_valid   (ex_issue && de_ex_decoded.op_type == MUL),
+        .i_valid   (ex_issue && de_ex_decoded.op_type == OP_MUL),
         .i_ready   (mul_ready),
         .o_value   (mul_data),
         .o_valid   (mul_valid)
@@ -798,9 +774,9 @@ module cpu #(
         .operand_a  (ex_rs1),
         .operand_b  (ex_rs2),
         .use_rem_i  (de_ex_decoded.div.rem),
-        .i_32       (de_ex_decoded.is_32),
+        .i_32       (de_ex_decoded.word),
         .i_unsigned (de_ex_decoded.div.is_unsigned),
-        .i_valid    (ex_issue && de_ex_decoded.op_type == DIV),
+        .i_valid    (ex_issue && de_ex_decoded.op_type == OP_DIV),
         .i_ready    (div_ready),
         .o_value    (div_data),
         .o_valid    (div_valid)
@@ -810,7 +786,7 @@ module cpu #(
     // EX stage - load & store
     //
 
-    assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == MEM;
+    assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == OP_MEM;
     assign dcache.req_op       = de_ex_decoded.mem.op;
     assign dcache.req_amo      = de_ex_decoded.exception.tval[31:25];
     assign dcache.req_address  = sum;
@@ -828,8 +804,8 @@ module cpu #(
     assign mem_notif_ready = dcache.notif_ready;
     assign mem_ready = dcache.req_ready;
 
-    assign dcache.notif_valid = sys_state_q == SYS_IDLE && (sys_state_d == SYS_SFENCE_VMA || sys_state_d == SYS_SATP_CHANGED);
-    assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
+    assign dcache.notif_valid = sys_state_q == SYS_ST_IDLE && (sys_state_d == SYS_ST_SFENCE_VMA || sys_state_d == SYS_ST_SATP_CHANGED);
+    assign dcache.notif_reason = sys_state_d == SYS_ST_SFENCE_VMA;
 
     //
     // Register file instantiation
@@ -860,7 +836,7 @@ module cpu #(
         .csr_addr_i (csr_select),
         .csr_wdata_i (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
         .csr_op_i (csr_op_e'(de_ex_decoded.csr.op)),
-        .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == CSR),
+        .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == SYS_CSR),
         .csr_rdata_o (csr_read),
         .irq_software_m_i (irq_m_software),
         .irq_timer_m_i (irq_m_timer),
@@ -875,7 +851,7 @@ module cpu #(
         .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc_i (mem_trap_valid ? (ex2_pending_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
         .ex_tvec_o (wb_tvec),
-        .er_valid_i (sys_issue && de_ex_decoded.sys_op == ERET),
+        .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
         .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
         .er_epc_o (er_epc),
         .instr_ret_i (ex2_pending_q && ex2_data_valid)

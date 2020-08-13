@@ -1,51 +1,5 @@
 package cpu_common;
 
-typedef enum logic [3:0] {
-    // Normal ALU operation
-    ALU,
-    // Branching and jumps
-    BRANCH,
-    MEM,
-    MUL,
-    DIV,
-    SYSTEM
-} op_type_t;
-
-typedef enum logic [2:0] {
-    CSR,
-    // Environmental return (MRET, SRET)
-    ERET,
-    // TLB Flush
-    SFENCE_VMA,
-    FENCE_I,
-    WFI
-} sys_op_t;
-
-// ALU operations
-typedef enum logic [2:0] {
-    // Arithmetic
-    ADD = 3'b000,
-    SUB = 3'b001,
-    // Shifts
-    SHIFT = 3'b010,
-    // Compare and set
-    SCC = 3'b011,
-    // Bit operation
-    L_XOR = 3'b100, L_OR = 3'b110, L_AND = 3'b111
-} op_t;
-
-// Branch/comparison condition codes
-typedef enum logic [2:0] {
-    CC_FALSE,
-    CC_TRUE,
-    CC_EQ,
-    CC_NE,
-    CC_LT,
-    CC_GE,
-    CC_LTU,
-    CC_GEU
-} condition_code_e;
-
 // Reason for instruction fetch
 typedef enum logic [3:0] {
     // An instruction prefetch that follows the previous instruction in program counter order.
@@ -74,18 +28,14 @@ typedef enum logic [2:0] {
 } mem_op_t;
 
 typedef struct packed {
-    // Decoded instruction parts
-    op_type_t    op_type;
     logic [4:0]  rs1;
     logic [4:0]  rs2;
     logic [4:0]  rd;
     logic [63:0] immediate;
 
-    // Whether the operation is one of 32-bit operation.
-    // Used by ALU, MUL and DIV
-    logic is_32;
+    muntjac_pkg::op_type_e op_type;
 
-    // Information relevant to the adder.
+    // For adder.
     // Adder is special to ALU because it is also used for branch target and address computation
     struct packed {
         // Whether adder should use PC or RS1 as input.
@@ -94,22 +44,26 @@ typedef struct packed {
         logic use_imm;
     } adder;
 
-    sys_op_t sys_op;
-
     // Whether ALU ops or adder should use rs2 or immediate.
     logic use_imm;
 
+    // Whether the operation is one of 32-bit operation.
+    // Used by ALU, MUL and DIV
+    logic word;
+
     // ALU ops
-    op_t op;
+    muntjac_pkg::alu_op_e alu_op;
 
     // For shifter
-    logic shifter_left;
-    logic shifter_arithmetic;
+    muntjac_pkg::shift_op_e shift_op;
 
     // For comparator
-    condition_code_e condition;
+    muntjac_pkg::condition_code_e condition;
 
-    // Information relevant only to the memory unit.
+    // For system ops
+    muntjac_pkg::sys_op_e sys_op;
+
+    // For memory unit
     struct packed {
         mem_op_t    op;
         // Size of load/store (8 << load_store_size) is the size in bits.
@@ -118,10 +72,12 @@ typedef struct packed {
         logic       zeroext;
     } mem;
 
+    // For multiply unit
     struct packed {
         logic [1:0] op;
     } mul;
 
+    // For division unit
     struct packed {
         logic is_unsigned;
         logic rem;
@@ -135,13 +91,12 @@ typedef struct packed {
         logic       imm;
     } csr;
 
-    // Traps related fields.
-    logic        mret;
-
-    // PC of decoded instruction.
+    // PC of this decoded instruction.
     logic [63:0] pc;
+
     // Indicate the reason that this is fetched
     if_reason_t if_reason;
+
     // Exception happened during decoding.
     logic ex_valid;
     muntjac_pkg::exception_t  exception;
