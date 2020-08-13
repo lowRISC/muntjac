@@ -16,6 +16,6 @@ typedef enum logic [6:0] {
     OPCODE_JALR         = 7'b1100111,
     OPCODE_JAL          = 7'b1101111,
     OPCODE_SYSTEM       = 7'b1110011
-} opcode;
+} opcode_e;
 
 endpackage
