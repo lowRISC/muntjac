@@ -772,18 +772,16 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
     //
     // Register file instantiation
     //
-    reg_file # (
-        .XLEN (64)
-    ) regfile (
-        .clk (clk_i),
-        .rstn (rst_ni),
-        .ra_sel (de_rs1_select),
-        .ra_data (de_ex_rs1),
-        .rb_sel (de_rs2_select),
-        .rb_data (de_ex_rs2),
-        .w_sel (ex2_rd_q),
-        .w_data (ex2_data),
-        .w_en (ex2_pending_q && ex2_data_valid)
+    muntjac_reg_file regfile (
+        .clk_i,
+        .rst_ni,
+        .raddr_a_i (de_rs1_select),
+        .rdata_a_o (de_ex_rs1),
+        .raddr_b_i (de_rs2_select),
+        .rdata_b_o (de_ex_rs2),
+        .waddr_a_i (ex2_rd_q),
+        .wdata_a_i (ex2_data),
+        .we_a_i    (ex2_pending_q && ex2_data_valid)
     );
 
     logic [63:0] wb_tvec;
