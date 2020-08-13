@@ -1,4 +1,5 @@
 import cpu_common::*;
+import muntjac_pkg::*;
 
 // Interfacing to the data cache
 interface dcache_intf #(
@@ -29,7 +30,9 @@ interface dcache_intf #(
 
     logic            resp_valid;
     logic [XLEN-1:0] resp_value;
-    exception_t      resp_exception;
+
+    logic            ex_valid;
+    exception_t      ex_exception;
 
     // Notification on SFENCE.VMA
     logic            notif_valid;
@@ -57,7 +60,9 @@ interface dcache_intf #(
 
         output resp_valid,
         output resp_value,
-        output resp_exception,
+
+        output ex_valid,
+        output ex_exception,
 
         input  notif_valid,
         input  notif_reason,
@@ -84,7 +89,9 @@ interface dcache_intf #(
 
         input  resp_valid,
         input  resp_value,
-        input  resp_exception,
+
+        input  ex_valid,
+        input  ex_exception,
 
         output notif_valid,
         output notif_reason,

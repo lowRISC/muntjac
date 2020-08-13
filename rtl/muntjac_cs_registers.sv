@@ -42,7 +42,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
     // Exception
     input  logic               ex_valid_i,
-    input  cpu_common::exception_t         ex_exception_i,
+    input  exception_t         ex_exception_i,
     input  logic [63:0]        ex_epc_i,
     output logic [63:0]        ex_tvec_o,
 

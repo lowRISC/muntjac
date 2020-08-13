@@ -223,8 +223,8 @@ module dcache_uncached # (
         if (!rstn) begin
             cache.resp_valid <= 1'b0;
             cache.resp_value <= 'x;
-            cache.resp_exception <= exception_t'('x);
-            cache.resp_exception.valid <= 1'b0;
+            cache.ex_valid <= 1'b0;
+            cache.ex_exception <= exception_t'('x);
             bus_address <= 'x;
             address <= 'x;
             value <= 'x;
@@ -244,14 +244,14 @@ module dcache_uncached # (
         end
         else begin
             cache.resp_valid <= 1'b0;
-            cache.resp_exception.valid <= 1'b0;
+            cache.ex_valid <= 1'b0;
             unique case (state)
                 STATE_IDLE: begin
                     if (req_valid) begin
                         // Default values
                         cache.resp_value <= 'x;
-                        cache.resp_exception <= exception_t'('x);
-                        cache.resp_exception.valid <= 1'b0;
+                        cache.ex_exception <= exception_t'('x);
+                        cache.ex_valid <= 1'b0;
 
                         if (is_aligned(req_address, req_size)) begin
                             // Initiate load or store, mark the unit as busy.
@@ -294,9 +294,9 @@ module dcache_uncached # (
                             end
                         end else begin
                             // Trigger exception
-                            cache.resp_exception.valid <= 1'b1;
-                            cache.resp_exception.cause <= req_op == MEM_LOAD ? EXC_CAUSE_LOAD_MISALIGN : EXC_CAUSE_STORE_MISALIGN;
-                            cache.resp_exception.tval <= req_address;
+                            cache.ex_valid <= 1'b1;
+                            cache.ex_exception.cause <= req_op == MEM_LOAD ? EXC_CAUSE_LOAD_MISALIGN : EXC_CAUSE_STORE_MISALIGN;
+                            cache.ex_exception.tval <= req_address;
                         end
                     end
                 end
@@ -321,9 +321,9 @@ module dcache_uncached # (
                                 mem.r_data[27:10] != 0) // LSBs not cleared
                             begin
                                 // Trigger exception
-                                cache.resp_exception.valid <= 1'b1;
-                                cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
-                                cache.resp_exception.tval <= address;
+                                cache.ex_valid <= 1'b1;
+                                cache.ex_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                                cache.ex_exception.tval <= address;
                                 state <= STATE_IDLE;
                             end else begin
                                 aligned_strb <= align_strb (
@@ -367,9 +367,9 @@ module dcache_uncached # (
                                 (XLEN == 64 ? mem.r_data[18:10] : mem.r_data[19:10]) != 0) // LSBs not cleared
                             begin
                                 // Trigger exception
-                                cache.resp_exception.valid <= 1'b1;
-                                cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
-                                cache.resp_exception.tval <= address;
+                                cache.ex_valid <= 1'b1;
+                                cache.ex_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                                cache.ex_exception.tval <= address;
                                 state <= STATE_IDLE;
                             end else begin
                                 aligned_strb <= align_strb (
@@ -407,9 +407,9 @@ module dcache_uncached # (
                             (mem.r_data[4] && req_prv && !req_sum)) // Accessing user memory without SUM
                         begin
                             // Trigger exception
-                            cache.resp_exception.valid <= 1'b1;
-                            cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
-                            cache.resp_exception.tval <= address;
+                            cache.ex_valid <= 1'b1;
+                            cache.ex_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                            cache.ex_exception.tval <= address;
                             state <= STATE_IDLE;
                         end else begin
                             aligned_strb <= align_strb (

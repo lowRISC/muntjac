@@ -98,7 +98,7 @@ module cpu #(
         if (!rst_ni) begin
             de_ex_valid <= 1'b0;
             de_ex_decoded <= decoded_instr_t'('x);
-            de_ex_decoded.exception.valid <= 1'b0;
+            de_ex_decoded.ex_valid <= 1'b0;
             de_rs1_select <= 'x;
             de_rs2_select <= 'x;
         end
@@ -110,8 +110,8 @@ module cpu #(
 
                 // Interrupt injection
                 // FIXME: Prefer trap or interrupt?
-                if (!de_decoded.exception.valid && int_valid) begin
-                    de_ex_decoded.exception.valid <= 1'b1;
+                if (!de_decoded.ex_valid && int_valid) begin
+                    de_ex_decoded.ex_valid <= 1'b1;
                     de_ex_decoded.exception.cause <= int_cause;
                     de_ex_decoded.exception.tval <= '0;
                 end
@@ -245,7 +245,7 @@ module cpu #(
     always_comb begin
         // Treat exception and SYSTEM instruction as a structure hazard, because they may influence
         // control registers so they effectively conflict with any other instruction.
-        struct_hazard = !ex1_ready || de_ex_decoded.exception.valid;
+        struct_hazard = !ex1_ready || de_ex_decoded.ex_valid;
         unique case (de_ex_decoded.op_type)
             MEM: begin
                 if (!mem_ready) struct_hazard = 1'b1;
@@ -269,12 +269,14 @@ module cpu #(
 
     logic control_hazard;
     logic [XLEN-1:0] ex_expected_pc_q;
+    logic mem_trap_valid;
+    exception_t mem_trap;
 
     always_comb begin
         control_hazard = 1'b0;
         unique case (ex_state_q)
             ST_NORMAL: begin
-                control_hazard = ex_expected_pc_q != de_ex_decoded.pc || mem_trap.valid;
+                control_hazard = ex_expected_pc_q != de_ex_decoded.pc || mem_trap_valid;
             end
             ST_FLUSH: begin
                 control_hazard = de_ex_decoded.if_reason ==? 4'bxxx0;
@@ -294,7 +296,6 @@ module cpu #(
     assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.tval[1:0] == 2'b11 ? 4 : 2);
 
     logic exception_issue;
-    exception_t mem_trap;
 
     logic sys_issue;
     logic sys_pc_redirect_valid;
@@ -341,14 +342,14 @@ module cpu #(
         if ((ex_state_q == ST_NORMAL || ex_state_q == ST_FLUSH) &&
             de_ex_valid && !control_hazard && !ex1_pending_q && !ex2_pending_q) begin
 
-            if (de_ex_decoded.exception.valid) begin
+            if (de_ex_decoded.ex_valid) begin
                 ex_state_d = ST_INT;
             end else if (de_ex_decoded.op_type == SYSTEM) begin
                 ex_state_d = ST_SYS;
             end
         end
 
-        if (mem_trap.valid) begin
+        if (mem_trap_valid) begin
             ex_state_d = ST_FLUSH;
         end
     end
@@ -587,7 +588,7 @@ module cpu #(
         // instruction traps regardless whether it is trapped in EX1 or EX2.
         // If it traps in EX1, then we should cancel it. If it traps in EX2, then any pending
         // non-memory instruction should run to completion, and EX2 will pick that up for us.
-        if (ex2_ready || mem_trap.valid) begin
+        if (ex2_ready || mem_trap_valid) begin
             ex1_pending_d = 1'b0;
             ex1_select_d = FU_ALU;
             ex1_rd_d = '0;
@@ -692,7 +693,7 @@ module cpu #(
         // Reset to default values when committed, or when the MEM traps in EX2 stage.
         // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
         // should still continue until commit.
-        if (ex2_data_valid || (ex2_select_q == FU_MEM && mem_trap.valid)) begin
+        if (ex2_data_valid || (ex2_select_q == FU_MEM && mem_trap_valid)) begin
             ex2_pending_d = 1'b0;
             ex2_select_d = FU_ALU;
             ex2_rd_d = '0;
@@ -703,7 +704,7 @@ module cpu #(
         // instruction and not yet completed, if we do nothing we might read out that value
         // after pipeline restarts. As a safeguard, wait until that to complete but don't
         // commit the value.
-        if (ex2_select_q == FU_MEM && mem_trap.valid && ex1_select_q != FU_MEM && !ex1_data_valid) begin
+        if (ex2_select_q == FU_MEM && mem_trap_valid && ex1_select_q != FU_MEM && !ex1_data_valid) begin
             ex2_pending_d = 1'b1;
             ex2_select_d = ex1_select_q;
             ex2_rd_d = '0;
@@ -714,7 +715,7 @@ module cpu #(
         // Do not progress an instruction if a MEM traps in EX1. (We don't need to check
         // ex_select to ensure the MEM is not trapped in EX2 here, as otherwise ex_pending
         // is true and ex2_data_valid is false, so this won't be executed anyway)
-        if (ex1_pending_q && ex2_ready && !mem_trap.valid) begin
+        if (ex1_pending_q && ex2_ready && !mem_trap_valid) begin
             ex2_pending_d = 1'b1;
             ex2_select_d = ex1_select_q;
             ex2_pc_d = ex1_pc_q;
@@ -793,7 +794,8 @@ module cpu #(
     assign dcache.req_atp      = {data_prv == PRIV_LVL_M ? 4'd0 : satp[63:60], satp[59:0]};
     assign mem_valid = dcache.resp_valid;
     assign mem_data  = dcache.resp_value;
-    assign mem_trap  = dcache.resp_exception;
+    assign mem_trap_valid = dcache.ex_valid;
+    assign mem_trap  = dcache.ex_exception;
     assign mem_notif_ready = dcache.notif_ready;
     assign mem_ready = dcache.req_ready;
 
@@ -840,9 +842,9 @@ module cpu #(
         .irq_cause_o (int_cause),
         .satp_o (satp),
         .status_o (status),
-        .ex_valid_i (mem_trap.valid || exception_issue),
-        .ex_exception_i (mem_trap.valid ? mem_trap : de_ex_decoded.exception),
-        .ex_epc_i (mem_trap.valid ? (ex2_pending_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
+        .ex_valid_i (mem_trap_valid || exception_issue),
+        .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
+        .ex_epc_i (mem_trap_valid ? (ex2_pending_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
         .ex_tvec_o (wb_tvec),
         .er_valid_i (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
         .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
@@ -856,7 +858,7 @@ module cpu #(
         wb_if_pc = 'x;
 
         // WB
-        if (mem_trap.valid || exception_issue) begin
+        if (mem_trap_valid || exception_issue) begin
             wb_if_pc = wb_tvec;
             wb_if_valid = 1'b1;
             // PRV change
@@ -875,8 +877,8 @@ module cpu #(
     end
 
     always_ff @(posedge clk_i) begin
-        if (mem_trap.valid || exception_issue) begin
-            $display("%t: trap %x", $time, mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc);
+        if (mem_trap_valid || exception_issue) begin
+            $display("%t: trap %x", $time, mem_trap_valid ? ex2_pc_q : de_ex_decoded.pc);
         end
     end
 

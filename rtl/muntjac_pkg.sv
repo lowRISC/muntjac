@@ -158,6 +158,11 @@ typedef enum logic [4:0] {
   EXC_CAUSE_STORE_PAGE_FAULT   = {1'b0, 4'd15}
 } exc_cause_e;
 
+typedef struct packed {
+    exc_cause_e  cause;
+    logic [63:0] tval;
+} exception_t;
+
 // CSR status bits
 parameter int unsigned CSR_MSTATUS_SIE_BIT      = 1;
 parameter int unsigned CSR_MSTATUS_MIE_BIT      = 3;

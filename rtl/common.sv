@@ -74,12 +74,6 @@ typedef enum logic [2:0] {
 } mem_op_t;
 
 typedef struct packed {
-    logic valid;
-    muntjac_pkg::exc_cause_e cause;
-    logic [63:0] tval;
-} exception_t;
-
-typedef struct packed {
     // Decoded instruction parts
     op_type_t    op_type;
     logic [4:0]  rs1;
@@ -149,7 +143,8 @@ typedef struct packed {
     // Indicate the reason that this is fetched
     if_reason_t if_reason;
     // Exception happened during decoding.
-    exception_t  exception;
+    logic ex_valid;
+    muntjac_pkg::exception_t  exception;
 } decoded_instr_t;
 
 typedef struct packed {
@@ -160,7 +155,8 @@ typedef struct packed {
     // Instruction word fetched.
     logic [31:0] instr_word;
     // Exception happened during instruction fetch.
-    exception_t  exception;
+    logic ex_valid;
+    muntjac_pkg::exception_t  exception;
 } fetched_instr_t;
 
 endpackage

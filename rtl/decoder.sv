@@ -72,7 +72,7 @@ module decoder # (
         decoded_instr.condition = condition_code_e'('x);
 
         // Set exception to be illegal instruction, but do not enable it yet.
-        decoded_instr.exception.valid = 1'b0;
+        decoded_instr.ex_valid = 1'b0;
         decoded_instr.exception.cause = EXC_CAUSE_ILLEGAL_INSN;
         decoded_instr.exception.tval = fetched_instr.instr_word;
 
@@ -91,10 +91,10 @@ module decoder # (
                 decoded_instr.mem.zeroext = funct3[2];
 
                 if (XLEN == 32) begin
-                     if (funct3[1:0] == 2'b11 || funct3 == 3'b110) decoded_instr.exception.valid = 1'b1;
+                     if (funct3[1:0] == 2'b11 || funct3 == 3'b110) decoded_instr.ex_valid = 1'b1;
                 end
                 else begin
-                    if (funct3 == 3'b111) decoded_instr.exception.valid = 1'b1;
+                    if (funct3 == 3'b111) decoded_instr.ex_valid = 1'b1;
                 end
             end
 
@@ -110,7 +110,7 @@ module decoder # (
                         decoded_instr.op_type = SYSTEM;
                         decoded_instr.sys_op = FENCE_I;
                     end
-                    default: decoded_instr.exception.valid = 1'b1;
+                    default: decoded_instr.ex_valid = 1'b1;
                 endcase
             end
 
@@ -140,8 +140,8 @@ module decoder # (
                         decoded_instr.shifter_arithmetic = 1'b0;
 
                         // Shift is invalid if imm is larger than XLEN.
-                        if (funct7[6:1] != 6'b0) decoded_instr.exception.valid = 1'b1;
-                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.exception.valid = 1'b1;
+                        if (funct7[6:1] != 6'b0) decoded_instr.ex_valid = 1'b1;
+                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.ex_valid = 1'b1;
                     end
 
                     3'b101: begin
@@ -151,9 +151,9 @@ module decoder # (
                         if (funct7[6:1] == 6'b0) decoded_instr.shifter_arithmetic = 1'b0;
                         else if (funct7[6:1] == 6'b010000) decoded_instr.shifter_arithmetic = 1'b1;
                         // Shift is invalid if imm is larger than XLEN.
-                        else decoded_instr.exception.valid = 1'b1;
+                        else decoded_instr.ex_valid = 1'b1;
 
-                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.exception.valid = 1'b1;
+                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.ex_valid = 1'b1;
                     end
                 endcase
             end
@@ -166,7 +166,7 @@ module decoder # (
             end
 
             OPCODE_OP_IMM_32: begin
-                if (XLEN == 32) decoded_instr.exception.valid = 1'b1;
+                if (XLEN == 32) decoded_instr.ex_valid = 1'b1;
                 else begin
                     decoded_instr.rs1   = rs1;
                     decoded_instr.rd    = rd;
@@ -182,7 +182,7 @@ module decoder # (
                             decoded_instr.shifter_arithmetic = 1'b0;
 
                             // Shift is invalid if imm is larger than 32.
-                            if (funct7 != 7'b0) decoded_instr.exception.valid = 1'b1;
+                            if (funct7 != 7'b0) decoded_instr.ex_valid = 1'b1;
                         end
 
                         3'b101: begin
@@ -192,10 +192,10 @@ module decoder # (
                             if (funct7 == 7'b0) decoded_instr.shifter_arithmetic = 1'b0;
                             else if (funct7 == 7'b0100000) decoded_instr.shifter_arithmetic = 1'b1;
                             // Shift is invalid if imm is larger than 32.
-                            else decoded_instr.exception.valid = 1'b1;
+                            else decoded_instr.ex_valid = 1'b1;
                         end
 
-                        default: decoded_instr.exception.valid = 1'b1;
+                        default: decoded_instr.ex_valid = 1'b1;
                     endcase
                 end
             end
@@ -206,8 +206,8 @@ module decoder # (
                 decoded_instr.rs2 = rs2;
                 decoded_instr.mem.op = MEM_STORE;
                 decoded_instr.mem.size = funct3[1:0];
-                if (funct3[2] == 1'b1) decoded_instr.exception.valid = 1'b1;
-                if (XLEN == 32 && funct3[1:0] == 2'b11) decoded_instr.exception.valid = 1'b1;
+                if (funct3[2] == 1'b1) decoded_instr.ex_valid = 1'b1;
+                if (XLEN == 32 && funct3[1:0] == 2'b11) decoded_instr.ex_valid = 1'b1;
             end
 
             OPCODE_AMO: begin
@@ -222,7 +222,7 @@ module decoder # (
                 unique case (funct3)
                     3'b010, 3'b011:;
                     default: begin
-                        decoded_instr.exception.valid = 1'b1;
+                        decoded_instr.ex_valid = 1'b1;
                     end
                 endcase
 
@@ -230,7 +230,7 @@ module decoder # (
                     5'b00010: begin
                         decoded_instr.mem.op = MEM_LR;
                         if (rs2 != 0) begin
-                            decoded_instr.exception.valid = 1'b1;
+                            decoded_instr.ex_valid = 1'b1;
                         end
                     end
                     5'b00011: decoded_instr.mem.op = MEM_SC;
@@ -244,7 +244,7 @@ module decoder # (
                     5'b11000,
                     5'b11100:;
                     default: begin
-                        decoded_instr.exception.valid = 1'b1;
+                        decoded_instr.ex_valid = 1'b1;
                     end
                 endcase
             end
@@ -296,7 +296,7 @@ module decoder # (
                         decoded_instr.shifter_left = 1'b0;
                         decoded_instr.shifter_arithmetic = 1'b1;
                     end
-                    default: decoded_instr.exception.valid = 1'b1;
+                    default: decoded_instr.ex_valid = 1'b1;
                 endcase
             end
 
@@ -307,7 +307,7 @@ module decoder # (
             end
 
             OPCODE_OP_32: begin
-                if (XLEN == 32) decoded_instr.exception.valid = 1'b1;
+                if (XLEN == 32) decoded_instr.ex_valid = 1'b1;
                 else begin
                     decoded_instr.rs1   = rs1;
                     decoded_instr.rs2   = rs2;
@@ -345,7 +345,7 @@ module decoder # (
                             decoded_instr.shifter_left = 1'b0;
                             decoded_instr.shifter_arithmetic = 1'b1;
                         end
-                        default: decoded_instr.exception.valid = 1'b1;
+                        default: decoded_instr.ex_valid = 1'b1;
                     endcase
                 end
             end
@@ -363,7 +363,7 @@ module decoder # (
                     3'b101: decoded_instr.condition = CC_GE;
                     3'b110: decoded_instr.condition = CC_LTU;
                     3'b111: decoded_instr.condition = CC_GEU;
-                    default: decoded_instr.exception.valid = 1'b1;
+                    default: decoded_instr.ex_valid = 1'b1;
                 endcase
             end
 
@@ -372,7 +372,7 @@ module decoder # (
                 decoded_instr.rs1     = rs1;
                 decoded_instr.rd      = rd;
                 decoded_instr.condition = CC_TRUE;
-                if (funct3 != 3'b0) decoded_instr.exception.valid = 1'b1;
+                if (funct3 != 3'b0) decoded_instr.ex_valid = 1'b1;
             end
 
             OPCODE_JAL: begin
@@ -391,7 +391,7 @@ module decoder # (
                     decoded_instr.csr.op  = csr_op;
                     decoded_instr.csr.imm = funct3[2];
 
-                    if (csr_illegal) decoded_instr.exception.valid = 1'b1;
+                    if (csr_illegal) decoded_instr.ex_valid = 1'b1;
                 end
                 else begin
                     // PRIV
@@ -399,12 +399,12 @@ module decoder # (
                         12'b0000000_00000: begin
                             // ECALL
                             decoded_instr.exception.cause = exc_cause_e'({3'b010, prv});
-                            decoded_instr.exception.valid = 1'b1;
+                            decoded_instr.ex_valid = 1'b1;
                             decoded_instr.exception.tval = 0;
                         end
                         12'b0000000_00001: begin
                             decoded_instr.exception.cause = EXC_CAUSE_BREAKPOINT;
-                            decoded_instr.exception.valid = 1'b1;
+                            decoded_instr.ex_valid = 1'b1;
                             decoded_instr.exception.tval = 0;
                         end
                         12'b0011000_00010: begin
@@ -412,7 +412,7 @@ module decoder # (
                             decoded_instr.sys_op  = ERET;
 
                             // MRET is only allowed if currently in M-mode
-                            if (prv != PRIV_LVL_M) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M) decoded_instr.ex_valid = 1'b1;
                         end
                         12'b0001000_00010: begin
                             decoded_instr.op_type = SYSTEM;
@@ -421,7 +421,7 @@ module decoder # (
                             // SRET is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TVM is not 1.
-                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tsr)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tsr)) decoded_instr.ex_valid = 1'b1;
                         end
                         12'b0001000_00101: begin
                             decoded_instr.op_type = SYSTEM;
@@ -430,7 +430,7 @@ module decoder # (
                             // WFI is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TW is not 1.
-                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tw)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tw)) decoded_instr.ex_valid = 1'b1;
                         end
                         // Decode SFENCE.VMA
                         12'b0001001_?????: begin
@@ -442,18 +442,19 @@ module decoder # (
                             // SFENCE.VMA is only allowed if
                             // * Currently in M-mode
                             // * Currently in S-mode and TVM is not 1.
-                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tvm)) decoded_instr.exception.valid = 1'b1;
+                            if (prv != PRIV_LVL_M && (prv != PRIV_LVL_S || status.tvm)) decoded_instr.ex_valid = 1'b1;
                         end
-                        default: decoded_instr.exception.valid = 1'b1;
+                        default: decoded_instr.ex_valid = 1'b1;
                     endcase
                 end
             end
 
-            default: decoded_instr.exception.valid = 1'b1;
+            default: decoded_instr.ex_valid = 1'b1;
         endcase
 
         // Handle exception in load fault
-        if (fetched_instr.exception.valid) begin
+        if (fetched_instr.ex_valid) begin
+            decoded_instr.ex_valid = 1'b1;
             decoded_instr.exception = fetched_instr.exception;
         end
 
