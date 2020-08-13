@@ -1,4 +1,4 @@
-import riscv::*;
+import muntjac_pkg::*;
 
 // This module decompresses RV64C 16-bit instruction to the full
 // RV64 instruction.

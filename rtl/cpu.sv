@@ -1,4 +1,3 @@
-import riscv::*;
 import cpu_common::*;
 import muntjac_pkg::*;
 

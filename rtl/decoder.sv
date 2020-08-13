@@ -1,5 +1,4 @@
 import cpu_common::*;
-import riscv::*;
 import muntjac_pkg::*;
 
 module decoder # (
