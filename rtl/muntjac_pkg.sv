@@ -135,6 +135,29 @@ typedef struct packed {
   logic irq_external_m;
 } irqs_t;
 
+// Exception cause
+typedef enum logic [4:0] {
+  EXC_CAUSE_IRQ_SOFTWARE_S     = {1'b1, 4'd01},
+  EXC_CAUSE_IRQ_SOFTWARE_M     = {1'b1, 4'd03},
+  EXC_CAUSE_IRQ_TIMER_S        = {1'b1, 4'd05},
+  EXC_CAUSE_IRQ_TIMER_M        = {1'b1, 4'd07},
+  EXC_CAUSE_IRQ_EXTERNAL_S     = {1'b1, 4'd09},
+  EXC_CAUSE_IRQ_EXTERNAL_M     = {1'b1, 4'd11},
+  EXC_CAUSE_INSTR_ACCESS_FAULT = {1'b0, 4'd01},
+  EXC_CAUSE_ILLEGAL_INSN       = {1'b0, 4'd02},
+  EXC_CAUSE_BREAKPOINT         = {1'b0, 4'd03},
+  EXC_CAUSE_LOAD_MISALIGN      = {1'b0, 4'd04},
+  EXC_CAUSE_LOAD_ACCESS_FAULT  = {1'b0, 4'd05},
+  EXC_CAUSE_STORE_MISALIGN     = {1'b0, 4'd06},
+  EXC_CAUSE_STORE_ACCESS_FAULT = {1'b0, 4'd07},
+  EXC_CAUSE_ECALL_UMODE        = {1'b0, 4'd08},
+  EXC_CAUSE_ECALL_SMODE        = {1'b0, 4'd09},
+  EXC_CAUSE_ECALL_MMODE        = {1'b0, 4'd11},
+  EXC_CAUSE_INSTR_PAGE_FAULT   = {1'b0, 4'd12},
+  EXC_CAUSE_LOAD_PAGE_FAULT    = {1'b0, 4'd13},
+  EXC_CAUSE_STORE_PAGE_FAULT   = {1'b0, 4'd15}
+} exc_cause_e;
+
 // CSR status bits
 parameter int unsigned CSR_MSTATUS_SIE_BIT      = 1;
 parameter int unsigned CSR_MSTATUS_MIE_BIT      = 3;

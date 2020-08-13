@@ -1,4 +1,5 @@
 import cpu_common::*;
+import muntjac_pkg::*;
 
 // Instruction fetcher continuously fetch instructions until
 // it has encountered a PC override.
@@ -127,9 +128,8 @@ module instr_fetcher # (
     assign o_fetched_instr.pc = pc;
     assign o_fetched_instr.if_reason = reason;
     assign o_fetched_instr.exception.valid = latched ? resp_exception_latch : cache.resp_exception;
-    assign o_fetched_instr.exception.mcause_interrupt = 1'b0;
-    assign o_fetched_instr.exception.mcause_code = 4'hC;
-    assign o_fetched_instr.exception.mtval = latched ? resp_pc_latch : cache.resp_pc;
+    assign o_fetched_instr.exception.cause = EXC_CAUSE_INSTR_PAGE_FAULT;
+    assign o_fetched_instr.exception.tval = latched ? resp_pc_latch : cache.resp_pc;
 
     //
     // Static branch prediction

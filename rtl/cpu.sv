@@ -92,7 +92,7 @@ module cpu #(
     assign if_de_ready = !de_ex_valid || de_ex_ready;
 
     logic int_valid;
-    logic [3:0] int_cause;
+    exc_cause_e int_cause;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
@@ -112,9 +112,8 @@ module cpu #(
                 // FIXME: Prefer trap or interrupt?
                 if (!de_decoded.exception.valid && int_valid) begin
                     de_ex_decoded.exception.valid <= 1'b1;
-                    de_ex_decoded.exception.mcause_interrupt <= 1'b1;
-                    de_ex_decoded.exception.mcause_code <= int_cause;
-                    de_ex_decoded.exception.mtval <= '0;
+                    de_ex_decoded.exception.cause <= int_cause;
+                    de_ex_decoded.exception.tval <= '0;
                 end
 
                 // Regfile will read register into rs1_value and rs2_value
@@ -292,7 +291,7 @@ module cpu #(
     ////////////////////////
 
     logic [63:0] npc;
-    assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.mtval[1:0] == 2'b11 ? 4 : 2);
+    assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.tval[1:0] == 2'b11 ? 4 : 2);
 
     logic exception_issue;
     exception_t mem_trap;
@@ -373,7 +372,7 @@ module cpu #(
     csr_num_e csr_select;
     logic [XLEN-1:0] csr_read;
     logic [XLEN-1:0] er_epc;
-    assign csr_select = csr_num_e'(de_ex_decoded.exception.mtval[31:20]);
+    assign csr_select = csr_num_e'(de_ex_decoded.exception.tval[31:20]);
 
     logic wfi_valid;
     logic mem_notif_ready;
@@ -783,7 +782,7 @@ module cpu #(
 
     assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == MEM;
     assign dcache.req_op       = de_ex_decoded.mem.op;
-    assign dcache.req_amo      = de_ex_decoded.exception.mtval[31:25];
+    assign dcache.req_amo      = de_ex_decoded.exception.tval[31:25];
     assign dcache.req_address  = sum;
     assign dcache.req_size     = de_ex_decoded.mem.size;
     assign dcache.req_unsigned = de_ex_decoded.mem.zeroext;
@@ -843,7 +842,7 @@ module cpu #(
         .ex_epc (mem_trap.valid ? ex2_pc_q : de_ex_decoded.pc),
         .ex_tvec (wb_tvec),
         .er_valid (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
-        .er_prv (de_ex_decoded.exception.mtval[29] ? PRIV_LVL_M : PRIV_LVL_S),
+        .er_prv (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
         .er_epc (er_epc),
         .int_valid (int_valid),
         .int_cause (int_cause),

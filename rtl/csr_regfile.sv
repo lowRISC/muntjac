@@ -53,7 +53,7 @@ module csr_regfile import muntjac_pkg::*; # (
 
     // Interrupt output port
     output logic               int_valid,
-    output logic [3:0]         int_cause,
+    output exc_cause_e         int_cause,
 
     // Whether there is an interrupt pending at all, regardless if interrupts are enabled
     // according to MSTATUS.
@@ -111,11 +111,23 @@ module csr_regfile import muntjac_pkg::*; # (
   logic [15:0] medeleg_q, medeleg_d;
   // Assemble the full MIP register from parts.
 
-  function logic interrupt_delegated(input logic [3:0] irq);
-    unique case (irq)
-      CSR_SSIX_BIT: return mideleg_q.irq_software_s;
-      CSR_STIX_BIT: return mideleg_q.irq_timer_s;
-      CSR_SEIX_BIT: return mideleg_q.irq_external_s;
+  function logic is_delegated(input exc_cause_e cause);
+    unique case (cause)
+      EXC_CAUSE_IRQ_SOFTWARE_S    : return mideleg_q.irq_software_s;
+      EXC_CAUSE_IRQ_TIMER_S       : return mideleg_q.irq_timer_s;
+      EXC_CAUSE_IRQ_EXTERNAL_S    : return mideleg_q.irq_external_s;
+      EXC_CAUSE_INSTR_ACCESS_FAULT: return medeleg_q[EXC_CAUSE_INSTR_ACCESS_FAULT];
+      EXC_CAUSE_ILLEGAL_INSN      : return medeleg_q[EXC_CAUSE_ILLEGAL_INSN      ];
+      EXC_CAUSE_BREAKPOINT        : return medeleg_q[EXC_CAUSE_BREAKPOINT        ];
+      EXC_CAUSE_LOAD_MISALIGN     : return medeleg_q[EXC_CAUSE_LOAD_MISALIGN     ];
+      EXC_CAUSE_LOAD_ACCESS_FAULT : return medeleg_q[EXC_CAUSE_LOAD_ACCESS_FAULT ];
+      EXC_CAUSE_STORE_MISALIGN    : return medeleg_q[EXC_CAUSE_STORE_MISALIGN    ];
+      EXC_CAUSE_STORE_ACCESS_FAULT: return medeleg_q[EXC_CAUSE_STORE_ACCESS_FAULT];
+      EXC_CAUSE_ECALL_UMODE       : return medeleg_q[EXC_CAUSE_ECALL_UMODE       ];
+      EXC_CAUSE_ECALL_SMODE       : return medeleg_q[EXC_CAUSE_ECALL_SMODE       ];
+      EXC_CAUSE_INSTR_PAGE_FAULT  : return medeleg_q[EXC_CAUSE_INSTR_PAGE_FAULT  ];
+      EXC_CAUSE_LOAD_PAGE_FAULT   : return medeleg_q[EXC_CAUSE_LOAD_PAGE_FAULT   ];
+      EXC_CAUSE_STORE_PAGE_FAULT  : return medeleg_q[EXC_CAUSE_STORE_PAGE_FAULT  ];
       default: return 1'b0;
     endcase
   endfunction
@@ -133,12 +145,10 @@ module csr_regfile import muntjac_pkg::*; # (
 
   logic [63:0] mscratch_q, mscratch_d;
   logic [63:0] mtval_q, mtval_d;
-  logic mcause_interrupt_q, mcause_interrupt_d;
-  logic [3:0] mcause_code_q, mcause_code_d;
+  exc_cause_e mcause_q, mcause_d;
   logic [63:0] sscratch_q, sscratch_d;
   logic [63:0] stval_q, stval_d;
-  logic scause_interrupt_q, scause_interrupt_d;
-  logic [3:0] scause_code_q, scause_code_d;
+  exc_cause_e scause_q, scause_d;
 
   // User Floating-Point CSRs.
   logic [4:0] fflags_q, fflags_d;
@@ -230,7 +240,7 @@ module csr_regfile import muntjac_pkg::*; # (
 
       CSR_SSCRATCH: old_value = sscratch_q;
       CSR_SEPC: old_value = sepc_q;
-      CSR_SCAUSE: old_value = {scause_interrupt_q, 59'b0, scause_code_q};
+      CSR_SCAUSE: old_value = {scause_q[4], 59'b0, scause_q};
       CSR_STVAL: old_value = stval_q;
       CSR_SIP: begin
         old_value = '0;
@@ -286,7 +296,7 @@ module csr_regfile import muntjac_pkg::*; # (
 
       CSR_MSCRATCH: old_value = mscratch_q;
       CSR_MEPC: old_value = mepc_q;
-      CSR_MCAUSE: old_value = {mcause_interrupt_q, 59'b0, mcause_code_q};
+      CSR_MCAUSE: old_value = {mcause_q[4], 59'b0, mcause_q[3:0]};
       CSR_MTVAL: old_value = mtval_q;
       CSR_MIP: begin
         old_value = '0;
@@ -349,12 +359,10 @@ module csr_regfile import muntjac_pkg::*; # (
     sepc_d = sepc_q;
     mscratch_d = mscratch_q;
     mtval_d = mtval_q;
-    mcause_interrupt_d = mcause_interrupt_q;
-    mcause_code_d = mcause_code_q;
+    mcause_d = mcause_q;
     sscratch_d = sscratch_q;
     stval_d = stval_q;
-    scause_interrupt_d = scause_interrupt_q;
-    scause_code_d = scause_code_q;
+    scause_d = scause_q;
     fflags_d = fflags_q;
     frm_d = frm_q;
     satp_mode_d = satp_mode_q;
@@ -376,12 +384,11 @@ module csr_regfile import muntjac_pkg::*; # (
       ex_valid: begin
         // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
         if (priv_lvl_q != PRIV_LVL_M &&
-            (ex_exception.mcause_interrupt ? interrupt_delegated(ex_exception.mcause_code) : medeleg_q[ex_exception.mcause_code])) begin
+            is_delegated(ex_exception.cause)) begin
           ex_tvec = stvec_q;
 
-          scause_interrupt_d = ex_exception.mcause_interrupt;
-          scause_code_d = ex_exception.mcause_code;
-          stval_d = ex_exception.mtval[63:0];
+          scause_d = ex_exception.cause;
+          stval_d = ex_exception.tval;
           sepc_d = ex_epc;
 
           priv_lvl_d = PRIV_LVL_S;
@@ -393,9 +400,8 @@ module csr_regfile import muntjac_pkg::*; # (
           ex_tvec = mtvec_q;
 
           // Exception info registers
-          mcause_interrupt_d = ex_exception.mcause_interrupt;
-          mcause_code_d = ex_exception.mcause_code;
-          mtval_d = ex_exception.mtval[63:0];
+          mcause_d = ex_exception.cause;
+          mtval_d = ex_exception.tval;
           mepc_d = ex_epc;
 
           // Switch privilege level and set mstatus
@@ -459,8 +465,7 @@ module csr_regfile import muntjac_pkg::*; # (
             CSR_SSCRATCH: sscratch_d = new_value;
             CSR_SEPC: sepc_d = {new_value[63:1], 1'b0};
             CSR_SCAUSE: begin
-                scause_interrupt_d = new_value[63];
-                scause_code_d = new_value[3:0];
+                scause_d = exc_cause_e'({new_value[63], new_value[3:0]});
             end
             CSR_STVAL: stval_d = new_value;
             CSR_SIP: begin
@@ -492,7 +497,20 @@ module csr_regfile import muntjac_pkg::*; # (
               end
             end
             CSR_MISA:;
-            CSR_MEDELEG: medeleg_d = new_value[15:0] & 'hB35D;
+            CSR_MEDELEG: begin
+              medeleg_d[EXC_CAUSE_INSTR_ACCESS_FAULT] = new_value[EXC_CAUSE_INSTR_ACCESS_FAULT];
+              medeleg_d[EXC_CAUSE_ILLEGAL_INSN      ] = new_value[EXC_CAUSE_ILLEGAL_INSN      ];
+              medeleg_d[EXC_CAUSE_BREAKPOINT        ] = new_value[EXC_CAUSE_BREAKPOINT        ];
+              medeleg_d[EXC_CAUSE_LOAD_MISALIGN     ] = new_value[EXC_CAUSE_LOAD_MISALIGN     ];
+              medeleg_d[EXC_CAUSE_LOAD_ACCESS_FAULT ] = new_value[EXC_CAUSE_LOAD_ACCESS_FAULT ];
+              medeleg_d[EXC_CAUSE_STORE_MISALIGN    ] = new_value[EXC_CAUSE_STORE_MISALIGN    ];
+              medeleg_d[EXC_CAUSE_STORE_ACCESS_FAULT] = new_value[EXC_CAUSE_STORE_ACCESS_FAULT];
+              medeleg_d[EXC_CAUSE_ECALL_UMODE       ] = new_value[EXC_CAUSE_ECALL_UMODE       ];
+              medeleg_d[EXC_CAUSE_ECALL_SMODE       ] = new_value[EXC_CAUSE_ECALL_SMODE       ];
+              medeleg_d[EXC_CAUSE_INSTR_PAGE_FAULT  ] = new_value[EXC_CAUSE_INSTR_PAGE_FAULT  ];
+              medeleg_d[EXC_CAUSE_LOAD_PAGE_FAULT   ] = new_value[EXC_CAUSE_LOAD_PAGE_FAULT   ];
+              medeleg_d[EXC_CAUSE_STORE_PAGE_FAULT  ] = new_value[EXC_CAUSE_STORE_PAGE_FAULT  ];
+            end
             CSR_MIDELEG: begin
               mideleg_d.irq_software_s = new_value[CSR_SSIX_BIT];
               mideleg_d.irq_timer_s    = new_value[CSR_STIX_BIT];
@@ -512,8 +530,7 @@ module csr_regfile import muntjac_pkg::*; # (
             CSR_MSCRATCH: mscratch_d = new_value;
             CSR_MEPC: mepc_d = {new_value[63:1], 1'b0};
             CSR_MCAUSE: begin
-                mcause_interrupt_d = new_value[63];
-                mcause_code_d = new_value[3:0];
+                mcause_d = exc_cause_e'({new_value[63], new_value[3:0]});
             end
             CSR_MTVAL: mtval_d = new_value;
             CSR_MIP: begin
@@ -564,13 +581,13 @@ module csr_regfile import muntjac_pkg::*; # (
     int_valid = |irq_pending;
     wfi_valid_d = |irq_high_enable;
     priority case (1'b1)
-      irq_pending.irq_external_m: int_cause = CSR_MEIX_BIT;
-      irq_pending.irq_software_m: int_cause = CSR_MSIX_BIT;
-      irq_pending.irq_timer_m   : int_cause = CSR_MTIX_BIT;
-      irq_pending.irq_external_s: int_cause = CSR_SEIX_BIT;
-      irq_pending.irq_software_s: int_cause = CSR_SSIX_BIT;
-      irq_pending.irq_timer_s   : int_cause = CSR_STIX_BIT;
-      default: int_cause = 'x;
+      irq_pending.irq_external_m: int_cause = EXC_CAUSE_IRQ_EXTERNAL_M;
+      irq_pending.irq_software_m: int_cause = EXC_CAUSE_IRQ_SOFTWARE_M;
+      irq_pending.irq_timer_m   : int_cause = EXC_CAUSE_IRQ_TIMER_M;
+      irq_pending.irq_external_s: int_cause = EXC_CAUSE_IRQ_EXTERNAL_S;
+      irq_pending.irq_software_s: int_cause = EXC_CAUSE_IRQ_SOFTWARE_S;
+      irq_pending.irq_timer_s   : int_cause = EXC_CAUSE_IRQ_TIMER_S;
+      default: int_cause = exc_cause_e'('x);
     endcase
   end
 
@@ -591,12 +608,10 @@ module csr_regfile import muntjac_pkg::*; # (
       sepc_q <= '0;
       mscratch_q <= '0;
       mtval_q <= '0;
-      mcause_interrupt_q <= 1'b0;
-      mcause_code_q <= '0;
+      mcause_q <= exc_cause_e'('0);
       sscratch_q <= '0;
       stval_q <= '0;
-      scause_interrupt_q <= 1'b0;
-      scause_code_q <= '0;
+      scause_q <= exc_cause_e'('0);
       fflags_q <= '0;
       frm_q <= '0;
       satp_mode_q <= '0;
@@ -625,12 +640,10 @@ module csr_regfile import muntjac_pkg::*; # (
       sepc_q <= sepc_d;
       mscratch_q <= mscratch_d;
       mtval_q <= mtval_d;
-      mcause_interrupt_q <= mcause_interrupt_d;
-      mcause_code_q <= mcause_code_d;
+      mcause_q <= mcause_d;
       sscratch_q <= sscratch_d;
       stval_q <= stval_d;
-      scause_interrupt_q <= scause_interrupt_d;
-      scause_code_q <= scause_code_d;
+      scause_q <= scause_d;
       fflags_q <= fflags_d;
       frm_q <= frm_d;
       satp_mode_q <= satp_mode_d;

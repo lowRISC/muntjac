@@ -73,9 +73,8 @@ module decoder # (
 
         // Set exception to be illegal instruction, but do not enable it yet.
         decoded_instr.exception.valid = 1'b0;
-        decoded_instr.exception.mcause_interrupt = 1'b0;
-        decoded_instr.exception.mcause_code = 4'h2;
-        decoded_instr.exception.mtval = fetched_instr.instr_word;
+        decoded_instr.exception.cause = EXC_CAUSE_ILLEGAL_INSN;
+        decoded_instr.exception.tval = fetched_instr.instr_word;
 
         // Forward these fields.
         decoded_instr.pc = fetched_instr.pc;
@@ -399,14 +398,14 @@ module decoder # (
                     unique casez (instr_word[31:20])
                         12'b0000000_00000: begin
                             // ECALL
-                            decoded_instr.exception.mcause_code = {2'b10, prv};
+                            decoded_instr.exception.cause = exc_cause_e'({3'b010, prv});
                             decoded_instr.exception.valid = 1'b1;
-                            decoded_instr.exception.mtval = 0;
+                            decoded_instr.exception.tval = 0;
                         end
                         12'b0000000_00001: begin
-                            decoded_instr.exception.mcause_code = 4'h3;
+                            decoded_instr.exception.cause = EXC_CAUSE_BREAKPOINT;
                             decoded_instr.exception.valid = 1'b1;
-                            decoded_instr.exception.mtval = 0;
+                            decoded_instr.exception.tval = 0;
                         end
                         12'b0011000_00010: begin
                             decoded_instr.op_type = SYSTEM;

@@ -75,10 +75,8 @@ typedef enum logic [2:0] {
 
 typedef struct packed {
     logic valid;
-    logic mcause_interrupt;
-    logic [3:0] mcause_code;
-    // 32-bit CPU should only use the lower bits.
-    logic [63:0] mtval;
+    muntjac_pkg::exc_cause_e cause;
+    logic [63:0] tval;
 } exception_t;
 
 typedef struct packed {

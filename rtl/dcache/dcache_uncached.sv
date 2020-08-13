@@ -1,5 +1,6 @@
 // In the current design, we do not allow narrow transactions over AXI bus. Therefore it is essential that the CPU can extract data from wider loads. The module load_aligner can achieve this.
 import cpu_common::*;
+import muntjac_pkg::*;
 
 // The logic can be used for 32-bit users without hassle, simple ensure addr[2] is zero.
 function automatic logic is_aligned (
@@ -294,9 +295,8 @@ module dcache_uncached # (
                         end else begin
                             // Trigger exception
                             cache.resp_exception.valid <= 1'b1;
-                            cache.resp_exception.mcause_interrupt <= 1'b0;
-                            cache.resp_exception.mcause_code <= req_op == MEM_LOAD ? 4'h4 : 4'h6;
-                            cache.resp_exception.mtval <= req_address;
+                            cache.resp_exception.cause <= req_op == MEM_LOAD ? EXC_CAUSE_LOAD_MISALIGN : EXC_CAUSE_STORE_MISALIGN;
+                            cache.resp_exception.tval <= req_address;
                         end
                     end
                 end
@@ -322,9 +322,8 @@ module dcache_uncached # (
                             begin
                                 // Trigger exception
                                 cache.resp_exception.valid <= 1'b1;
-                                cache.resp_exception.mcause_interrupt <= 1'b0;
-                                cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
-                                cache.resp_exception.mtval <= address;
+                                cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                                cache.resp_exception.tval <= address;
                                 state <= STATE_IDLE;
                             end else begin
                                 aligned_strb <= align_strb (
@@ -369,9 +368,8 @@ module dcache_uncached # (
                             begin
                                 // Trigger exception
                                 cache.resp_exception.valid <= 1'b1;
-                                cache.resp_exception.mcause_interrupt <= 1'b0;
-                                cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
-                                cache.resp_exception.mtval <= address;
+                                cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                                cache.resp_exception.tval <= address;
                                 state <= STATE_IDLE;
                             end else begin
                                 aligned_strb <= align_strb (
@@ -410,9 +408,8 @@ module dcache_uncached # (
                         begin
                             // Trigger exception
                             cache.resp_exception.valid <= 1'b1;
-                            cache.resp_exception.mcause_interrupt <= 1'b0;
-                            cache.resp_exception.mcause_code <= op == MEM_LOAD ? 4'hD : 4'hF;
-                            cache.resp_exception.mtval <= address;
+                            cache.resp_exception.cause <= op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
+                            cache.resp_exception.tval <= address;
                             state <= STATE_IDLE;
                         end else begin
                             aligned_strb <= align_strb (
