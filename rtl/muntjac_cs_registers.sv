@@ -1,4 +1,4 @@
-module csr_regfile import muntjac_pkg::*; # (
+module muntjac_cs_registers import muntjac_pkg::*; # (
     parameter bit RV64D = 0,
     parameter bit RV64F = 0,
     parameter AsidLen = 16,

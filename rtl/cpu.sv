@@ -817,7 +817,7 @@ module cpu #(
         .w_en (ex2_pending_q && ex2_data_valid)
     );
 
-    csr_regfile csr_regfile (
+    muntjac_cs_registers csr_regfile (
         .clk_i,
         .rst_ni,
         .hart_id_i (mhartid),
