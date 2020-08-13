@@ -125,6 +125,16 @@ typedef struct packed {
   logic sie;
 } status_t;
 
+// Interrupt requests
+typedef struct packed {
+  logic irq_software_s;
+  logic irq_software_m;
+  logic irq_timer_s;
+  logic irq_timer_m;
+  logic irq_external_s;
+  logic irq_external_m;
+} irqs_t;
+
 // CSR status bits
 parameter int unsigned CSR_MSTATUS_SIE_BIT      = 1;
 parameter int unsigned CSR_MSTATUS_MIE_BIT      = 3;
@@ -145,5 +155,13 @@ parameter int unsigned CSR_MSTATUS_SD_BIT       = 63;
 
 // CSR machine ISA
 parameter logic [1:0] CSR_MISA_MXL = 2'b10; // M-XLEN: XLEN in M-Mode for RV64
+
+// CSR interrupt pending/enable bits
+parameter int unsigned CSR_SSIX_BIT = 1;
+parameter int unsigned CSR_MSIX_BIT = 3;
+parameter int unsigned CSR_STIX_BIT = 5;
+parameter int unsigned CSR_MTIX_BIT = 7;
+parameter int unsigned CSR_SEIX_BIT = 9;
+parameter int unsigned CSR_MEIX_BIT = 11;
 
 endpackage

@@ -63,13 +63,6 @@ module csr_regfile import muntjac_pkg::*; # (
     input  logic               hpm_instret
 );
 
-  localparam BIT_MEI = 11;
-  localparam BIT_SEI = 9;
-  localparam BIT_MTI = 7;
-  localparam BIT_STI = 5;
-  localparam BIT_MSI = 3;
-  localparam BIT_SSI = 1;
-
   // misa
   localparam logic [63:0] MISA_VALUE =
       (1                 <<  0)  // A - Atomic Instructions extension
@@ -101,20 +94,31 @@ module csr_regfile import muntjac_pkg::*; # (
   logic seip_q, seip_d;
   logic ssip_q, ssip_d;
   logic stip_q, stip_d;
-  // Only 'hAAA is relevant
-  logic [11:0] mie_q, mie_d;
-  // Only 'h222 is relevant.
-  logic [11:0] mideleg_q, mideleg_d;
+  irqs_t mip;
+  assign mip.irq_software_s = ssip_q;
+  assign mip.irq_software_m = irq_m_software_i;
+  assign mip.irq_timer_s    = stip_q;
+  assign mip.irq_timer_m    = irq_m_timer_i;
+  // S-mode external interrupts are determined by both seip and irq_s_external_i, but atomic CSR
+  // set/clear would only account for seip.
+  assign mip.irq_external_s = seip_q;
+  assign mip.irq_external_m = irq_m_external_i;
+
+  irqs_t mie_q, mie_d;
+  irqs_t mideleg_q, mideleg_d;
   // Only 'hB35D is relevant. We don't suport PMP so we have less fault causes, and ecall from
   // M-mode cannot be delegated.
   logic [15:0] medeleg_q, medeleg_d;
   // Assemble the full MIP register from parts.
-  logic [11:0] mip;
-  assign mip = {
-      irq_m_external_i, 1'b0, seip_q, 1'b0,
-      irq_m_timer_i, 1'b0, stip_q, 1'b0,
-      irq_m_software_i, 1'b0, ssip_q, 1'b0
-  };
+
+  function logic interrupt_delegated(input logic [3:0] irq);
+    unique case (irq)
+      CSR_SSIX_BIT: return mideleg_q.irq_software_s;
+      CSR_STIX_BIT: return mideleg_q.irq_timer_s;
+      CSR_SEIX_BIT: return mideleg_q.irq_external_s;
+      default: return 1'b0;
+    endcase
+  endfunction
 
   //
   // End of Interrupt-releated
@@ -215,7 +219,12 @@ module csr_regfile import muntjac_pkg::*; # (
       end
       // SEDELEG does not exist.
       // SIDELEG does not exist.
-      CSR_SIE: old_value = mie_q & mideleg_q;
+      CSR_SIE: begin
+        old_value = '0;
+        if (mideleg_q.irq_software_s) old_value[CSR_SSIX_BIT] = mie_q.irq_software_s;
+        if (mideleg_q.irq_timer_s   ) old_value[CSR_STIX_BIT] = mie_q.irq_timer_s;
+        if (mideleg_q.irq_external_s) old_value[CSR_SEIX_BIT] = mie_q.irq_external_s;
+      end
       CSR_STVEC: old_value = stvec_q;
       CSR_SCOUNTEREN: old_value = scounteren_q;
 
@@ -223,7 +232,12 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_SEPC: old_value = sepc_q;
       CSR_SCAUSE: old_value = {scause_interrupt_q, 59'b0, scause_code_q};
       CSR_STVAL: old_value = stval_q;
-      CSR_SIP: old_value = mip & mideleg_q;
+      CSR_SIP: begin
+        old_value = '0;
+        if (mideleg_q.irq_software_s) old_value[CSR_SSIX_BIT] = mip.irq_software_s;
+        if (mideleg_q.irq_timer_s   ) old_value[CSR_STIX_BIT] = mip.irq_timer_s;
+        if (mideleg_q.irq_external_s) old_value[CSR_SEIX_BIT] = mip.irq_external_s;
+      end
 
       CSR_SATP: old_value = satp_o;
 
@@ -252,8 +266,21 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_MISA: old_value = MISA_VALUE;
 
       CSR_MEDELEG: old_value = medeleg_q;
-      CSR_MIDELEG: old_value = mideleg_q;
-      CSR_MIE: old_value = mie_q;
+      CSR_MIDELEG: begin
+        old_value = '0;
+        old_value[CSR_SSIX_BIT] = mideleg_q.irq_software_s;
+        old_value[CSR_STIX_BIT] = mideleg_q.irq_timer_s;
+        old_value[CSR_SEIX_BIT] = mideleg_q.irq_external_s;
+      end
+      CSR_MIE: begin
+        old_value = '0;
+        old_value[CSR_SSIX_BIT] = mie_q.irq_software_s;
+        old_value[CSR_MSIX_BIT] = mie_q.irq_software_m;
+        old_value[CSR_STIX_BIT] = mie_q.irq_timer_s;
+        old_value[CSR_MTIX_BIT] = mie_q.irq_timer_m;
+        old_value[CSR_SEIX_BIT] = mie_q.irq_external_s;
+        old_value[CSR_MEIX_BIT] = mie_q.irq_external_m;
+      end
       CSR_MTVEC: old_value = mtvec_q;
       CSR_MCOUNTEREN: old_value = mcounteren_q;
 
@@ -261,7 +288,15 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_MEPC: old_value = mepc_q;
       CSR_MCAUSE: old_value = {mcause_interrupt_q, 59'b0, mcause_code_q};
       CSR_MTVAL: old_value = mtval_q;
-      CSR_MIP: old_value = mip;
+      CSR_MIP: begin
+        old_value = '0;
+        old_value[CSR_SSIX_BIT] = mip.irq_software_s;
+        old_value[CSR_MSIX_BIT] = mip.irq_software_m;
+        old_value[CSR_STIX_BIT] = mip.irq_timer_s;
+        old_value[CSR_MTIX_BIT] = mip.irq_timer_m;
+        old_value[CSR_SEIX_BIT] = mip.irq_external_s;
+        old_value[CSR_MEIX_BIT] = mip.irq_external_m;
+      end
 
       CSR_MCYCLE: old_value = mcycle_q;
       CSR_MTIME: old_value = 'x;
@@ -273,10 +308,16 @@ module csr_regfile import muntjac_pkg::*; # (
       CSR_MCOUNTINHIBIT: old_value = '0;
       default: old_value = 'x;
     endcase
-    priority casez (csr_addr_i)
-      CSR_SIP: csr_rdata_o = old_value | {irq_s_external_i, 9'b0} & mideleg_q;
-      CSR_MIP: csr_rdata_o = old_value | {irq_s_external_i, 9'b0};
-      default: csr_rdata_o = old_value;
+
+    csr_rdata_o = old_value;
+    unique case (csr_addr_i)
+      CSR_SIP: begin
+        if (mideleg_q.irq_external_s && irq_s_external_i) csr_rdata_o[CSR_SEIX_BIT] = 1'b1;
+      end
+      CSR_MIP: begin
+        if (irq_s_external_i) csr_rdata_o[CSR_SEIX_BIT] = 1'b1;
+      end
+      default:;
     endcase
   end
 
@@ -335,7 +376,7 @@ module csr_regfile import muntjac_pkg::*; # (
       ex_valid: begin
         // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
         if (priv_lvl_q != PRIV_LVL_M &&
-            (ex_exception.mcause_interrupt ? mideleg_q[ex_exception.mcause_code] : medeleg_q[ex_exception.mcause_code])) begin
+            (ex_exception.mcause_interrupt ? interrupt_delegated(ex_exception.mcause_code) : medeleg_q[ex_exception.mcause_code])) begin
           ex_tvec = stvec_q;
 
           scause_interrupt_d = ex_exception.mcause_interrupt;
@@ -407,7 +448,11 @@ module csr_regfile import muntjac_pkg::*; # (
             end
             // SEDELEG does not exist.
             // SIDELEG does not exist.
-            CSR_SIE: mie_d = (mie_q &~ mideleg_q) | (new_value[11:0] & mideleg_q);
+            CSR_SIE: begin
+              if (mideleg_q.irq_software_s) mie_d.irq_software_s = new_value[CSR_SSIX_BIT];
+              if (mideleg_q.irq_timer_s   ) mie_d.irq_timer_s    = new_value[CSR_STIX_BIT];
+              if (mideleg_q.irq_external_s) mie_d.irq_external_s = new_value[CSR_SEIX_BIT];
+            end
             CSR_STVEC: stvec_d = {new_value[63:2], 2'b0};
             CSR_SCOUNTEREN: scounteren_d = new_value[2:0] & 3'b101;
 
@@ -419,7 +464,7 @@ module csr_regfile import muntjac_pkg::*; # (
             end
             CSR_STVAL: stval_d = new_value;
             CSR_SIP: begin
-                if (mideleg_q[BIT_SSI]) ssip_d = new_value[BIT_SSI];
+              if (mideleg_q.irq_software_s) ssip_d = new_value[CSR_SSIX_BIT];
             end
             CSR_SATP: begin
                 satp_mode_d = new_value[63];
@@ -448,8 +493,19 @@ module csr_regfile import muntjac_pkg::*; # (
             end
             CSR_MISA:;
             CSR_MEDELEG: medeleg_d = new_value[15:0] & 'hB35D;
-            CSR_MIDELEG: mideleg_d = new_value[11:0] & 'h222;
-            CSR_MIE: mie_d = new_value[11:0] & 'hAAA;
+            CSR_MIDELEG: begin
+              mideleg_d.irq_software_s = new_value[CSR_SSIX_BIT];
+              mideleg_d.irq_timer_s    = new_value[CSR_STIX_BIT];
+              mideleg_d.irq_external_s = new_value[CSR_SEIX_BIT];
+            end
+            CSR_MIE: begin
+              mie_d.irq_software_s = new_value[CSR_SSIX_BIT];
+              mie_d.irq_software_m = new_value[CSR_MSIX_BIT];
+              mie_d.irq_timer_s    = new_value[CSR_STIX_BIT];
+              mie_d.irq_timer_m    = new_value[CSR_MTIX_BIT];
+              mie_d.irq_external_s = new_value[CSR_SEIX_BIT];
+              mie_d.irq_external_m = new_value[CSR_MEIX_BIT];
+            end
             CSR_MTVEC: mtvec_d = {new_value[63:2], 2'b0};
             CSR_MCOUNTEREN: mcounteren_d = new_value[2:0] & 3'b101;
 
@@ -461,9 +517,9 @@ module csr_regfile import muntjac_pkg::*; # (
             end
             CSR_MTVAL: mtval_d = new_value;
             CSR_MIP: begin
-                stip_d = new_value[BIT_STI];
-                ssip_d = new_value[BIT_SSI];
-                seip_d = new_value[BIT_SEI];
+              stip_d = new_value[CSR_STIX_BIT];
+              ssip_d = new_value[CSR_SSIX_BIT];
+              seip_d = new_value[CSR_SEIX_BIT];
             end
 
             CSR_MCYCLE: mcycle_d = new_value;
@@ -485,18 +541,19 @@ module csr_regfile import muntjac_pkg::*; # (
 
   // Pending interrupt mstatus_q
   logic wfi_valid_d;
-  logic [11:0] irq_high;
-  logic [11:0] irq_high_enable;
-  logic [11:0] irq_pending_m_d;
-  logic [11:0] irq_pending_s_d;
-  logic [11:0] irq_pending, irq_pending_d;
+  irqs_t irq_high;
+  irqs_t irq_high_enable;
+  irqs_t irq_pending_m_d;
+  irqs_t irq_pending_s_d;
+  irqs_t irq_pending, irq_pending_d;
 
   always_comb begin
-    irq_high = {
-        irq_m_external_i, 1'b0, irq_s_external_i | seip_d, 1'b0,
-        irq_m_timer_i, 1'b0, stip_d, 1'b0,
-        irq_m_software_i, 1'b0, ssip_d, 1'b0
-    };
+    irq_high.irq_software_s = ssip_d;
+    irq_high.irq_software_m = irq_m_software_i;
+    irq_high.irq_timer_s = stip_d;
+    irq_high.irq_timer_m = irq_m_timer_i;
+    irq_high.irq_external_s = (irq_s_external_i | seip_d);
+    irq_high.irq_external_m = irq_m_external_i;
     irq_high_enable = irq_high & mie_d;
     irq_pending_m_d = irq_high_enable & ~mideleg_d;
     irq_pending_s_d = irq_high_enable & mideleg_d;
@@ -507,12 +564,12 @@ module csr_regfile import muntjac_pkg::*; # (
     int_valid = |irq_pending;
     wfi_valid_d = |irq_high_enable;
     priority case (1'b1)
-      irq_pending[BIT_MEI]: int_cause = BIT_MEI;
-      irq_pending[BIT_MSI]: int_cause = BIT_MSI;
-      irq_pending[BIT_MTI]: int_cause = BIT_MTI;
-      irq_pending[BIT_SEI]: int_cause = BIT_SEI;
-      irq_pending[BIT_SSI]: int_cause = BIT_SSI;
-      irq_pending[BIT_STI]: int_cause = BIT_STI;
+      irq_pending.irq_external_m: int_cause = CSR_MEIX_BIT;
+      irq_pending.irq_software_m: int_cause = CSR_MSIX_BIT;
+      irq_pending.irq_timer_m   : int_cause = CSR_MTIX_BIT;
+      irq_pending.irq_external_s: int_cause = CSR_SEIX_BIT;
+      irq_pending.irq_software_s: int_cause = CSR_SSIX_BIT;
+      irq_pending.irq_timer_s   : int_cause = CSR_STIX_BIT;
       default: int_cause = 'x;
     endcase
   end
