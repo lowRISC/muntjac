@@ -74,7 +74,7 @@ module cpu #(
     //
     logic [4:0] de_rs1_select, de_rs2_select;
     csr_num_e de_csr_sel;
-    logic [1:0] de_csr_op;
+    csr_op_e de_csr_op;
     logic de_csr_illegal;
     decoded_instr_t de_decoded;
 
@@ -397,7 +397,7 @@ module cpu #(
                     sys_state_d = SYS_ST_OP;
                     unique case (de_ex_decoded.sys_op)
                         SYS_CSR: begin
-                            if (de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP) begin
+                            if (de_ex_decoded.csr.op != CSR_OP_READ && csr_select == CSR_SATP) begin
                                 sys_state_d = SYS_ST_SATP_CHANGED;
                             end
                         end
@@ -419,7 +419,7 @@ module cpu #(
                     // FIXME: Split the state machine
                     SYS_CSR: begin
                         sys_pc_redirect_target = npc;
-                        if (de_ex_decoded.csr.op != 2'b00) begin
+                        if (de_ex_decoded.csr.op != CSR_OP_READ) begin
                             case (csr_select)
                                 CSR_MSTATUS: begin
                                     sys_pc_redirect_valid = 1'b1;
@@ -709,6 +709,7 @@ module cpu #(
         // instruction and not yet completed, if we do nothing we might read out that value
         // after pipeline restarts. As a safeguard, wait until that to complete but don't
         // commit the value.
+        // FIXME: This will incorrectly increment instret by 1.
         if (ex2_select_q == FU_MEM && mem_trap_valid && ex1_select_q != FU_MEM && !ex1_data_valid) begin
             ex2_pending_d = 1'b1;
             ex2_select_d = ex1_select_q;
@@ -835,7 +836,7 @@ module cpu #(
         .check_illegal_o (de_csr_illegal),
         .csr_addr_i (csr_select),
         .csr_wdata_i (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
-        .csr_op_i (csr_op_e'(de_ex_decoded.csr.op)),
+        .csr_op_i (de_ex_decoded.csr.op),
         .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == SYS_CSR),
         .csr_rdata_o (csr_read),
         .irq_software_m_i (irq_m_software),

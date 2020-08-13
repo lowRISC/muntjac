@@ -95,8 +95,8 @@ module muntjac_shifter import muntjac_pkg::*; (
 
 endmodule
 
-module muntjac_alu import cpu_common::*; import muntjac_pkg::*; (
-    input  decoded_instr_t decoded_op_i,
+module muntjac_alu import muntjac_pkg::*; (
+    input  cpu_common::decoded_instr_t decoded_op_i,
     input  [63:0]          rs1_i,
     input  [63:0]          rs2_i,
     output logic [63:0]    sum_o,

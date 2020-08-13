@@ -86,7 +86,7 @@ typedef struct packed {
     // Information relevant only to the CSR
     struct packed {
         // 00 - READ, 01 - WRITE, 10 - SET, 11 - CLEAR
-        logic [1:0] op;
+        muntjac_pkg::csr_op_e op;
         // If rs1 should be used as immediate instead of a register index
         logic       imm;
     } csr;

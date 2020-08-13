@@ -14,7 +14,7 @@ module decoder # (
     input  status_t status,
 
     output csr_num_e csr_sel,
-    output logic [1:0] csr_op,
+    output csr_op_e csr_op,
     input  logic csr_illegal
 );
 
@@ -53,7 +53,7 @@ module decoder # (
 
     // Wire to CSR privilege checker
     assign csr_sel = csr_num_e'(instr_word[31:20]);
-    assign csr_op = funct3[1] == 1'b1 && rs1 == 0 ? 2'b00 : funct3[1:0];
+    assign csr_op = funct3[1] == 1'b1 && rs1 == 0 ? CSR_OP_READ : csr_op_e'(funct3[1:0]);
 
     always_comb begin
         decoded_instr = decoded_instr_t'('x);
