@@ -1,6 +1,3 @@
-import cpu_common::*;
-import riscv::*;
-
 module csr_regfile import muntjac_pkg::*; # (
     parameter bit RV64D = 0,
     parameter bit RV64F = 0,
@@ -31,36 +28,31 @@ module csr_regfile import muntjac_pkg::*; # (
     output logic [63:0]        csr_rdata_o,
 
     // Interrupts
-    input  logic               irq_m_software_i,
-    input  logic               irq_m_timer_i,
-    input  logic               irq_m_external_i,
-    input  logic               irq_s_external_i,
+    input  logic               irq_software_m_i,
+    input  logic               irq_timer_m_i,
+    input  logic               irq_external_m_i,
+    input  logic               irq_external_s_i,
+    output logic               irq_pending_o,
+    output logic               irq_valid_o,
+    output exc_cause_e         irq_cause_o,
 
     // CSR exports
     output logic [63:0]        satp_o,
     output status_t            status_o,
 
-    // Exception port. When ex_valid is true, ex_exception.valid is assumed to be true.
-    input  logic               ex_valid,
-    input  exception_t         ex_exception,
-    input  logic [63:0]        ex_epc,
-    output logic [63:0]        ex_tvec,
+    // Exception
+    input  logic               ex_valid_i,
+    input  cpu_common::exception_t         ex_exception_i,
+    input  logic [63:0]        ex_epc_i,
+    output logic [63:0]        ex_tvec_o,
 
-    // Exception return port
-    input  logic               er_valid,
-    input  priv_lvl_e          er_prv,
-    output logic [63:0]        er_epc,
-
-    // Interrupt output port
-    output logic               int_valid,
-    output exc_cause_e         int_cause,
-
-    // Whether there is an interrupt pending at all, regardless if interrupts are enabled
-    // according to MSTATUS.
-    output logic               wfi_valid,
+    // Exception return
+    input  logic               er_valid_i,
+    input  priv_lvl_e          er_prv_i,
+    output logic [63:0]        er_epc_o,
 
     // Performance counters
-    input  logic               hpm_instret
+    input  logic               instr_ret_i
 );
 
   // misa
@@ -78,38 +70,42 @@ module csr_regfile import muntjac_pkg::*; # (
     | (0                 << 23)  // X - Non-standard extensions present
     | (64'(CSR_MISA_MXL) << 62); // M-XLEN
 
-  // Current privilege level.
-  priv_lvl_e priv_lvl_q, priv_lvl_d;
+  //////////////////
+  // Control CSRs //
+  //////////////////
 
-  // Status fields
-  status_t mstatus_q, mstatus_d;
+  priv_lvl_e priv_lvl_q, priv_lvl_d;
+  status_t  mstatus_q, mstatus_d;
+
+  // Address Translation
+  logic satp_mode_q, satp_mode_d;
+  logic [AsidLen-1:0] satp_asid_q, satp_asid_d;
+  logic [PhysLen-12-1:0] satp_ppn_q, satp_ppn_d;
 
   assign status_o = mstatus_q;
   assign priv_mode_o = priv_lvl_q;
   assign priv_mode_lsu_o = mstatus_q.mprv ? mstatus_q.mpp : priv_lvl_q;
+  assign satp_o = {satp_mode_q, 3'b0, 16'(satp_asid_q), 44'(satp_ppn_q)};
 
-  // Interrupt-related
-  //
+  ////////////////////
+  // Interrupt CSRs //
+  ////////////////////
 
-  logic seip_q, seip_d;
   logic ssip_q, ssip_d;
   logic stip_q, stip_d;
+  logic seip_q, seip_d;
+
   irqs_t mip;
   assign mip.irq_software_s = ssip_q;
-  assign mip.irq_software_m = irq_m_software_i;
+  assign mip.irq_software_m = irq_software_m_i;
   assign mip.irq_timer_s    = stip_q;
-  assign mip.irq_timer_m    = irq_m_timer_i;
-  // S-mode external interrupts are determined by both seip and irq_s_external_i, but atomic CSR
-  // set/clear would only account for seip.
-  assign mip.irq_external_s = seip_q;
-  assign mip.irq_external_m = irq_m_external_i;
+  assign mip.irq_timer_m    = irq_timer_m_i;
+  assign mip.irq_external_s = irq_external_s_i || seip_q;
+  assign mip.irq_external_m = irq_external_m_i;
 
   irqs_t mie_q, mie_d;
   irqs_t mideleg_q, mideleg_d;
-  // Only 'hB35D is relevant. We don't suport PMP so we have less fault causes, and ecall from
-  // M-mode cannot be delegated.
   logic [15:0] medeleg_q, medeleg_d;
-  // Assemble the full MIP register from parts.
 
   function logic is_delegated(input exc_cause_e cause);
     unique case (cause)
@@ -132,44 +128,73 @@ module csr_regfile import muntjac_pkg::*; # (
     endcase
   endfunction
 
-  //
-  // End of Interrupt-releated
+  // Here we use irq_pending to mean the IRQs that are available and enabled, while
+  // irq_valid means the pending IRQs that could be processed now (aka not delegated to lower
+  // privilege level and current privilege level has interrupt enabled).
+  irqs_t irq_pending;
+  irqs_t irq_valid_m;
+  irqs_t irq_valid_s;
+  irqs_t irq_valid;
 
-  // The last two bits of these registers must be zero. We don't support vectored mode.
-  logic [63:0] mtvec_q, mtvec_d;
-  logic [63:0] stvec_q, stvec_d;
+  assign irq_pending = mip & mie_q;
+  assign irq_pending_o = |irq_pending;
 
-  // The last two bit must be zero.
-  logic [63:0] mepc_q, mepc_d;
-  logic [63:0] sepc_q, sepc_d;
+  assign irq_valid_m = priv_lvl_q != PRIV_LVL_M || mstatus_q.mie ? irq_pending & ~mideleg_q : '0;
+  assign irq_valid_s = priv_lvl_q == PRIV_LVL_U || (priv_lvl_q == PRIV_LVL_S && mstatus_q.sie) ? irq_pending & mideleg_q : 0;
+  assign irq_valid = irq_valid_m | irq_valid_s;
+  assign irq_valid_o = |irq_valid;
+
+  always_comb begin
+    irq_cause_o = exc_cause_e'('x);
+    priority case (1'b1)
+      irq_pending.irq_external_m: irq_cause_o = EXC_CAUSE_IRQ_EXTERNAL_M;
+      irq_pending.irq_software_m: irq_cause_o = EXC_CAUSE_IRQ_SOFTWARE_M;
+      irq_pending.irq_timer_m   : irq_cause_o = EXC_CAUSE_IRQ_TIMER_M;
+      irq_pending.irq_external_s: irq_cause_o = EXC_CAUSE_IRQ_EXTERNAL_S;
+      irq_pending.irq_software_s: irq_cause_o = EXC_CAUSE_IRQ_SOFTWARE_S;
+      irq_pending.irq_timer_s   : irq_cause_o = EXC_CAUSE_IRQ_TIMER_S;
+      default:;
+    endcase
+  end
+
+  ////////////////////////
+  // Trap Handling CSRs //
+  ////////////////////////
 
   logic [63:0] mscratch_q, mscratch_d;
+  logic [63:0] mepc_q, mepc_d;
+  exc_cause_e  mcause_q, mcause_d;
+  logic [63:0] mtvec_q, mtvec_d;
   logic [63:0] mtval_q, mtval_d;
-  exc_cause_e mcause_q, mcause_d;
+
   logic [63:0] sscratch_q, sscratch_d;
+  logic [63:0] sepc_q, sepc_d;
+  exc_cause_e  scause_q, scause_d;
+  logic [63:0] stvec_q, stvec_d;
   logic [63:0] stval_q, stval_d;
-  exc_cause_e scause_q, scause_d;
+
+  ////////////////
+  // Other CSRs //
+  ////////////////
 
   // User Floating-Point CSRs.
   logic [4:0] fflags_q, fflags_d;
   logic [2:0] frm_q, frm_d;
-
-  // Address Translation
-  logic satp_mode_q, satp_mode_d;
-  logic [AsidLen-1:0] satp_asid_q, satp_asid_d;
-  logic [PhysLen-12-1:0] satp_ppn_q, satp_ppn_d;
 
   // Counter Enable
   logic [2:0] mcounteren_q, mcounteren_d;
   logic [2:0] scounteren_q, scounteren_d;
 
   // Hardware performance counters
+  logic mcycle_we;
+  logic minstret_we;
   logic [63:0] mcycle_q, mcycle_d;
   logic [63:0] minstret_q, minstret_d;
 
-  assign satp_o = {satp_mode_q, 3'b0, 16'(satp_asid_q), 44'(satp_ppn_q)};
+  //////////////////////////////
+  // Privilege checking logic //
+  //////////////////////////////
 
-  // Privilege checking logic
   logic illegal;
   logic illegal_readonly;
   logic illegal_prv;
@@ -196,200 +221,205 @@ module csr_regfile import muntjac_pkg::*; # (
     check_illegal_o = illegal | illegal_readonly | illegal_prv;
   end
 
-  logic [63:0] old_value;
-  logic [63:0] new_value;
+  ////////////////
+  // Read logic //
+  ////////////////
 
-  // CSR reading logic
+  logic [63:0] csr_rdata_int;
+
   always_comb begin
-    old_value = 'x;
+    csr_rdata_int = '0;
 
-    priority casez (csr_addr_i)
+    unique case (csr_addr_i)
       // User Trap Setup CSRs not supported
       // User Trap Handling CSRs not supported
 
       // User Floating-point CSRs
-      CSR_FFLAGS: if (RV64F) old_value = fflags_q;
-      CSR_FRM: if (RV64F) old_value = frm_q;
-      CSR_FCSR: if (RV64F) old_value = {frm_q, fflags_q};
+      CSR_FFLAGS: if (RV64F) csr_rdata_int = fflags_q;
+      CSR_FRM: if (RV64F) csr_rdata_int = frm_q;
+      CSR_FCSR: if (RV64F) csr_rdata_int = {frm_q, fflags_q};
 
       // User Counter/Timers CSRs
-      CSR_CYCLE: old_value = mcycle_q;
-      CSR_INSTRET: old_value = minstret_q;
+      CSR_CYCLE: csr_rdata_int = mcycle_q;
+      CSR_INSTRET: csr_rdata_int = minstret_q;
       // TIME and HPMCOUNTERS does not exist MCOUNTEREN bits are hardwired to zero.
 
       CSR_SSTATUS: begin
-        old_value = '0;
-        old_value[CSR_MSTATUS_SIE_BIT]                            = mstatus_q.sie;
-        old_value[CSR_MSTATUS_SPIE_BIT]                           = mstatus_q.spie;
-        old_value[CSR_MSTATUS_SPP_BIT]                            = mstatus_q.spp;
-        old_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW] = mstatus_q.fs;
-        old_value[CSR_MSTATUS_SUM_BIT]                            = mstatus_q.sum;
-        old_value[CSR_MSTATUS_MXR_BIT]                            = mstatus_q.mxr;
-        old_value[CSR_MSTATUS_SD_BIT]                             = &mstatus_q.fs;
+        csr_rdata_int = '0;
+        csr_rdata_int[CSR_MSTATUS_SIE_BIT]                            = mstatus_q.sie;
+        csr_rdata_int[CSR_MSTATUS_SPIE_BIT]                           = mstatus_q.spie;
+        csr_rdata_int[CSR_MSTATUS_SPP_BIT]                            = mstatus_q.spp;
+        csr_rdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW] = mstatus_q.fs;
+        csr_rdata_int[CSR_MSTATUS_SUM_BIT]                            = mstatus_q.sum;
+        csr_rdata_int[CSR_MSTATUS_MXR_BIT]                            = mstatus_q.mxr;
+        csr_rdata_int[CSR_MSTATUS_SD_BIT]                             = &mstatus_q.fs;
       end
       // SEDELEG does not exist.
       // SIDELEG does not exist.
       CSR_SIE: begin
-        old_value = '0;
-        if (mideleg_q.irq_software_s) old_value[CSR_SSIX_BIT] = mie_q.irq_software_s;
-        if (mideleg_q.irq_timer_s   ) old_value[CSR_STIX_BIT] = mie_q.irq_timer_s;
-        if (mideleg_q.irq_external_s) old_value[CSR_SEIX_BIT] = mie_q.irq_external_s;
+        csr_rdata_int = '0;
+        if (mideleg_q.irq_software_s) csr_rdata_int[CSR_SSIX_BIT] = mie_q.irq_software_s;
+        if (mideleg_q.irq_timer_s   ) csr_rdata_int[CSR_STIX_BIT] = mie_q.irq_timer_s;
+        if (mideleg_q.irq_external_s) csr_rdata_int[CSR_SEIX_BIT] = mie_q.irq_external_s;
       end
-      CSR_STVEC: old_value = stvec_q;
-      CSR_SCOUNTEREN: old_value = scounteren_q;
+      CSR_STVEC: csr_rdata_int = stvec_q;
+      CSR_SCOUNTEREN: csr_rdata_int = scounteren_q;
 
-      CSR_SSCRATCH: old_value = sscratch_q;
-      CSR_SEPC: old_value = sepc_q;
-      CSR_SCAUSE: old_value = {scause_q[4], 59'b0, scause_q};
-      CSR_STVAL: old_value = stval_q;
+      CSR_SSCRATCH: csr_rdata_int = sscratch_q;
+      CSR_SEPC: csr_rdata_int = sepc_q;
+      CSR_SCAUSE: csr_rdata_int = {scause_q[4], 59'b0, scause_q};
+      CSR_STVAL: csr_rdata_int = stval_q;
       CSR_SIP: begin
-        old_value = '0;
-        if (mideleg_q.irq_software_s) old_value[CSR_SSIX_BIT] = mip.irq_software_s;
-        if (mideleg_q.irq_timer_s   ) old_value[CSR_STIX_BIT] = mip.irq_timer_s;
-        if (mideleg_q.irq_external_s) old_value[CSR_SEIX_BIT] = mip.irq_external_s;
+        csr_rdata_int = '0;
+        if (mideleg_q.irq_software_s) csr_rdata_int[CSR_SSIX_BIT] = mip.irq_software_s;
+        if (mideleg_q.irq_timer_s   ) csr_rdata_int[CSR_STIX_BIT] = mip.irq_timer_s;
+        if (mideleg_q.irq_external_s) csr_rdata_int[CSR_SEIX_BIT] = seip_q;
       end
 
-      CSR_SATP: old_value = satp_o;
+      CSR_SATP: csr_rdata_int = satp_o;
 
-      CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID: old_value = '0;
-      CSR_MHARTID: old_value = hart_id_i;
+      CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID: csr_rdata_int = '0;
+      CSR_MHARTID: csr_rdata_int = hart_id_i;
 
       CSR_MSTATUS: begin
-        old_value = '0;
-        old_value[CSR_MSTATUS_SIE_BIT]                              = mstatus_q.sie;
-        old_value[CSR_MSTATUS_MIE_BIT]                              = mstatus_q.mie;
-        old_value[CSR_MSTATUS_SPIE_BIT]                             = mstatus_q.spie;
-        old_value[CSR_MSTATUS_MPIE_BIT]                             = mstatus_q.mpie;
-        old_value[CSR_MSTATUS_SPP_BIT]                              = mstatus_q.spp;
-        old_value[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW] = mstatus_q.mpp;
-        old_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW]   = mstatus_q.fs;
-        old_value[CSR_MSTATUS_MPRV_BIT]                             = mstatus_q.mprv;
-        old_value[CSR_MSTATUS_SUM_BIT]                              = mstatus_q.sum;
-        old_value[CSR_MSTATUS_MXR_BIT]                              = mstatus_q.mxr;
-        old_value[CSR_MSTATUS_TVM_BIT]                              = mstatus_q.tvm;
-        old_value[CSR_MSTATUS_TW_BIT]                               = mstatus_q.tw;
-        old_value[CSR_MSTATUS_TSR_BIT]                              = mstatus_q.tsr;
-        old_value[CSR_MSTATUS_SD_BIT]                               = &mstatus_q.fs;
+        csr_rdata_int = '0;
+        csr_rdata_int[CSR_MSTATUS_SIE_BIT]                              = mstatus_q.sie;
+        csr_rdata_int[CSR_MSTATUS_MIE_BIT]                              = mstatus_q.mie;
+        csr_rdata_int[CSR_MSTATUS_SPIE_BIT]                             = mstatus_q.spie;
+        csr_rdata_int[CSR_MSTATUS_MPIE_BIT]                             = mstatus_q.mpie;
+        csr_rdata_int[CSR_MSTATUS_SPP_BIT]                              = mstatus_q.spp;
+        csr_rdata_int[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW] = mstatus_q.mpp;
+        csr_rdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW]   = mstatus_q.fs;
+        csr_rdata_int[CSR_MSTATUS_MPRV_BIT]                             = mstatus_q.mprv;
+        csr_rdata_int[CSR_MSTATUS_SUM_BIT]                              = mstatus_q.sum;
+        csr_rdata_int[CSR_MSTATUS_MXR_BIT]                              = mstatus_q.mxr;
+        csr_rdata_int[CSR_MSTATUS_TVM_BIT]                              = mstatus_q.tvm;
+        csr_rdata_int[CSR_MSTATUS_TW_BIT]                               = mstatus_q.tw;
+        csr_rdata_int[CSR_MSTATUS_TSR_BIT]                              = mstatus_q.tsr;
+        csr_rdata_int[CSR_MSTATUS_SD_BIT]                               = &mstatus_q.fs;
       end
 
       // misa
-      CSR_MISA: old_value = MISA_VALUE;
+      CSR_MISA: csr_rdata_int = MISA_VALUE;
 
-      CSR_MEDELEG: old_value = medeleg_q;
+      CSR_MEDELEG: csr_rdata_int = medeleg_q;
       CSR_MIDELEG: begin
-        old_value = '0;
-        old_value[CSR_SSIX_BIT] = mideleg_q.irq_software_s;
-        old_value[CSR_STIX_BIT] = mideleg_q.irq_timer_s;
-        old_value[CSR_SEIX_BIT] = mideleg_q.irq_external_s;
+        csr_rdata_int = '0;
+        csr_rdata_int[CSR_SSIX_BIT] = mideleg_q.irq_software_s;
+        csr_rdata_int[CSR_STIX_BIT] = mideleg_q.irq_timer_s;
+        csr_rdata_int[CSR_SEIX_BIT] = mideleg_q.irq_external_s;
       end
       CSR_MIE: begin
-        old_value = '0;
-        old_value[CSR_SSIX_BIT] = mie_q.irq_software_s;
-        old_value[CSR_MSIX_BIT] = mie_q.irq_software_m;
-        old_value[CSR_STIX_BIT] = mie_q.irq_timer_s;
-        old_value[CSR_MTIX_BIT] = mie_q.irq_timer_m;
-        old_value[CSR_SEIX_BIT] = mie_q.irq_external_s;
-        old_value[CSR_MEIX_BIT] = mie_q.irq_external_m;
+        csr_rdata_int = '0;
+        csr_rdata_int[CSR_SSIX_BIT] = mie_q.irq_software_s;
+        csr_rdata_int[CSR_MSIX_BIT] = mie_q.irq_software_m;
+        csr_rdata_int[CSR_STIX_BIT] = mie_q.irq_timer_s;
+        csr_rdata_int[CSR_MTIX_BIT] = mie_q.irq_timer_m;
+        csr_rdata_int[CSR_SEIX_BIT] = mie_q.irq_external_s;
+        csr_rdata_int[CSR_MEIX_BIT] = mie_q.irq_external_m;
       end
-      CSR_MTVEC: old_value = mtvec_q;
-      CSR_MCOUNTEREN: old_value = mcounteren_q;
+      CSR_MTVEC: csr_rdata_int = mtvec_q;
+      CSR_MCOUNTEREN: csr_rdata_int = mcounteren_q;
 
-      CSR_MSCRATCH: old_value = mscratch_q;
-      CSR_MEPC: old_value = mepc_q;
-      CSR_MCAUSE: old_value = {mcause_q[4], 59'b0, mcause_q[3:0]};
-      CSR_MTVAL: old_value = mtval_q;
+      CSR_MSCRATCH: csr_rdata_int = mscratch_q;
+      CSR_MEPC: csr_rdata_int = mepc_q;
+      CSR_MCAUSE: csr_rdata_int = {mcause_q[4], 59'b0, mcause_q[3:0]};
+      CSR_MTVAL: csr_rdata_int = mtval_q;
       CSR_MIP: begin
-        old_value = '0;
-        old_value[CSR_SSIX_BIT] = mip.irq_software_s;
-        old_value[CSR_MSIX_BIT] = mip.irq_software_m;
-        old_value[CSR_STIX_BIT] = mip.irq_timer_s;
-        old_value[CSR_MTIX_BIT] = mip.irq_timer_m;
-        old_value[CSR_SEIX_BIT] = mip.irq_external_s;
-        old_value[CSR_MEIX_BIT] = mip.irq_external_m;
+        csr_rdata_int = '0;
+        csr_rdata_int[CSR_SSIX_BIT] = mip.irq_software_s;
+        csr_rdata_int[CSR_MSIX_BIT] = mip.irq_software_m;
+        csr_rdata_int[CSR_STIX_BIT] = mip.irq_timer_s;
+        csr_rdata_int[CSR_MTIX_BIT] = mip.irq_timer_m;
+        csr_rdata_int[CSR_SEIX_BIT] = seip_q;
+        csr_rdata_int[CSR_MEIX_BIT] = mip.irq_external_m;
       end
 
-      CSR_MCYCLE: old_value = mcycle_q;
-      CSR_MTIME: old_value = 'x;
-      CSR_MINSTRET: old_value = minstret_q;
+      CSR_MCYCLE: csr_rdata_int = mcycle_q;
+      CSR_MINSTRET: csr_rdata_int = minstret_q;
 
       // We don't support additional counters, and don't support inhibition.
-      CSR_MHPMCOUNTERS: old_value = '0;
-      CSR_MHPMEVENTS: old_value = '0;
-      CSR_MCOUNTINHIBIT: old_value = '0;
-      default: old_value = 'x;
+      CSR_MHPMCOUNTERS: csr_rdata_int = '0;
+      CSR_MHPMEVENTS: csr_rdata_int = '0;
+      CSR_MCOUNTINHIBIT: csr_rdata_int = '0;
+      default: csr_rdata_int = 'x;
     endcase
 
-    csr_rdata_o = old_value;
+    csr_rdata_o = csr_rdata_int;
     unique case (csr_addr_i)
       CSR_SIP: begin
-        if (mideleg_q.irq_external_s && irq_s_external_i) csr_rdata_o[CSR_SEIX_BIT] = 1'b1;
+        if (mideleg_q.irq_external_s) csr_rdata_o[CSR_SEIX_BIT] = mip.irq_external_s;
       end
       CSR_MIP: begin
-        if (irq_s_external_i) csr_rdata_o[CSR_SEIX_BIT] = 1'b1;
+        csr_rdata_o[CSR_SEIX_BIT] = mip.irq_external_s;
       end
       default:;
     endcase
   end
 
-  // Perform read-modify-write operations.
+  /////////////////
+  // Write logic //
+  /////////////////
+
+  logic [63:0] csr_wdata_int;
+
+  // Perform CSR operation
   always_comb begin
     unique case (csr_op_i)
-      CSR_OP_WRITE: new_value = csr_wdata_i;
-      CSR_OP_SET: new_value = old_value | csr_wdata_i;
-      CSR_OP_CLEAR: new_value = old_value &~ csr_wdata_i;
-      // This catches both `csr_op_i = 'x` case and `csr_op_i = 2'b00` case (don't modify)
-      default: new_value = 'x;
+      CSR_OP_WRITE: csr_wdata_int =  csr_wdata_i;
+      CSR_OP_SET:   csr_wdata_int =  csr_wdata_i | csr_rdata_int;
+      CSR_OP_CLEAR: csr_wdata_int = ~csr_wdata_i & csr_rdata_int;
+      default:      csr_wdata_int = 'x;
     endcase
   end
 
   // Write and exception handling logic
   always_comb begin
-    // Everything stays the same until updated.
-    priv_lvl_d = priv_lvl_q;
-    mstatus_d = mstatus_q;
-    stip_d = stip_q;
     ssip_d = ssip_q;
+    stip_d = stip_q;
     seip_d = seip_q;
     mie_d = mie_q;
     medeleg_d = medeleg_q;
     mideleg_d = mideleg_q;
-    mtvec_d = mtvec_q;
-    stvec_d = stvec_q;
-    mepc_d = mepc_q;
-    sepc_d = sepc_q;
+
     mscratch_d = mscratch_q;
-    mtval_d = mtval_q;
+    mepc_d = mepc_q;
     mcause_d = mcause_q;
+    mtval_d = mtval_q;
+    mtvec_d = mtvec_q;
     sscratch_d = sscratch_q;
-    stval_d = stval_q;
+    sepc_d = sepc_q;
     scause_d = scause_q;
-    fflags_d = fflags_q;
-    frm_d = frm_q;
+    stval_d = stval_q;
+    stvec_d = stvec_q;
     satp_mode_d = satp_mode_q;
     satp_asid_d = satp_asid_q;
     satp_ppn_d = satp_ppn_q;
+
+    priv_lvl_d = priv_lvl_q;
+    mstatus_d = mstatus_q;
+
+    fflags_d = fflags_q;
+    frm_d = frm_q;
+
     mcounteren_d = mcounteren_q;
     scounteren_d = scounteren_q;
-    mcycle_d = mcycle_q + 1;
-    // NOTE: This probably isn't strictly correct according to the spec, as the value read may
-    // be off by 1 (due to pipelining). But since only firmware can write to this value, nobody
-    // should care.
-    minstret_d = hpm_instret ? minstret_q + 1 : minstret_q;
 
-    ex_tvec = 'x;
+    mcycle_we = 1'b0;
+    minstret_we = 1'b0;
 
-    er_epc = 'x;
+    ex_tvec_o = 'x;
+    er_epc_o = 'x;
 
     unique case (1'b1)
-      ex_valid: begin
+      ex_valid_i: begin
         // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
-        if (priv_lvl_q != PRIV_LVL_M &&
-            is_delegated(ex_exception.cause)) begin
-          ex_tvec = stvec_q;
+        if (priv_lvl_q != PRIV_LVL_M && is_delegated(ex_exception_i.cause)) begin
+          ex_tvec_o = stvec_q;
 
-          scause_d = ex_exception.cause;
-          stval_d = ex_exception.tval;
-          sepc_d = ex_epc;
+          scause_d = ex_exception_i.cause;
+          stval_d = ex_exception_i.tval;
+          sepc_d = ex_epc_i;
 
           priv_lvl_d = PRIV_LVL_S;
           mstatus_d.sie = 1'b0;
@@ -397,12 +427,12 @@ module csr_regfile import muntjac_pkg::*; # (
           mstatus_d.spp = priv_lvl_q[0];
         end else begin
           // Exception handling vector
-          ex_tvec = mtvec_q;
+          ex_tvec_o = mtvec_q;
 
           // Exception info registers
-          mcause_d = ex_exception.cause;
-          mtval_d = ex_exception.tval;
-          mepc_d = ex_epc;
+          mcause_d = ex_exception_i.cause;
+          mtval_d = ex_exception_i.tval;
+          mepc_d = ex_epc_i;
 
           // Switch privilege level and set mstatus
           priv_lvl_d = PRIV_LVL_M;
@@ -411,16 +441,16 @@ module csr_regfile import muntjac_pkg::*; # (
           mstatus_d.mpp = priv_lvl_q;
         end
       end
-      er_valid: begin
-        if (er_prv != PRIV_LVL_M) begin
-          er_epc = sepc_q;
+      er_valid_i: begin
+        if (er_prv_i != PRIV_LVL_M) begin
+          er_epc_o = sepc_q;
 
           priv_lvl_d = mstatus_q.spp ? PRIV_LVL_S : PRIV_LVL_U;
           mstatus_d.spie = 1'b1;
           mstatus_d.sie = mstatus_q.spie;
           mstatus_d.spp = 1'b0;
         end else begin
-          er_epc = mepc_q;
+          er_epc_o = mepc_q;
 
           priv_lvl_d = mstatus_q.mpp;
           mstatus_d.mpie = 1'b1;
@@ -437,60 +467,60 @@ module csr_regfile import muntjac_pkg::*; # (
             // User Trap Handling CSRs not supported
 
             // User Floating-point CSRs
-            CSR_FFLAGS: if (RV64F) fflags_d = new_value[4:0];
-            CSR_FRM: if (RV64F) frm_d = new_value[2:0];
+            CSR_FFLAGS: if (RV64F) fflags_d = csr_wdata_int[4:0];
+            CSR_FRM: if (RV64F) frm_d = csr_wdata_int[2:0];
             CSR_FCSR: if (RV64F) begin
-                fflags_d = new_value[4:0];
-                frm_d = new_value[7:5];
+              fflags_d = csr_wdata_int[4:0];
+              frm_d = csr_wdata_int[7:5];
             end
 
             CSR_SSTATUS: begin
-              mstatus_d.sie  = new_value[CSR_MSTATUS_SIE_BIT];
-              mstatus_d.spie = new_value[CSR_MSTATUS_SPIE_BIT];
-              mstatus_d.spp  = new_value[CSR_MSTATUS_SPP_BIT];
-              mstatus_d.fs   = new_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
-              mstatus_d.sum  = new_value[CSR_MSTATUS_SUM_BIT];
-              mstatus_d.mxr  = new_value[CSR_MSTATUS_MXR_BIT];
+              mstatus_d.sie  = csr_wdata_int[CSR_MSTATUS_SIE_BIT];
+              mstatus_d.spie = csr_wdata_int[CSR_MSTATUS_SPIE_BIT];
+              mstatus_d.spp  = csr_wdata_int[CSR_MSTATUS_SPP_BIT];
+              mstatus_d.fs   = csr_wdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
+              mstatus_d.sum  = csr_wdata_int[CSR_MSTATUS_SUM_BIT];
+              mstatus_d.mxr  = csr_wdata_int[CSR_MSTATUS_MXR_BIT];
             end
             // SEDELEG does not exist.
             // SIDELEG does not exist.
             CSR_SIE: begin
-              if (mideleg_q.irq_software_s) mie_d.irq_software_s = new_value[CSR_SSIX_BIT];
-              if (mideleg_q.irq_timer_s   ) mie_d.irq_timer_s    = new_value[CSR_STIX_BIT];
-              if (mideleg_q.irq_external_s) mie_d.irq_external_s = new_value[CSR_SEIX_BIT];
+              if (mideleg_q.irq_software_s) mie_d.irq_software_s = csr_wdata_int[CSR_SSIX_BIT];
+              if (mideleg_q.irq_timer_s   ) mie_d.irq_timer_s    = csr_wdata_int[CSR_STIX_BIT];
+              if (mideleg_q.irq_external_s) mie_d.irq_external_s = csr_wdata_int[CSR_SEIX_BIT];
             end
-            CSR_STVEC: stvec_d = {new_value[63:2], 2'b0};
-            CSR_SCOUNTEREN: scounteren_d = new_value[2:0] & 3'b101;
+            CSR_STVEC: stvec_d = {csr_wdata_int[63:2], 2'b0};
+            CSR_SCOUNTEREN: scounteren_d = csr_wdata_int[2:0] & 3'b101;
 
-            CSR_SSCRATCH: sscratch_d = new_value;
-            CSR_SEPC: sepc_d = {new_value[63:1], 1'b0};
+            CSR_SSCRATCH: sscratch_d = csr_wdata_int;
+            CSR_SEPC: sepc_d = {csr_wdata_int[63:1], 1'b0};
             CSR_SCAUSE: begin
-                scause_d = exc_cause_e'({new_value[63], new_value[3:0]});
+              scause_d = exc_cause_e'({csr_wdata_int[63], csr_wdata_int[3:0]});
             end
-            CSR_STVAL: stval_d = new_value;
+            CSR_STVAL: stval_d = csr_wdata_int;
             CSR_SIP: begin
-              if (mideleg_q.irq_software_s) ssip_d = new_value[CSR_SSIX_BIT];
+              if (mideleg_q.irq_software_s) ssip_d = csr_wdata_int[CSR_SSIX_BIT];
             end
             CSR_SATP: begin
-                satp_mode_d = new_value[63];
-                satp_asid_d = new_value[PhysLen-12 +: AsidLen];
-                satp_ppn_d  = new_value[0 +: PhysLen-12];
+              satp_mode_d = csr_wdata_int[63];
+              satp_asid_d = csr_wdata_int[PhysLen-12 +: AsidLen];
+              satp_ppn_d  = csr_wdata_int[0 +: PhysLen-12];
             end
 
             CSR_MSTATUS: begin
-              mstatus_d.sie  = new_value[CSR_MSTATUS_SIE_BIT];
-              mstatus_d.mie  = new_value[CSR_MSTATUS_MIE_BIT];
-              mstatus_d.spie = new_value[CSR_MSTATUS_SPIE_BIT];
-              mstatus_d.mpie = new_value[CSR_MSTATUS_MPIE_BIT];
-              mstatus_d.spp  = new_value[CSR_MSTATUS_SPP_BIT];
-              mstatus_d.mpp  = priv_lvl_e'(new_value[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW]);
-              mstatus_d.fs   = new_value[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
-              mstatus_d.mprv = new_value[CSR_MSTATUS_MPRV_BIT];
-              mstatus_d.sum  = new_value[CSR_MSTATUS_SUM_BIT];
-              mstatus_d.mxr  = new_value[CSR_MSTATUS_MXR_BIT];
-              mstatus_d.tvm  = new_value[CSR_MSTATUS_TVM_BIT];
-              mstatus_d.tw   = new_value[CSR_MSTATUS_TW_BIT];
-              mstatus_d.tsr  = new_value[CSR_MSTATUS_TSR_BIT];
+              mstatus_d.sie  = csr_wdata_int[CSR_MSTATUS_SIE_BIT];
+              mstatus_d.mie  = csr_wdata_int[CSR_MSTATUS_MIE_BIT];
+              mstatus_d.spie = csr_wdata_int[CSR_MSTATUS_SPIE_BIT];
+              mstatus_d.mpie = csr_wdata_int[CSR_MSTATUS_MPIE_BIT];
+              mstatus_d.spp  = csr_wdata_int[CSR_MSTATUS_SPP_BIT];
+              mstatus_d.mpp  = priv_lvl_e'(csr_wdata_int[CSR_MSTATUS_MPP_BIT_HIGH:CSR_MSTATUS_MPP_BIT_LOW]);
+              mstatus_d.fs   = csr_wdata_int[CSR_MSTATUS_FS_BIT_HIGH:CSR_MSTATUS_FS_BIT_LOW];
+              mstatus_d.mprv = csr_wdata_int[CSR_MSTATUS_MPRV_BIT];
+              mstatus_d.sum  = csr_wdata_int[CSR_MSTATUS_SUM_BIT];
+              mstatus_d.mxr  = csr_wdata_int[CSR_MSTATUS_MXR_BIT];
+              mstatus_d.tvm  = csr_wdata_int[CSR_MSTATUS_TVM_BIT];
+              mstatus_d.tw   = csr_wdata_int[CSR_MSTATUS_TW_BIT];
+              mstatus_d.tsr  = csr_wdata_int[CSR_MSTATUS_TSR_BIT];
               // Convert illegal values to M-mode
               if (mstatus_d.mpp == PRIV_LVL_H) begin
                 mstatus_d.mpp = PRIV_LVL_M;
@@ -498,49 +528,49 @@ module csr_regfile import muntjac_pkg::*; # (
             end
             CSR_MISA:;
             CSR_MEDELEG: begin
-              medeleg_d[EXC_CAUSE_INSTR_ACCESS_FAULT] = new_value[EXC_CAUSE_INSTR_ACCESS_FAULT];
-              medeleg_d[EXC_CAUSE_ILLEGAL_INSN      ] = new_value[EXC_CAUSE_ILLEGAL_INSN      ];
-              medeleg_d[EXC_CAUSE_BREAKPOINT        ] = new_value[EXC_CAUSE_BREAKPOINT        ];
-              medeleg_d[EXC_CAUSE_LOAD_MISALIGN     ] = new_value[EXC_CAUSE_LOAD_MISALIGN     ];
-              medeleg_d[EXC_CAUSE_LOAD_ACCESS_FAULT ] = new_value[EXC_CAUSE_LOAD_ACCESS_FAULT ];
-              medeleg_d[EXC_CAUSE_STORE_MISALIGN    ] = new_value[EXC_CAUSE_STORE_MISALIGN    ];
-              medeleg_d[EXC_CAUSE_STORE_ACCESS_FAULT] = new_value[EXC_CAUSE_STORE_ACCESS_FAULT];
-              medeleg_d[EXC_CAUSE_ECALL_UMODE       ] = new_value[EXC_CAUSE_ECALL_UMODE       ];
-              medeleg_d[EXC_CAUSE_ECALL_SMODE       ] = new_value[EXC_CAUSE_ECALL_SMODE       ];
-              medeleg_d[EXC_CAUSE_INSTR_PAGE_FAULT  ] = new_value[EXC_CAUSE_INSTR_PAGE_FAULT  ];
-              medeleg_d[EXC_CAUSE_LOAD_PAGE_FAULT   ] = new_value[EXC_CAUSE_LOAD_PAGE_FAULT   ];
-              medeleg_d[EXC_CAUSE_STORE_PAGE_FAULT  ] = new_value[EXC_CAUSE_STORE_PAGE_FAULT  ];
+              medeleg_d[EXC_CAUSE_INSTR_ACCESS_FAULT] = csr_wdata_int[EXC_CAUSE_INSTR_ACCESS_FAULT];
+              medeleg_d[EXC_CAUSE_ILLEGAL_INSN      ] = csr_wdata_int[EXC_CAUSE_ILLEGAL_INSN      ];
+              medeleg_d[EXC_CAUSE_BREAKPOINT        ] = csr_wdata_int[EXC_CAUSE_BREAKPOINT        ];
+              medeleg_d[EXC_CAUSE_LOAD_MISALIGN     ] = csr_wdata_int[EXC_CAUSE_LOAD_MISALIGN     ];
+              medeleg_d[EXC_CAUSE_LOAD_ACCESS_FAULT ] = csr_wdata_int[EXC_CAUSE_LOAD_ACCESS_FAULT ];
+              medeleg_d[EXC_CAUSE_STORE_MISALIGN    ] = csr_wdata_int[EXC_CAUSE_STORE_MISALIGN    ];
+              medeleg_d[EXC_CAUSE_STORE_ACCESS_FAULT] = csr_wdata_int[EXC_CAUSE_STORE_ACCESS_FAULT];
+              medeleg_d[EXC_CAUSE_ECALL_UMODE       ] = csr_wdata_int[EXC_CAUSE_ECALL_UMODE       ];
+              medeleg_d[EXC_CAUSE_ECALL_SMODE       ] = csr_wdata_int[EXC_CAUSE_ECALL_SMODE       ];
+              medeleg_d[EXC_CAUSE_INSTR_PAGE_FAULT  ] = csr_wdata_int[EXC_CAUSE_INSTR_PAGE_FAULT  ];
+              medeleg_d[EXC_CAUSE_LOAD_PAGE_FAULT   ] = csr_wdata_int[EXC_CAUSE_LOAD_PAGE_FAULT   ];
+              medeleg_d[EXC_CAUSE_STORE_PAGE_FAULT  ] = csr_wdata_int[EXC_CAUSE_STORE_PAGE_FAULT  ];
             end
             CSR_MIDELEG: begin
-              mideleg_d.irq_software_s = new_value[CSR_SSIX_BIT];
-              mideleg_d.irq_timer_s    = new_value[CSR_STIX_BIT];
-              mideleg_d.irq_external_s = new_value[CSR_SEIX_BIT];
+              mideleg_d.irq_software_s = csr_wdata_int[CSR_SSIX_BIT];
+              mideleg_d.irq_timer_s    = csr_wdata_int[CSR_STIX_BIT];
+              mideleg_d.irq_external_s = csr_wdata_int[CSR_SEIX_BIT];
             end
             CSR_MIE: begin
-              mie_d.irq_software_s = new_value[CSR_SSIX_BIT];
-              mie_d.irq_software_m = new_value[CSR_MSIX_BIT];
-              mie_d.irq_timer_s    = new_value[CSR_STIX_BIT];
-              mie_d.irq_timer_m    = new_value[CSR_MTIX_BIT];
-              mie_d.irq_external_s = new_value[CSR_SEIX_BIT];
-              mie_d.irq_external_m = new_value[CSR_MEIX_BIT];
+              mie_d.irq_software_s = csr_wdata_int[CSR_SSIX_BIT];
+              mie_d.irq_software_m = csr_wdata_int[CSR_MSIX_BIT];
+              mie_d.irq_timer_s    = csr_wdata_int[CSR_STIX_BIT];
+              mie_d.irq_timer_m    = csr_wdata_int[CSR_MTIX_BIT];
+              mie_d.irq_external_s = csr_wdata_int[CSR_SEIX_BIT];
+              mie_d.irq_external_m = csr_wdata_int[CSR_MEIX_BIT];
             end
-            CSR_MTVEC: mtvec_d = {new_value[63:2], 2'b0};
-            CSR_MCOUNTEREN: mcounteren_d = new_value[2:0] & 3'b101;
+            CSR_MTVEC: mtvec_d = {csr_wdata_int[63:2], 2'b0};
+            CSR_MCOUNTEREN: mcounteren_d = csr_wdata_int[2:0] & 3'b101;
 
-            CSR_MSCRATCH: mscratch_d = new_value;
-            CSR_MEPC: mepc_d = {new_value[63:1], 1'b0};
+            CSR_MSCRATCH: mscratch_d = csr_wdata_int;
+            CSR_MEPC: mepc_d = {csr_wdata_int[63:1], 1'b0};
             CSR_MCAUSE: begin
-                mcause_d = exc_cause_e'({new_value[63], new_value[3:0]});
+                mcause_d = exc_cause_e'({csr_wdata_int[63], csr_wdata_int[3:0]});
             end
-            CSR_MTVAL: mtval_d = new_value;
+            CSR_MTVAL: mtval_d = csr_wdata_int;
             CSR_MIP: begin
-              stip_d = new_value[CSR_STIX_BIT];
-              ssip_d = new_value[CSR_SSIX_BIT];
-              seip_d = new_value[CSR_SEIX_BIT];
+              stip_d = csr_wdata_int[CSR_STIX_BIT];
+              ssip_d = csr_wdata_int[CSR_SSIX_BIT];
+              seip_d = csr_wdata_int[CSR_SEIX_BIT];
             end
 
-            CSR_MCYCLE: mcycle_d = new_value;
-            CSR_MINSTRET: minstret_d = new_value;
+            CSR_MCYCLE: mcycle_we = 1'b1;
+            CSR_MINSTRET: minstret_we = 1'b1;
 
             // We don't support additional counters, and don't support inhibition.
             CSR_MHPMCOUNTERS:;
@@ -550,112 +580,98 @@ module csr_regfile import muntjac_pkg::*; # (
           endcase
         end
       end
-      // If nothing is true don't change anything. We don't use unique0 here because Vivado's
-      // poor support.
       default:;
     endcase
   end
 
-  // Pending interrupt mstatus_q
-  logic wfi_valid_d;
-  irqs_t irq_high;
-  irqs_t irq_high_enable;
-  irqs_t irq_pending_m_d;
-  irqs_t irq_pending_s_d;
-  irqs_t irq_pending, irq_pending_d;
-
-  always_comb begin
-    irq_high.irq_software_s = ssip_d;
-    irq_high.irq_software_m = irq_m_software_i;
-    irq_high.irq_timer_s = stip_d;
-    irq_high.irq_timer_m = irq_m_timer_i;
-    irq_high.irq_external_s = (irq_s_external_i | seip_d);
-    irq_high.irq_external_m = irq_m_external_i;
-    irq_high_enable = irq_high & mie_d;
-    irq_pending_m_d = irq_high_enable & ~mideleg_d;
-    irq_pending_s_d = irq_high_enable & mideleg_d;
-    irq_pending_d =
-        ((priv_lvl_d != PRIV_LVL_M || mstatus_d.mie) ? irq_pending_m_d : 0) |
-        ((priv_lvl_d == PRIV_LVL_U || priv_lvl_d == PRIV_LVL_S && mstatus_d.sie) ? irq_pending_s_d : 0);
-
-    int_valid = |irq_pending;
-    wfi_valid_d = |irq_high_enable;
-    priority case (1'b1)
-      irq_pending.irq_external_m: int_cause = EXC_CAUSE_IRQ_EXTERNAL_M;
-      irq_pending.irq_software_m: int_cause = EXC_CAUSE_IRQ_SOFTWARE_M;
-      irq_pending.irq_timer_m   : int_cause = EXC_CAUSE_IRQ_TIMER_M;
-      irq_pending.irq_external_s: int_cause = EXC_CAUSE_IRQ_EXTERNAL_S;
-      irq_pending.irq_software_s: int_cause = EXC_CAUSE_IRQ_SOFTWARE_S;
-      irq_pending.irq_timer_s   : int_cause = EXC_CAUSE_IRQ_TIMER_S;
-      default: int_cause = exc_cause_e'('x);
-    endcase
-  end
-
-  // State update
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      priv_lvl_q <= PRIV_LVL_M;
-      mstatus_q <= status_t'('0);
-      stip_q <= '0;
       ssip_q <= '0;
+      stip_q <= '0;
       seip_q <= '0;
       mie_q <= '0;
       medeleg_q <= '0;
       mideleg_q <= '0;
-      mtvec_q <= '0;
-      stvec_q <= '0;
-      mepc_q <= '0;
-      sepc_q <= '0;
+
       mscratch_q <= '0;
-      mtval_q <= '0;
+      mepc_q <= '0;
       mcause_q <= exc_cause_e'('0);
+      mtval_q <= '0;
+      mtvec_q <= '0;
       sscratch_q <= '0;
-      stval_q <= '0;
+      sepc_q <= '0;
       scause_q <= exc_cause_e'('0);
-      fflags_q <= '0;
-      frm_q <= '0;
+      stval_q <= '0;
+      stvec_q <= '0;
+
+      priv_lvl_q <= PRIV_LVL_M;
+      mstatus_q <= status_t'('0);
       satp_mode_q <= '0;
       satp_asid_q <= '0;
       satp_ppn_q <= '0;
+
+      fflags_q <= '0;
+      frm_q <= '0;
+
       mcounteren_q <= '0;
       scounteren_q <= '0;
-      mcycle_q <= '0;
-      minstret_q <= '0;
-
-      wfi_valid <= 1'b0;
-      irq_pending <= '0;
     end
     else begin
-      priv_lvl_q <= priv_lvl_d;
-      mstatus_q <= mstatus_d;
-      stip_q <= stip_d;
       ssip_q <= ssip_d;
+      stip_q <= stip_d;
       seip_q <= seip_d;
       mie_q <= mie_d;
       medeleg_q <= medeleg_d;
       mideleg_q <= mideleg_d;
-      mtvec_q <= mtvec_d;
-      stvec_q <= stvec_d;
-      mepc_q <= mepc_d;
-      sepc_q <= sepc_d;
+
       mscratch_q <= mscratch_d;
-      mtval_q <= mtval_d;
+      mepc_q <= mepc_d;
       mcause_q <= mcause_d;
+      mtval_q <= mtval_d;
+      mtvec_q <= mtvec_d;
       sscratch_q <= sscratch_d;
-      stval_q <= stval_d;
+      sepc_q <= sepc_d;
       scause_q <= scause_d;
-      fflags_q <= fflags_d;
-      frm_q <= frm_d;
+      stval_q <= stval_d;
+      stvec_q <= stvec_d;
+
+      priv_lvl_q <= priv_lvl_d;
+      mstatus_q <= mstatus_d;
       satp_mode_q <= satp_mode_d;
       satp_asid_q <= satp_asid_d;
       satp_ppn_q <= satp_ppn_d;
+
+      fflags_q <= fflags_d;
+      frm_q <= frm_d;
+
       mcounteren_q <= mcounteren_d;
       scounteren_q <= scounteren_d;
+    end
+  end
+
+  //////////////////////////
+  //  Performance monitor //
+  //////////////////////////
+
+  always_comb begin
+    mcycle_d = mcycle_q;
+    minstret_d = minstret_q;
+    
+    if (1'b1) mcycle_d = mcycle_q + 1;
+    if (instr_ret_i) minstret_d = minstret_q + 1;
+
+    if (mcycle_we) mcycle_d = csr_wdata_int;
+    if (minstret_we) minstret_d = csr_wdata_int;
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      mcycle_q <= '0;
+      minstret_q <= '0;
+    end
+    else begin
       mcycle_q <= mcycle_d;
       minstret_q <= minstret_d;
-
-      wfi_valid <= wfi_valid_d;
-      irq_pending <= irq_pending_d;
     end
   end
 
