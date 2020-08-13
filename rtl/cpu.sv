@@ -239,7 +239,6 @@ module cpu #(
     logic mem_ready;
     logic mul_ready;
     logic div_ready;
-    logic sys_ready;
     logic ex1_ready;
 
     always_comb begin
@@ -256,9 +255,7 @@ module cpu #(
             DIV: begin
                 if (!div_ready) struct_hazard = 1'b1;
             end
-            SYSTEM: begin
-                if (!sys_ready) struct_hazard = 1'b1;
-            end
+            SYSTEM: struct_hazard = 1'b1;
             default:;
         endcase
     end
@@ -268,6 +265,7 @@ module cpu #(
     //////////////////////////////
 
     logic control_hazard;
+    logic sys_ready;
     logic [XLEN-1:0] ex_expected_pc_q;
     logic mem_trap_valid;
     exception_t mem_trap;
@@ -283,6 +281,12 @@ module cpu #(
             end
             ST_INT: begin
                 control_hazard = 1'b1;
+            end
+            ST_SYS: begin
+                // This will allow us to consume the SYSTEM instruction.
+                // Note that ex_issue will not be high when SYSTEM instruction is consumed, but
+                // rather we inject it into EX1 stage via sys_issue.
+                control_hazard = sys_ready;
             end
             default:;
         endcase
@@ -330,7 +334,6 @@ module cpu #(
                 ex_state_d = ST_FLUSH;
             end
             ST_SYS: begin
-                sys_issue = 1'b1;
                 mispredict_d = 1'b0;
                 if (sys_ready) begin
                     ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
@@ -345,6 +348,7 @@ module cpu #(
             if (de_ex_decoded.ex_valid) begin
                 ex_state_d = ST_INT;
             end else if (de_ex_decoded.op_type == SYSTEM) begin
+                sys_issue = 1'b1;
                 ex_state_d = ST_SYS;
             end
         end
@@ -378,12 +382,15 @@ module cpu #(
     logic wfi_valid;
     logic mem_notif_ready;
 
+    logic [XLEN-1:0] eret_pc_q, eret_pc_d;
+
     always_comb begin
         sys_ready = 1'b0;
         sys_state_d = sys_state_q;
         sys_pc_redirect_valid = 1'b0;
         sys_pc_redirect_reason = if_reason_t'('x);
         sys_pc_redirect_target = 'x;
+        eret_pc_d = 'x;
 
         unique case (sys_state_q)
             SYS_IDLE: begin
@@ -391,9 +398,16 @@ module cpu #(
                     sys_state_d = SYS_OP;
                     unique case (de_ex_decoded.sys_op)
                         CSR: begin
-                            if (de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP) sys_state_d = SYS_SATP_CHANGED;
+                            if (de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP) begin
+                                sys_state_d = SYS_SATP_CHANGED;
+                            end
                         end
-                        SFENCE_VMA: sys_state_d = SYS_SFENCE_VMA;
+                        ERET: begin
+                            eret_pc_d = er_epc;
+                        end
+                        SFENCE_VMA: begin
+                            sys_state_d = SYS_SFENCE_VMA;
+                        end
                         WFI: sys_state_d = SYS_WFI;
                         default:;
                     endcase
@@ -422,7 +436,7 @@ module cpu #(
                     ERET: begin
                         sys_pc_redirect_valid = 1'b1;
                         sys_pc_redirect_reason = IF_PROT_CHANGED;
-                        sys_pc_redirect_target = er_epc;
+                        sys_pc_redirect_target = eret_pc_q;
                     end
                     FENCE_I: begin
                         sys_pc_redirect_valid = 1'b1;
@@ -464,9 +478,11 @@ module cpu #(
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             sys_state_q <= SYS_IDLE;
+            eret_pc_q <= 'x;
         end
         else begin
             sys_state_q <= sys_state_d;
+            eret_pc_q <= eret_pc_d;
         end
     end
 
@@ -595,38 +611,52 @@ module cpu #(
             ex1_alu_data_d = 'x;
         end
 
-        if (ex_issue) begin
-            ex1_pending_d = 1'b1;
-            ex1_select_d = FU_ALU;
-            ex1_pc_d = de_ex_decoded.pc;
-            ex1_rd_d = de_ex_decoded.rd;
-            ex1_alu_data_d = 'x;
+        unique case (1'b1)
+            ex_issue: begin
+                ex1_pending_d = 1'b1;
+                ex1_select_d = FU_ALU;
+                ex1_pc_d = de_ex_decoded.pc;
+                ex1_rd_d = de_ex_decoded.rd;
+                ex1_alu_data_d = 'x;
 
-            ex_expected_pc_d = npc;
+                ex_expected_pc_d = npc;
 
-            case (de_ex_decoded.op_type)
-                ALU: begin
-                    ex1_alu_data_d = alu_result;
-                end
-                BRANCH: begin
-                    ex1_alu_data_d = npc;
-                    ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
-                end
-                SYSTEM: begin
-                    // All other SYSTEM instructions have no return value
-                    ex1_alu_data_d = csr_read;
-                end
-                MEM: begin
-                    ex1_select_d = FU_MEM;
-                end
-                MUL: begin
-                    ex1_select_d = FU_MUL;
-                end
-                DIV: begin
-                    ex1_select_d = FU_DIV;
-                end
-            endcase
-        end
+                unique case (de_ex_decoded.op_type)
+                    ALU: begin
+                        ex1_alu_data_d = alu_result;
+                    end
+                    BRANCH: begin
+                        ex1_alu_data_d = npc;
+                        ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
+                    end
+                    MEM: begin
+                        ex1_select_d = FU_MEM;
+                    end
+                    MUL: begin
+                        ex1_select_d = FU_MUL;
+                    end
+                    DIV: begin
+                        ex1_select_d = FU_DIV;
+                    end
+                    default:;
+                endcase
+            end
+            sys_issue: begin
+                // Injection from control state machine when a SYSTEM instruction is being processed.
+                // Otherwise equivalent to ex_issue
+                ex1_pending_d = 1'b1;
+                ex1_select_d = FU_ALU;
+                ex1_pc_d = de_ex_decoded.pc;
+                ex1_rd_d = de_ex_decoded.rd;
+                ex1_alu_data_d = 'x;
+
+                ex_expected_pc_d = npc;
+
+                // All other SYSTEM instructions have no return value
+                ex1_alu_data_d = csr_read;
+            end
+            default:;
+        endcase
     end
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -799,7 +829,7 @@ module cpu #(
     assign mem_notif_ready = dcache.notif_ready;
     assign mem_ready = dcache.req_ready;
 
-    assign dcache.notif_valid = sys_state_d == SYS_SFENCE_VMA || (sys_issue && de_ex_decoded.sys_op == CSR && de_ex_decoded.csr.op != 2'b00 && csr_select == CSR_SATP);
+    assign dcache.notif_valid = sys_state_q == SYS_IDLE && (sys_state_d == SYS_SFENCE_VMA || sys_state_d == SYS_SATP_CHANGED);
     assign dcache.notif_reason = sys_state_d == SYS_SFENCE_VMA;
 
     //
@@ -831,7 +861,7 @@ module cpu #(
         .csr_addr_i (csr_select),
         .csr_wdata_i (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
         .csr_op_i (csr_op_e'(de_ex_decoded.csr.op)),
-        .csr_op_en_i (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == CSR),
+        .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == CSR),
         .csr_rdata_o (csr_read),
         .irq_software_m_i (irq_m_software),
         .irq_timer_m_i (irq_m_timer),
@@ -846,7 +876,7 @@ module cpu #(
         .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc_i (mem_trap_valid ? (ex2_pending_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
         .ex_tvec_o (wb_tvec),
-        .er_valid_i (ex_issue && de_ex_decoded.op_type == SYSTEM && de_ex_decoded.sys_op == ERET),
+        .er_valid_i (sys_issue && de_ex_decoded.sys_op == ERET),
         .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
         .er_epc_o (er_epc),
         .instr_ret_i (ex2_pending_q && ex2_data_valid)
