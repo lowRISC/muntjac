@@ -268,7 +268,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
       CSR_SSCRATCH: csr_rdata_int = sscratch_q;
       CSR_SEPC: csr_rdata_int = sepc_q;
-      CSR_SCAUSE: csr_rdata_int = {scause_q[4], 59'b0, scause_q};
+      CSR_SCAUSE: csr_rdata_int = {scause_q[4], 59'b0, scause_q[3:0]};
       CSR_STVAL: csr_rdata_int = stval_q;
       CSR_SIP: begin
         csr_rdata_int = '0;
