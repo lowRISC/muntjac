@@ -1,0 +1,90 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:muntjac:muntjac_pipeline:0.1"
+description: "Muntjac v0.1, a small RV64I pipeline (no caches)"
+
+filesets:
+  files_rtl:
+    files:
+      - ../rtl/muntjac_pkg.sv
+      - ../rtl/common.sv
+      - ../rtl/icache/icache_intf.sv
+      - ../rtl/dcache/dcache_intf.sv
+      - ../rtl/alu.sv
+      - ../rtl/cpu.sv
+      - ../rtl/icache/icache_compressed.sv
+      - ../rtl/muntjac_cs_registers.sv
+      - ../rtl/decoder.sv
+      - ../rtl/decode_compressed.sv
+      - ../rtl/instr_fetcher.sv
+      - ../rtl/reg_file.sv
+      - ../rtl/mul.sv
+    file_type: systemVerilogSource
+
+  files_verilator:
+    files:
+      - verilator/rtl/pipeline_wrapper.sv
+    file_type: systemVerilogSource
+
+  files_lint_verilator:
+    files:
+#      - lint/verilator_waiver.vlt: {file_type: vlt}
+
+  files_lint_verible:
+    files:
+#      - lint/verible_waiver.vbw: {file_type: veribleLintWaiver}
+
+parameters:
+  RVFI:
+    datatype: bool
+    paramtype: vlogdefine
+
+  SYNTHESIS:
+    datatype: bool
+    paramtype: vlogdefine
+
+  FPGA_XILINX:
+    datatype: bool
+    description: Identifies Xilinx FPGA targets to set DSP pragmas for performance counters.
+    default: false
+    paramtype: vlogdefine
+
+
+targets:
+  default: &default_target
+    filesets:
+      - tool_verilator ? (files_lint_verilator)
+      - tool_veriblelint ? (files_lint_verible)
+      - files_rtl
+      - tool_verilator ? (files_verilator)
+    toplevel: pipeline_wrapper
+    parameters:
+      - tool_vivado ? (FPGA_XILINX=true)
+  lint:
+    <<: *default_target
+    parameters:
+      - SYNTHESIS=true
+      - RVFI=true
+    default_tool: verilator
+    tools:
+      verilator:
+        mode: lint-only
+        verilator_options:
+          - "-Wall"
+          # RAM primitives wider than 64bit (required for ECC) fail to build in
+          # Verilator without increasing the unroll count (see Verilator#1266)
+          - "--unroll-count 72"
+  format:
+    filesets:
+      - files_rtl
+    parameters:
+      - SYNTHESIS=true
+      - RVFI=true
+    default_tool: veribleformat
+    toplevel: muntjac_pipeline
+    tools:
+      veribleformat:
+        verible_format_args:
+          - "--inplace"
