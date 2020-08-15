@@ -287,9 +287,10 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
                     ex_state_d = ST_NORMAL;
                 end
             end
+            // Intermediate state after we issue exception before we move to ST_FLUSH.
+            // This allows the frontend to see the changed PRV.
             ST_INT: begin
                 mispredict_d = 1'b0;
-                exception_issue = 1'b1;
                 ex_state_d = ST_FLUSH;
             end
             ST_SYS: begin
@@ -305,6 +306,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
             de_ex_valid && !control_hazard && !ex1_pending_q && !ex2_pending_q) begin
 
             if (de_ex_decoded.ex_valid) begin
+                exception_issue = 1'b1;
                 ex_state_d = ST_INT;
             end else if (de_ex_decoded.op_type == OP_SYSTEM) begin
                 sys_issue = 1'b1;
@@ -313,7 +315,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         end
 
         if (mem_trap_valid) begin
-            ex_state_d = ST_FLUSH;
+            ex_state_d = ST_INT;
         end
     end
 
@@ -784,7 +786,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .we_a_i    (ex2_pending_q && ex2_data_valid)
     );
 
-    logic [63:0] wb_tvec;
+    logic [63:0] exc_tvec_q, exc_tvec_d;
     muntjac_cs_registers csr_regfile (
         .clk_i,
         .rst_ni,
@@ -811,7 +813,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .ex_valid_i (mem_trap_valid || exception_issue),
         .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
         .ex_epc_i (mem_trap_valid ? (ex2_select_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
-        .ex_tvec_o (wb_tvec),
+        .ex_tvec_o (exc_tvec_d),
         .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
         .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
         .er_epc_o (er_epc),
@@ -823,11 +825,9 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         redirect_reason_o = if_reason_t'('x);
         redirect_pc_o = 'x;
 
-        // WB
-        if (mem_trap_valid || exception_issue) begin
-            redirect_pc_o = wb_tvec;
+        if (ex_state_q == ST_INT) begin
+            redirect_pc_o = exc_tvec_q;
             redirect_valid_o = 1'b1;
-            // PRV change
             redirect_reason_o = IF_PROT_CHANGED;
         end
         else if (sys_pc_redirect_valid) begin
@@ -839,6 +839,16 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
             redirect_pc_o = ex_expected_pc_q;
             redirect_valid_o = 1'b1;
             redirect_reason_o = IF_MISPREDICT;
+        end
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+        if (!rst_ni) begin
+            exc_tvec_q <= 'x;
+        end else begin
+            if (mem_trap_valid || exception_issue) begin
+                exc_tvec_q <= exc_tvec_d;
+            end
         end
     end
 
