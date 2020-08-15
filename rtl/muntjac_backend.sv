@@ -236,7 +236,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
                 control_hazard = ex_expected_pc_q != de_ex_decoded.pc || mem_trap_valid;
             end
             ST_FLUSH: begin
-                control_hazard = de_ex_decoded.if_reason ==? 4'bxxx0;
+                control_hazard = de_ex_decoded.if_reason !=? 4'bxx11;
             end
             ST_INT: begin
                 control_hazard = 1'b1;
