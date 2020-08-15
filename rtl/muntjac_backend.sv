@@ -810,7 +810,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .status_o (status_o),
         .ex_valid_i (mem_trap_valid || exception_issue),
         .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
-        .ex_epc_i (mem_trap_valid ? (ex2_pending_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
+        .ex_epc_i (mem_trap_valid ? (ex2_select_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
         .ex_tvec_o (wb_tvec),
         .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
         .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
