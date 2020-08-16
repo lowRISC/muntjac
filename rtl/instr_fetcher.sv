@@ -32,6 +32,9 @@ module instr_fetcher # (
     if_reason_t i_reason_q;
     logic i_valid_q;
     logic i_ready_q;
+    logic [XLEN-1:0] i_atp_q;
+    logic i_prv_q;
+    logic i_sum_q;
 
     always_ff @(posedge clk or negedge resetn) begin
         if (!resetn) begin
@@ -39,6 +42,9 @@ module instr_fetcher # (
             i_pc_q <= '0;
             i_reason_q <= IF_FENCE_I;
             i_valid_q <= 1'b1;
+            i_atp_q <= '0;
+            i_prv_q <= 1'b0;
+            i_sum_q <= 1'b0;
         end else begin
             if (i_ready_q) begin
                 i_valid_q <= 1'b0;
@@ -47,6 +53,9 @@ module instr_fetcher # (
                 i_pc_q <= i_pc;
                 i_valid_q <= i_valid;
                 i_reason_q <= i_reason;
+                i_atp_q <= i_atp;
+                i_prv_q <= i_prv;
+                i_sum_q <= i_sum;
             end
         end
     end
@@ -73,18 +82,18 @@ module instr_fetcher # (
         end
         else begin
             if (i_valid_q && i_ready_q) begin
-                atp_latch <= i_atp;
-                prv_latch <= i_prv;
-                sum_latch <= i_sum;
+                atp_latch <= i_atp_q;
+                prv_latch <= i_prv_q;
+                sum_latch <= i_sum_q;
             end
         end
 
     assign cache.req_pc = pc_next;
     assign cache.req_reason = reason_next;
     assign cache.req_valid = o_valid && o_ready;
-    assign cache.req_sum = i_valid_q && i_ready_q ? i_sum : sum_latch;
-    assign cache.req_atp = i_valid_q && i_ready_q ? i_atp : atp_latch;
-    assign cache.req_prv = i_valid_q && i_ready_q ? i_prv : prv_latch;
+    assign cache.req_sum = i_valid_q && i_ready_q ? i_sum_q : sum_latch;
+    assign cache.req_atp = i_valid_q && i_ready_q ? i_atp_q : atp_latch;
+    assign cache.req_prv = i_valid_q && i_ready_q ? i_prv_q : prv_latch;
 
     logic latched;
     logic [31:0] resp_instr_latch;
