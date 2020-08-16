@@ -12,14 +12,15 @@ filesets:
       - ../rtl/common.sv
       - ../rtl/icache/icache_intf.sv
       - ../rtl/dcache/dcache_intf.sv
-      - ../rtl/alu.sv
+      - ../rtl/muntjac_alu.sv
       - ../rtl/cpu.sv
       - ../rtl/icache/icache_compressed.sv
       - ../rtl/muntjac_cs_registers.sv
+      - ../rtl/muntjac_backend.sv
       - ../rtl/decoder.sv
       - ../rtl/decode_compressed.sv
       - ../rtl/instr_fetcher.sv
-      - ../rtl/reg_file.sv
+      - ../rtl/muntjac_reg_file_fpga.sv
       - ../rtl/mul.sv
     file_type: systemVerilogSource
 

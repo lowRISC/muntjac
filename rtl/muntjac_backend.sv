@@ -391,6 +391,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
                                     sys_pc_redirect_valid = 1'b1;
                                     sys_pc_redirect_reason = IF_PROT_CHANGED;
                                 end
+                                default:;
                             endcase
                         end
                     end

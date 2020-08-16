@@ -204,7 +204,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     illegal_readonly = check_addr_i[11:10] == 2'b11 && check_op_i != CSR_OP_READ;
     illegal_prv = check_addr_i[9:8] > priv_lvl_q;
 
-    priority casez (check_addr_i)
+    unique case (check_addr_i)
       CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!RV64F || mstatus_q.fs == 2'b00) illegal = 1'b1;
       CSR_CYCLE: if (!((priv_lvl_q > PRIV_LVL_S || mcounteren_q[0]) && (priv_lvl_q > PRIV_LVL_U || scounteren_q[0]))) illegal = 1'b1;
       CSR_INSTRET: if (!((priv_lvl_q > PRIV_LVL_S || mcounteren_q[2]) && (priv_lvl_q > PRIV_LVL_U || scounteren_q[2]))) illegal = 1'b1;
@@ -214,8 +214,25 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       CSR_MVENDORID, CSR_MARCHID, CSR_MIMPID, CSR_MHARTID:;
       CSR_MSTATUS, CSR_MISA, CSR_MEDELEG, CSR_MIDELEG, CSR_MIE, CSR_MTVEC, CSR_MCOUNTEREN:;
       CSR_MSCRATCH, CSR_MEPC, CSR_MCAUSE, CSR_MTVAL, CSR_MIP:;
-      CSR_MTIME: illegal = 1'b1;
-      CSR_MHPMCOUNTERS, CSR_MHPMEVENTS, CSR_MCOUNTINHIBIT:;
+      CSR_MCYCLE,
+      CSR_MINSTRET,
+      CSR_MHPMCOUNTER3,
+      CSR_MHPMCOUNTER4,  CSR_MHPMCOUNTER5,  CSR_MHPMCOUNTER6,  CSR_MHPMCOUNTER7,
+      CSR_MHPMCOUNTER8,  CSR_MHPMCOUNTER9,  CSR_MHPMCOUNTER10, CSR_MHPMCOUNTER11,
+      CSR_MHPMCOUNTER12, CSR_MHPMCOUNTER13, CSR_MHPMCOUNTER14, CSR_MHPMCOUNTER15,
+      CSR_MHPMCOUNTER16, CSR_MHPMCOUNTER17, CSR_MHPMCOUNTER18, CSR_MHPMCOUNTER19,
+      CSR_MHPMCOUNTER20, CSR_MHPMCOUNTER21, CSR_MHPMCOUNTER22, CSR_MHPMCOUNTER23,
+      CSR_MHPMCOUNTER24, CSR_MHPMCOUNTER25, CSR_MHPMCOUNTER26, CSR_MHPMCOUNTER27,
+      CSR_MHPMCOUNTER28, CSR_MHPMCOUNTER29, CSR_MHPMCOUNTER30, CSR_MHPMCOUNTER31,
+      CSR_MHPMEVENT3,
+      CSR_MHPMEVENT4,  CSR_MHPMEVENT5,  CSR_MHPMEVENT6,  CSR_MHPMEVENT7,
+      CSR_MHPMEVENT8,  CSR_MHPMEVENT9,  CSR_MHPMEVENT10, CSR_MHPMEVENT11,
+      CSR_MHPMEVENT12, CSR_MHPMEVENT13, CSR_MHPMEVENT14, CSR_MHPMEVENT15,
+      CSR_MHPMEVENT16, CSR_MHPMEVENT17, CSR_MHPMEVENT18, CSR_MHPMEVENT19,
+      CSR_MHPMEVENT20, CSR_MHPMEVENT21, CSR_MHPMEVENT22, CSR_MHPMEVENT23,
+      CSR_MHPMEVENT24, CSR_MHPMEVENT25, CSR_MHPMEVENT26, CSR_MHPMEVENT27,
+      CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31,
+      CSR_MCOUNTINHIBIT:;
       default: illegal = 1'b1;
     endcase
     check_illegal_o = illegal | illegal_readonly | illegal_prv;
@@ -341,9 +358,23 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       CSR_MCYCLE: csr_rdata_int = mcycle_q;
       CSR_MINSTRET: csr_rdata_int = minstret_q;
 
-      // We don't support additional counters, and don't support inhibition.
-      CSR_MHPMCOUNTERS: csr_rdata_int = '0;
-      CSR_MHPMEVENTS: csr_rdata_int = '0;
+      // We don't yet support additional counters nor inhibition.
+      CSR_MHPMCOUNTER3,
+      CSR_MHPMCOUNTER4,  CSR_MHPMCOUNTER5,  CSR_MHPMCOUNTER6,  CSR_MHPMCOUNTER7,
+      CSR_MHPMCOUNTER8,  CSR_MHPMCOUNTER9,  CSR_MHPMCOUNTER10, CSR_MHPMCOUNTER11,
+      CSR_MHPMCOUNTER12, CSR_MHPMCOUNTER13, CSR_MHPMCOUNTER14, CSR_MHPMCOUNTER15,
+      CSR_MHPMCOUNTER16, CSR_MHPMCOUNTER17, CSR_MHPMCOUNTER18, CSR_MHPMCOUNTER19,
+      CSR_MHPMCOUNTER20, CSR_MHPMCOUNTER21, CSR_MHPMCOUNTER22, CSR_MHPMCOUNTER23,
+      CSR_MHPMCOUNTER24, CSR_MHPMCOUNTER25, CSR_MHPMCOUNTER26, CSR_MHPMCOUNTER27,
+      CSR_MHPMCOUNTER28, CSR_MHPMCOUNTER29, CSR_MHPMCOUNTER30, CSR_MHPMCOUNTER31: csr_rdata_int = '0;
+      CSR_MHPMEVENT3,
+      CSR_MHPMEVENT4,  CSR_MHPMEVENT5,  CSR_MHPMEVENT6,  CSR_MHPMEVENT7,
+      CSR_MHPMEVENT8,  CSR_MHPMEVENT9,  CSR_MHPMEVENT10, CSR_MHPMEVENT11,
+      CSR_MHPMEVENT12, CSR_MHPMEVENT13, CSR_MHPMEVENT14, CSR_MHPMEVENT15,
+      CSR_MHPMEVENT16, CSR_MHPMEVENT17, CSR_MHPMEVENT18, CSR_MHPMEVENT19,
+      CSR_MHPMEVENT20, CSR_MHPMEVENT21, CSR_MHPMEVENT22, CSR_MHPMEVENT23,
+      CSR_MHPMEVENT24, CSR_MHPMEVENT25, CSR_MHPMEVENT26, CSR_MHPMEVENT27,
+      CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31: csr_rdata_int = '0;
       CSR_MCOUNTINHIBIT: csr_rdata_int = '0;
       default: csr_rdata_int = 'x;
     endcase
@@ -465,7 +496,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       end
       csr_op_en_i: begin
         if (csr_op_i != CSR_OP_READ) begin
-          priority casez (csr_addr_i)
+          unique case (csr_addr_i)
             // User Trap Setup CSRs not supported
             // User Trap Handling CSRs not supported
 
@@ -577,11 +608,6 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
             CSR_MCYCLE: mcycle_we = 1'b1;
             CSR_MINSTRET: minstret_we = 1'b1;
-
-            // We don't support additional counters, and don't support inhibition.
-            CSR_MHPMCOUNTERS:;
-            CSR_MHPMEVENTS:;
-            CSR_MCOUNTINHIBIT:;
             default:;
           endcase
         end
