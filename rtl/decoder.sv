@@ -24,9 +24,10 @@ module decoder (
 
     // C-extension decompression.
     logic [31:0] decompressed;
-    decode_compressed decomp (
-        .compressed (fetched_instr.instr_word[15:0]),
-        .decompressed
+    muntjac_compressed_decoder decomp (
+        .instr_i (fetched_instr.instr_word[15:0]),
+        .instr_o (decompressed),
+        .illegal_instr_o ()
     );
     assign instr_word = fetched_instr.instr_word[1:0] == 2'b11 ? fetched_instr.instr_word : decompressed;
 
