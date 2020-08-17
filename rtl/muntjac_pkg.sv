@@ -72,14 +72,16 @@ typedef enum logic [1:0] {
 
 // Branch/comparison condition codes
 typedef enum logic [2:0] {
-  CC_FALSE,
-  CC_TRUE,
-  CC_EQ,
-  CC_NE,
-  CC_LT,
-  CC_GE,
-  CC_LTU,
-  CC_GEU
+  CC_EQ    = 3'b000,
+  CC_NE    = 3'b001,
+  // CC_FALSE and CC_TRUE are not part of BRANCH instruction encoding, but
+  // incorporating them here allows us to unify JAL and JALR with BRANCH
+  CC_FALSE = 3'b010,
+  CC_TRUE  = 3'b011,
+  CC_LT    = 3'b100,
+  CC_GE    = 3'b101,
+  CC_LTU   = 3'b110,
+  CC_GEU   = 3'b111
 } condition_code_e;
 
 // System opcodes
