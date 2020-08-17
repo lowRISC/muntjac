@@ -31,7 +31,7 @@ module pipeline_wrapper #(
     input  logic            dcache_req_ready,
     output logic [XLEN-1:0] dcache_req_address,
     output logic [XLEN-1:0] dcache_req_value,
-    output mem_op_t         dcache_req_op,
+    output mem_op_e         dcache_req_op,
     output logic [1:0]      dcache_req_size,
     output logic            dcache_req_unsigned,
     output logic [6:0]      dcache_req_amo,

@@ -132,7 +132,7 @@ module dcache_uncached # (
     wire            req_valid    = cache.req_valid;
     wire [XLEN-1:0] req_address  = cache.req_address;
     wire [XLEN-1:0] req_value    = cache.req_value;
-    wire mem_op_t   req_op       = cache.req_op;
+    wire mem_op_e   req_op       = cache.req_op;
     wire [1:0]      req_size     = cache.req_size;
     wire            req_unsigned = cache.req_unsigned;
     wire [6:0]      req_amo      = cache.req_amo;
@@ -170,7 +170,7 @@ module dcache_uncached # (
     logic [XLEN-1:0] value;
     logic [1:0] size_latch;
     logic unsigned_latch;
-    mem_op_t op;
+    mem_op_e op;
     logic [6:0] amo;
 
     logic [7:0] aligned_strb;
@@ -230,7 +230,7 @@ module dcache_uncached # (
             value <= 'x;
             size_latch <= 'x;
             unsigned_latch <= 1'bx;
-            op <= mem_op_t'('x);
+            op <= mem_op_e'('x);
             amo <= 'x;
 
             ar_valid <= 1'b0;

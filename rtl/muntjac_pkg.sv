@@ -84,6 +84,15 @@ typedef enum logic [2:0] {
   CC_GEU   = 3'b111
 } condition_code_e;
 
+// MEM operations
+typedef enum logic [2:0] {
+    MEM_LOAD  = 3'b001,
+    MEM_STORE = 3'b010,
+    MEM_LR    = 3'b101,
+    MEM_SC    = 3'b110,
+    MEM_AMO   = 3'b111
+} mem_op_e;
+
 // System opcodes
 typedef enum logic [2:0] {
   SYS_CSR,

@@ -104,6 +104,10 @@ module muntjac_alu import muntjac_pkg::*; (
     output logic [63:0]    result_o
 );
 
+  // Determine if op is word-sized.
+  // For ALU op this can only be word(10) or dword (11), so just check LSB.
+  wire word = decoded_op_i.size[0] == 1'b0;
+
   // Adder. Used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
   // This is the core component of the ALU.
   // Because the adder is also used for address (load/store and branch/jump) calculation, it uses
@@ -132,7 +136,7 @@ module muntjac_alu import muntjac_pkg::*; (
       .operand_a_i (rs1_i),
       .operand_b_i (operand_b),
       .shift_op_i  (decoded_op_i.shift_op),
-      .word_i      (decoded_op_i.word),
+      .word_i      (word),
       .result_o    (shift_result)
   );
 
@@ -151,7 +155,7 @@ module muntjac_alu import muntjac_pkg::*; (
       default:   alu_result = 'x;
     endcase
 
-    result_o = decoded_op_i.word ? {{32{alu_result[31]}}, alu_result[31:0]} : alu_result;
+    result_o = word ? {{32{alu_result[31]}}, alu_result[31:0]} : alu_result;
   end
 
 endmodule

@@ -14,7 +14,7 @@ interface dcache_intf #(
     // Value to be stored or to be used in AMO operation.
     logic [XLEN-1:0] req_value;
     // Type of memory operation: LOAD, STORE, LR, SC, AMO
-    mem_op_t         req_op;
+    mem_op_e         req_op;
     // Size of access. This must only be 2'b10 and 2'b11 when req_op is LR, SC or AMO.
     logic [1:0]      req_size;
     // Whether the load should be unsigned. Relevant only when req_op is LOAD.

@@ -717,13 +717,17 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         end
     end
 
+    // Determine if op is word-sized.
+    // For ALU op this can only be word(10) or dword (11), so just check LSB.
+    wire word = de_ex_decoded.size[0] == 1'b0;
+
     // Multiplier
     mul_unit mul (
         .clk       (clk_i),
         .rstn      (rst_ni),
         .operand_a (ex_rs1),
         .operand_b (ex_rs2),
-        .i_32      (de_ex_decoded.word),
+        .i_32      (word),
         .i_op      (de_ex_decoded.mul.op),
         .i_valid   (ex_issue && de_ex_decoded.op_type == OP_MUL),
         .i_ready   (mul_ready),
@@ -738,7 +742,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .operand_a  (ex_rs1),
         .operand_b  (ex_rs2),
         .use_rem_i  (de_ex_decoded.div.rem),
-        .i_32       (de_ex_decoded.word),
+        .i_32       (word),
         .i_unsigned (de_ex_decoded.div.is_unsigned),
         .i_valid    (ex_issue && de_ex_decoded.op_type == OP_DIV),
         .i_ready    (div_ready),
@@ -752,11 +756,11 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
 
     priv_lvl_e data_prv;
     assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == OP_MEM;
-    assign dcache.req_op       = de_ex_decoded.mem.op;
+    assign dcache.req_op       = de_ex_decoded.mem_op;
     assign dcache.req_amo      = de_ex_decoded.exception.tval[31:25];
     assign dcache.req_address  = sum;
-    assign dcache.req_size     = de_ex_decoded.mem.size;
-    assign dcache.req_unsigned = de_ex_decoded.mem.zeroext;
+    assign dcache.req_size     = de_ex_decoded.size;
+    assign dcache.req_unsigned = de_ex_decoded.zeroext;
     assign dcache.req_value    = ex_rs2;
     assign dcache.req_prv      = data_prv[0];
     assign dcache.req_sum      = status_o.sum;

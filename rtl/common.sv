@@ -18,15 +18,6 @@ typedef enum logic [3:0] {
     IF_SFENCE_VMA = 4'b1111
 } if_reason_t;
 
-// MEM operations
-typedef enum logic [2:0] {
-    MEM_LOAD  = 3'b001,
-    MEM_STORE = 3'b010,
-    MEM_LR    = 3'b101,
-    MEM_SC    = 3'b110,
-    MEM_AMO   = 3'b111
-} mem_op_t;
-
 typedef struct packed {
     logic [4:0]  rs1;
     logic [4:0]  rs2;
@@ -47,9 +38,13 @@ typedef struct packed {
     // Whether ALU ops or adder should use rs2 or immediate.
     logic use_imm;
 
-    // Whether the operation is one of 32-bit operation.
-    // Used by ALU, MUL and DIV
-    logic word;
+    // Size of operation.
+    // For ALU, MUL, DIV, this currently can only be word (10) or dword (11).
+    logic [1:0] size;
+
+    // Whether zero-extension or sign-extension should be used.
+    // Currently only used by MEM unit.
+    logic zeroext;
 
     // ALU ops
     muntjac_pkg::alu_op_e alu_op;
@@ -64,13 +59,7 @@ typedef struct packed {
     muntjac_pkg::sys_op_e sys_op;
 
     // For memory unit
-    struct packed {
-        mem_op_t    op;
-        // Size of load/store (8 << load_store_size) is the size in bits.
-        logic [1:0] size;
-        // Whether load operation should perform sign extension.
-        logic       zeroext;
-    } mem;
+    muntjac_pkg::mem_op_e mem_op;
 
     // For multiply unit
     struct packed {
