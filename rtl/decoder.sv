@@ -1,12 +1,9 @@
-import cpu_common::*;
-import muntjac_pkg::*;
-
-module decoder (
+module decoder import muntjac_pkg::*; (
   input  fetched_instr_t fetched_instr,
   output decoded_instr_t decoded_instr,
 
   // Currently privilege, for decode-stage privilege checking.
-  input  muntjac_pkg::priv_lvl_e prv,
+  input  priv_lvl_e prv,
   // Status for determining if certain operations are allowed.
   input  status_t status,
 
@@ -40,9 +37,9 @@ module decoder (
 
   wire [31:0] i_imm = { {20{instr[31]}}, instr[31:20] };
   wire [31:0] s_imm = { {20{instr[31]}}, instr[31:25], instr[11:7] };
-  wire [31:0] b_imm = { {20{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0 };
+  wire [31:0] b_imm = { {20{instr[31]}}, instr[7], instr[30:25], instr[11:8], 1'b0 };
   wire [31:0] u_imm = { instr[31:12], 12'b0 };
-  wire [31:0] j_imm = { {20{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0 };
+  wire [31:0] j_imm = { {11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0 };
 
   // Wire to CSR privilege checker
   assign csr_sel = csr_num_e'(instr[31:20]);
@@ -51,7 +48,6 @@ module decoder (
   logic rd_enable;
   logic rs1_enable;
   logic rs2_enable;
-  logic [31:0] immediate;
 
   logic illegal_instr;
   logic ecall;
@@ -63,7 +59,7 @@ module decoder (
 
     decoded_instr.size = 2'b11;
     decoded_instr.zeroext = 1'b0;
-    decoded_instr.adder.use_pc = 1'b0;
+    decoded_instr.adder_use_pc = 1'b0;
 
     decoded_instr.alu_op = alu_op_e'('x);
     decoded_instr.shift_op = shift_op_e'('x);
@@ -89,7 +85,7 @@ module decoder (
 
       OPCODE_JAL: begin
         decoded_instr.op_type = OP_BRANCH;
-        decoded_instr.adder.use_pc = 1'b1;
+        decoded_instr.adder_use_pc = 1'b1;
         decoded_instr.condition = CC_TRUE;
         rd_enable = 1'b1;
       end
@@ -105,7 +101,7 @@ module decoder (
 
       OPCODE_BRANCH: begin
         decoded_instr.op_type = OP_BRANCH;
-        decoded_instr.adder.use_pc = 1'b1;
+        decoded_instr.adder_use_pc = 1'b1;
         rs1_enable = 1'b1;
         rs2_enable = 1'b1;
 
@@ -196,7 +192,7 @@ module decoder (
       OPCODE_AUIPC: begin
         decoded_instr.op_type = OP_ALU;
         decoded_instr.alu_op = ALU_ADD;
-        decoded_instr.adder.use_pc = 1'b1;
+        decoded_instr.adder_use_pc = 1'b1;
         rd_enable = 1'b1;
       end
 
@@ -277,12 +273,11 @@ module decoder (
         unique casez ({funct7, funct3})
           {7'b0000001, 3'b0??}: begin
             decoded_instr.op_type = OP_MUL;
-            decoded_instr.mul.op = funct3[1:0];
+            decoded_instr.mul_op = mul_op_e'(funct3[1:0]);
           end
           {7'b0000001, 3'b1??}: begin
             decoded_instr.op_type = OP_DIV;
-            decoded_instr.div.is_unsigned = funct3[0];
-            decoded_instr.div.rem = funct3[1];
+            decoded_instr.div_op = div_op_e'(funct3[1:0]);
           end
           {7'b0000000, 3'b000}: begin
             decoded_instr.alu_op = ALU_ADD;
@@ -326,12 +321,11 @@ module decoder (
         unique casez ({funct7, funct3})
           {7'b0000001, 3'b000}: begin
             decoded_instr.op_type = OP_MUL;
-            decoded_instr.mul.op = 2'b00;
+            decoded_instr.mul_op = MUL_OP_MUL;
           end
           {7'b0000001, 3'b1??}: begin
             decoded_instr.op_type = OP_DIV;
-            decoded_instr.div.is_unsigned = funct3[0];
-            decoded_instr.div.rem = funct3[1];
+            decoded_instr.div_op = div_op_e'(funct3[1:0]);
           end
           {7'b0000000, 3'b000}: begin
             decoded_instr.alu_op = ALU_ADD;
@@ -384,10 +378,10 @@ module decoder (
         rs2_enable = 1'b1;
 
         if (funct3[1:0] != 2'b00) begin
-          decoded_instr.op_type = OP_SYSTEM;
-          decoded_instr.sys_op  = SYS_CSR;
-          decoded_instr.csr.op  = csr_op;
-          decoded_instr.csr.imm = funct3[2];
+          decoded_instr.op_type     = OP_SYSTEM;
+          decoded_instr.sys_op      = SYS_CSR;
+          decoded_instr.csr_op      = csr_op;
+          decoded_instr.csr_use_imm = funct3[2];
           rd_enable = 1'b1;
 
           if (csr_illegal) illegal_instr = 1'b1;
@@ -479,43 +473,42 @@ module decoder (
 
     // Immedidate decoding logic
     decoded_instr.use_imm = 1'b0;
-    decoded_instr.adder.use_imm = 1'b1;
+    decoded_instr.adder_use_imm = 1'b1;
     unique case (opcode)
       // I-type
       OPCODE_LOAD, OPCODE_OP_IMM, OPCODE_OP_IMM_32, OPCODE_JALR: begin
         decoded_instr.use_imm = 1'b1;
-        immediate = i_imm;
+        decoded_instr.immediate = i_imm;
       end
       // U-Type
       OPCODE_AUIPC, OPCODE_LUI: begin
         decoded_instr.use_imm = 1'b1;
-        immediate = u_imm;
+        decoded_instr.immediate = u_imm;
       end
       // S-Type
       OPCODE_STORE: begin
         decoded_instr.use_imm = 1'b1;
-        immediate = s_imm;
+        decoded_instr.immediate = s_imm;
       end
       // B-Type
       OPCODE_BRANCH: begin
-        immediate = b_imm;
+        decoded_instr.immediate = b_imm;
       end
       // J-Type
       OPCODE_JAL: begin
-        immediate = j_imm;
+        decoded_instr.immediate = j_imm;
       end
       // R-Type
       OPCODE_OP, OPCODE_OP_32: begin
-        decoded_instr.adder.use_imm = 1'b0;
-        immediate = 'x;
+        decoded_instr.adder_use_imm = 1'b0;
+        decoded_instr.immediate = 'x;
       end
       // Atomics. This probably should better be handled in EX stage.
       OPCODE_AMO: begin
-        immediate = '0;
+        decoded_instr.immediate = '0;
       end
-      default: immediate = 'x;
+      default: decoded_instr.immediate = 'x;
     endcase
-    decoded_instr.immediate = signed'(immediate);
   end
 
 endmodule

@@ -1,4 +1,3 @@
-import cpu_common::*;
 import muntjac_pkg::*;
 
 module cpu #(
@@ -32,7 +31,7 @@ module cpu #(
 
     // WB-IF interfacing, valid only when a PC override is required.
     logic wb_if_valid;
-    if_reason_t wb_if_reason;
+    if_reason_e wb_if_reason;
     logic [XLEN-1:0] wb_if_pc;
 
     // IF-DE interfacing

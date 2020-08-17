@@ -1,5 +1,4 @@
 // In the current design, we do not allow narrow transactions over AXI bus. Therefore it is essential that the CPU can extract data from wider loads. The module load_aligner can achieve this.
-import cpu_common::*;
 import muntjac_pkg::*;
 
 // The logic can be used for 32-bit users without hassle, simple ensure addr[2] is zero.

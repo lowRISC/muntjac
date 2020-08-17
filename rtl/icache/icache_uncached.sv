@@ -1,5 +1,3 @@
-import cpu_common::*;
-
 module icache_uncached # (
     parameter XLEN = 64
 ) (
@@ -9,6 +7,8 @@ module icache_uncached # (
     // AXI channel to memory
     axi_channel.master mem
 );
+
+    import muntjac_pkg::*;
 
     localparam VA_LEN = XLEN == 64 ? 39 : 32;
     localparam PA_LEN = XLEN == 64 ? 56 : 34;

@@ -26,84 +26,6 @@ typedef enum logic [6:0] {
   OPCODE_SYSTEM       = 7'b1110011
 } opcode_e;
 
-/////////////////
-// Decoded Ops //
-/////////////////
-
-// Type of decoded op
-typedef enum logic [3:0] {
-    OP_ALU,
-    OP_BRANCH,
-    OP_MEM,
-    OP_MUL,
-    OP_DIV,
-    OP_SYSTEM
-} op_type_e;
-
-// ALU operations
-typedef enum logic [2:0] {
-  // Arithmetics
-  // For add, adder.use_pc and adder.use_imm should be set properly.
-  ALU_ADD = 3'b000,
-  ALU_SUB = 3'b001,
-
-  // Shifts
-  // Actual shift ops determined via shift_op_e.
-  ALU_SHIFT = 3'b010,
-
-  // Compare and set
-  // Actual condition determined via condition_code_e
-  ALU_SCC = 3'b011,
-
-  // Logic operation
-  ALU_XOR = 3'b100,
-  ALU_OR  = 3'b110,
-  ALU_AND = 3'b111
-} alu_op_e;
-
-// Opcode for shifter
-// [0] determines direction (0 - left, 1 - right)
-// [1] determines sign-ext (0 - logical, 1 - arithmetic)
-typedef enum logic [1:0] {
-  SHIFT_OP_SLL = 2'b00,
-  SHIFT_OP_SRL = 2'b01,
-  SHIFT_OP_SRA = 2'b11
-} shift_op_e;
-
-// Branch/comparison condition codes
-typedef enum logic [2:0] {
-  CC_EQ    = 3'b000,
-  CC_NE    = 3'b001,
-  // CC_FALSE and CC_TRUE are not part of BRANCH instruction encoding, but
-  // incorporating them here allows us to unify JAL and JALR with BRANCH
-  CC_FALSE = 3'b010,
-  CC_TRUE  = 3'b011,
-  CC_LT    = 3'b100,
-  CC_GE    = 3'b101,
-  CC_LTU   = 3'b110,
-  CC_GEU   = 3'b111
-} condition_code_e;
-
-// MEM operations
-typedef enum logic [2:0] {
-    MEM_LOAD  = 3'b001,
-    MEM_STORE = 3'b010,
-    MEM_LR    = 3'b101,
-    MEM_SC    = 3'b110,
-    MEM_AMO   = 3'b111
-} mem_op_e;
-
-// System opcodes
-typedef enum logic [2:0] {
-  SYS_CSR,
-  // Environmental return (MRET, SRET)
-  SYS_ERET,
-  // TLB Flush
-  SYS_SFENCE_VMA,
-  SYS_FENCE_I,
-  SYS_WFI
-} sys_op_e;
-
 //////////////////////////////////
 // Control and status registers //
 //////////////////////////////////
@@ -363,5 +285,196 @@ parameter int unsigned CSR_STIX_BIT = 5;
 parameter int unsigned CSR_MTIX_BIT = 7;
 parameter int unsigned CSR_SEIX_BIT = 9;
 parameter int unsigned CSR_MEIX_BIT = 11;
+
+///////////////////////
+// Instruction fetch //
+///////////////////////
+
+// Reason for instruction fetch
+typedef enum logic [3:0] {
+    // An instruction prefetch that follows the previous instruction in program counter order.
+    IF_PREFETCH = 4'bxx00,
+    // An instruction prefetch commanded by the branch predictor.
+    IF_PREDICT = 4'bxx10,
+    // An instruction fetch caused by misprediction.
+    IF_MISPREDICT = 4'bxx01,
+    // Memory protection bits, e.g. MSTATUS, PRV or SATP has been changed
+    IF_PROT_CHANGED = 4'b0011,
+    // SATP has been changed
+    IF_SATP_CHANGED = 4'b0111,
+    // FENCE.I is executed
+    IF_FENCE_I = 4'b1011,
+    // SFENCE.VMA is executed.
+    IF_SFENCE_VMA = 4'b1111
+} if_reason_e;
+
+typedef struct packed {
+    // PC of fetched instruction.
+    logic [63:0] pc;
+    // Indicate if this instruction is flushed.
+    if_reason_e if_reason;
+    // Instruction word fetched.
+    logic [31:0] instr_word;
+    // Exception happened during instruction fetch.
+    logic ex_valid;
+    exception_t exception;
+} fetched_instr_t;
+
+/////////////////
+// Decoded Ops //
+/////////////////
+
+// Type of decoded op
+typedef enum logic [3:0] {
+    OP_ALU,
+    OP_BRANCH,
+    OP_MEM,
+    OP_MUL,
+    OP_DIV,
+    OP_SYSTEM
+} op_type_e;
+
+// ALU operations
+typedef enum logic [2:0] {
+  // Arithmetics
+  // For add, adder.use_pc and adder.use_imm should be set properly.
+  ALU_ADD = 3'b000,
+  ALU_SUB = 3'b001,
+
+  // Shifts
+  // Actual shift ops determined via shift_op_e.
+  ALU_SHIFT = 3'b010,
+
+  // Compare and set
+  // Actual condition determined via condition_code_e
+  ALU_SCC = 3'b011,
+
+  // Logic operation
+  ALU_XOR = 3'b100,
+  ALU_OR  = 3'b110,
+  ALU_AND = 3'b111
+} alu_op_e;
+
+// Opcode for shifter
+// [0] determines direction (0 - left, 1 - right)
+// [1] determines sign-ext (0 - logical, 1 - arithmetic)
+typedef enum logic [1:0] {
+  SHIFT_OP_SLL = 2'b00,
+  SHIFT_OP_SRL = 2'b01,
+  SHIFT_OP_SRA = 2'b11
+} shift_op_e;
+
+// Branch/comparison condition codes
+typedef enum logic [2:0] {
+  CC_EQ    = 3'b000,
+  CC_NE    = 3'b001,
+  // CC_FALSE and CC_TRUE are not part of BRANCH instruction encoding, but
+  // incorporating them here allows us to unify JAL and JALR with BRANCH
+  CC_FALSE = 3'b010,
+  CC_TRUE  = 3'b011,
+  CC_LT    = 3'b100,
+  CC_GE    = 3'b101,
+  CC_LTU   = 3'b110,
+  CC_GEU   = 3'b111
+} condition_code_e;
+
+// MEM operations
+typedef enum logic [2:0] {
+  MEM_LOAD  = 3'b001,
+  MEM_STORE = 3'b010,
+  MEM_LR    = 3'b101,
+  MEM_SC    = 3'b110,
+  MEM_AMO   = 3'b111
+} mem_op_e;
+
+// Multiply operations
+typedef enum logic [1:0] {
+  MUL_OP_MUL    = 2'b00,
+  MUL_OP_MULH   = 2'b01,
+  MUL_OP_MULHSU = 2'b10,
+  MUL_OP_MULHU  = 2'b11
+} mul_op_e;
+
+// Division operations
+typedef enum logic [1:0] {
+  DIV_OP_DIV  = 2'b00,
+  DIV_OP_DIVU = 2'b01,
+  DIV_OP_REM  = 2'b10,
+  DIV_OP_REMU = 2'b11
+} div_op_e;
+
+// System opcodes
+typedef enum logic [2:0] {
+  SYS_CSR,
+  // Environmental return (MRET, SRET)
+  SYS_ERET,
+  // TLB Flush
+  SYS_SFENCE_VMA,
+  SYS_FENCE_I,
+  SYS_WFI
+} sys_op_e;
+
+typedef struct packed {
+    logic [4:0]  rs1;
+    logic [4:0]  rs2;
+    logic [4:0]  rd;
+    logic [31:0] immediate;
+
+    op_type_e op_type;
+
+    // For adder.
+    // Adder is special to ALU because it is also used for branch target and address computation
+    // Whether adder should use PC or RS1 as input.
+    logic adder_use_pc;
+    // Whether adder should use immediate or RS2 as input.
+    logic adder_use_imm;
+
+    // Whether ALU ops or adder should use rs2 or immediate.
+    logic use_imm;
+
+    // Size of operation.
+    // For ALU, MUL, DIV, this currently can only be word (10) or dword (11).
+    logic [1:0] size;
+
+    // Whether zero-extension or sign-extension should be used.
+    // Currently only used by MEM unit.
+    logic zeroext;
+
+    // ALU ops
+    alu_op_e alu_op;
+
+    // For shifter
+    shift_op_e shift_op;
+
+    // For comparator
+    condition_code_e condition;
+
+    // For system ops
+    sys_op_e sys_op;
+
+    // For memory unit
+    mem_op_e mem_op;
+
+    // For multiply unit
+    mul_op_e mul_op;
+
+    // For division unit
+    div_op_e div_op;
+
+    // For CSR
+    csr_op_e csr_op;
+    // If rs1 should be used as immediate instead of a register index
+    logic csr_use_imm;
+
+    // PC of this decoded instruction.
+    logic [63:0] pc;
+
+    // Indicate the reason that this is fetched
+    if_reason_e if_reason;
+
+    // Exception happened during decoding.
+    logic ex_valid;
+    exception_t exception;
+} decoded_instr_t;
 
 endpackage

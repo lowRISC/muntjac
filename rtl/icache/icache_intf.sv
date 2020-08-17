@@ -1,5 +1,3 @@
-import cpu_common::*;
-
 // Interfacing to the instruction cache
 interface icache_intf #(
     parameter XLEN = 64
@@ -8,9 +6,11 @@ interface icache_intf #(
     input  logic rstn
 );
 
+    import muntjac_pkg::*;
+
     logic            req_valid;
     logic [XLEN-1:0] req_pc;
-    if_reason_t      req_reason;
+    if_reason_e      req_reason;
     // The following values are for address translation. Because they usually are fed directly from
     // CSR register file, when they are changed, pipeline should be flushed. This includes:
     // * Change MSTATUS's SUM bit via CSR read/write

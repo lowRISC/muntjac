@@ -1,4 +1,4 @@
-module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
+module muntjac_backend import muntjac_pkg::*; (
     // Clock and reset
     input  logic            clk_i,
     input  logic            rst_ni,
@@ -11,7 +11,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
     output priv_lvl_e     prv_o,
     output status_t       status_o,
     output logic          redirect_valid_o,
-    output if_reason_t    redirect_reason_o,
+    output if_reason_e    redirect_reason_o,
     output logic [63:0]   redirect_pc_o,
     input                 fetch_valid_i,
     output                fetch_ready_o,
@@ -262,7 +262,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
 
     logic sys_issue;
     logic sys_pc_redirect_valid;
-    if_reason_t sys_pc_redirect_reason;
+    if_reason_e sys_pc_redirect_reason;
     logic [63:0] sys_pc_redirect_target;
 
     logic mispredict_q, mispredict_d;
@@ -349,7 +349,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         sys_ready = 1'b0;
         sys_state_d = sys_state_q;
         sys_pc_redirect_valid = 1'b0;
-        sys_pc_redirect_reason = if_reason_t'('x);
+        sys_pc_redirect_reason = if_reason_e'('x);
         sys_pc_redirect_target = 'x;
         eret_pc_d = 'x;
 
@@ -359,7 +359,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
                     sys_state_d = SYS_ST_OP;
                     unique case (de_ex_decoded.sys_op)
                         SYS_CSR: begin
-                            if (de_ex_decoded.csr.op != CSR_OP_READ && csr_select == CSR_SATP) begin
+                            if (de_ex_decoded.csr_op != CSR_OP_READ && csr_select == CSR_SATP) begin
                                 sys_state_d = SYS_ST_SATP_CHANGED;
                             end
                         end
@@ -381,7 +381,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
                     // FIXME: Split the state machine
                     SYS_CSR: begin
                         sys_pc_redirect_target = npc;
-                        if (de_ex_decoded.csr.op != CSR_OP_READ) begin
+                        if (de_ex_decoded.csr_op != CSR_OP_READ) begin
                             case (csr_select)
                                 CSR_MSTATUS: begin
                                     sys_pc_redirect_valid = 1'b1;
@@ -728,7 +728,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .operand_a (ex_rs1),
         .operand_b (ex_rs2),
         .i_32      (word),
-        .i_op      (de_ex_decoded.mul.op),
+        .i_op      (de_ex_decoded.mul_op),
         .i_valid   (ex_issue && de_ex_decoded.op_type == OP_MUL),
         .i_ready   (mul_ready),
         .o_value   (mul_data),
@@ -741,9 +741,8 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .rstn       (rst_ni),
         .operand_a  (ex_rs1),
         .operand_b  (ex_rs2),
-        .use_rem_i  (de_ex_decoded.div.rem),
+        .i_op       (de_ex_decoded.div_op),
         .i_32       (word),
-        .i_unsigned (de_ex_decoded.div.is_unsigned),
         .i_valid    (ex_issue && de_ex_decoded.op_type == OP_DIV),
         .i_ready    (div_ready),
         .o_value    (div_data),
@@ -802,8 +801,8 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
         .check_op_i (csr_op_e'(de_csr_op)),
         .check_illegal_o (de_csr_illegal),
         .csr_addr_i (csr_select),
-        .csr_wdata_i (de_ex_decoded.csr.imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
-        .csr_op_i (de_ex_decoded.csr.op),
+        .csr_wdata_i (de_ex_decoded.csr_use_imm ? {{(64-5){1'b0}}, de_ex_decoded.rs1} : ex_rs1),
+        .csr_op_i (de_ex_decoded.csr_op),
         .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == SYS_CSR),
         .csr_rdata_o (csr_read),
         .irq_software_m_i (irq_software_m_i),
@@ -827,7 +826,7 @@ module muntjac_backend import cpu_common::*; import muntjac_pkg::*; (
 
     always_comb begin
         redirect_valid_o = 1'b0;
-        redirect_reason_o = if_reason_t'('x);
+        redirect_reason_o = if_reason_e'('x);
         redirect_pc_o = 'x;
 
         if (ex_state_q == ST_INT) begin

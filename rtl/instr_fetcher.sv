@@ -1,4 +1,3 @@
-import cpu_common::*;
 import muntjac_pkg::*;
 
 // Instruction fetcher continuously fetch instructions until
@@ -15,7 +14,7 @@ module instr_fetcher # (
     // When the signals are valid, instruction fetcher needs to flush its pipeline
     // and restart fetching from the specified PC.
     input  [XLEN-1:0] i_pc,
-    input  if_reason_t i_reason,
+    input  if_reason_e i_reason,
     input  i_valid,
 
     // These should always be valid.
@@ -29,7 +28,7 @@ module instr_fetcher # (
 );
 
     logic [XLEN-1:0] i_pc_q;
-    if_reason_t i_reason_q;
+    if_reason_e i_reason_q;
     logic i_valid_q;
     logic i_ready_q;
     logic [XLEN-1:0] i_atp_q;
@@ -64,10 +63,10 @@ module instr_fetcher # (
     icache_compressed comp_inst (cache, cache_uncompressed);
 
     logic [XLEN-1:0] pc;
-    if_reason_t reason;
+    if_reason_e reason;
 
     logic [XLEN-1:0] pc_next;
-    if_reason_t reason_next;
+    if_reason_e reason_next;
 
     // We need to latch ATP so that its change does not affect currently prefetched instructions.
     logic [XLEN-1:0] atp_latch;

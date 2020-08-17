@@ -1,5 +1,3 @@
-import cpu_common::*;
-
 // This module can convert a misaligned & compressed instruction un-aware instruction cache to a
 // cache that can properly support compressed and misaligned instruction.
 module icache_compressed # (
@@ -12,6 +10,8 @@ module icache_compressed # (
     icache_intf.user mem
 );
 
+    import muntjac_pkg::*;
+
     wire clk = cache.clk;
     wire rstn = cache.rstn;
 
@@ -22,7 +22,7 @@ module icache_compressed # (
     wire mem_resp_exception = mem.resp_exception;
     wire cache_req_valid = cache.req_valid;
     wire [XLEN-1:0] cache_req_pc = cache.req_pc;
-    wire if_reason_t cache_req_reason = cache.req_reason;
+    wire if_reason_e cache_req_reason = cache.req_reason;
 
     // Pass these "always valid" signals to the underlying icache.
     assign mem.req_prv = cache.req_prv;
@@ -55,7 +55,7 @@ module icache_compressed # (
         // By default output to invalid
         mem.req_valid = 1'b0;
         mem.req_pc = 'x;
-        mem.req_reason = if_reason_t'('x);
+        mem.req_reason = if_reason_e'('x);
         cache.resp_valid = 1'b0;
         cache.resp_pc = 'x;
         cache.resp_instr = 'x;

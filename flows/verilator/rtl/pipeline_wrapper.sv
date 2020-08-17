@@ -17,7 +17,7 @@ module pipeline_wrapper #(
     // Instruction cache interface
     output logic            icache_req_valid,
     output logic [XLEN-1:0] icache_req_pc,
-    output if_reason_t      icache_req_reason,
+    output if_reason_e      icache_req_reason,
     output logic            icache_req_prv,
     output logic            icache_req_sum,
     output logic [XLEN-1:0] icache_req_atp,

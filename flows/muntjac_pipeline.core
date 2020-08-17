@@ -9,7 +9,6 @@ filesets:
   files_rtl:
     files:
       - ../rtl/muntjac_pkg.sv
-      - ../rtl/common.sv
       - ../rtl/icache/icache_intf.sv
       - ../rtl/dcache/dcache_intf.sv
       - ../rtl/muntjac_alu.sv

@@ -1,11 +1,11 @@
-module mul_unit (
+module mul_unit import muntjac_pkg::*; (
     // Clock and reset
     input  logic        clk,
     input  logic        rstn,
 
     input  logic [63:0] operand_a,
     input  logic [63:0] operand_b,
-    input  logic [1:0]  i_op,
+    input  mul_op_e     i_op,
     input  logic        i_32,
     input  logic        i_valid,
     output logic        i_ready,
@@ -83,9 +83,9 @@ module mul_unit (
         unique case (state)
             IDLE: begin
                 if (i_valid) begin
-                    op_a_d = {i_op != 2'b11 ? operand_a[63] : 1'b0, operand_a};
+                    op_a_d = {i_op != MUL_OP_MULHU ? operand_a[63] : 1'b0, operand_a};
                     op_b_d = {i_op[1] != 1'b1 ? operand_b[63] : 1'b0, operand_b};
-                    op_l_d = i_op == 2'b00;
+                    op_l_d = i_op == MUL_OP_MUL;
                     op_32_d = i_32;
 
                     o_value_d = 'x;
@@ -229,15 +229,14 @@ module mul_unit (
 
 endmodule
 
-module div_unit (
+module div_unit import muntjac_pkg::*; (
     // Clock and reset
     input  logic        clk,
     input  logic        rstn,
 
     input  logic [63:0] operand_a,
     input  logic [63:0] operand_b,
-    input  logic        use_rem_i,
-    input  logic        i_unsigned,
+    input  div_op_e     i_op,
     input  logic        i_32,
     input  logic        i_valid,
     output logic        i_ready,
@@ -253,6 +252,9 @@ module div_unit (
     logic [63:0] a_rev;
 
     logic use_rem_d, use_rem_q;
+
+    wire i_unsigned = i_op[0];
+    wire use_rem_i = i_op[1];
 
     // Prepare the input by extracting sign, mangitude and deal with sign-extension
     always_comb begin

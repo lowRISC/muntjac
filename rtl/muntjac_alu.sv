@@ -96,7 +96,7 @@ module muntjac_shifter import muntjac_pkg::*; (
 endmodule
 
 module muntjac_alu import muntjac_pkg::*; (
-    input  cpu_common::decoded_instr_t decoded_op_i,
+    input  decoded_instr_t decoded_op_i,
     input  [63:0]          rs1_i,
     input  [63:0]          rs2_i,
     output logic [63:0]    sum_o,
@@ -108,15 +108,17 @@ module muntjac_alu import muntjac_pkg::*; (
   // For ALU op this can only be word(10) or dword (11), so just check LSB.
   wire word = decoded_op_i.size[0] == 1'b0;
 
+  wire [63:0] imm_sext = { {32{decoded_op_i.immediate[31]}}, decoded_op_i.immediate };
+
   // Adder. Used for ADD, LOAD, STORE, AUIPC, JAL, JALR, BRANCH
   // This is the core component of the ALU.
   // Because the adder is also used for address (load/store and branch/jump) calculation, it uses
-  //   adder.use_pc and adder.use_imm to mux inputs rather than use_imm.
+  //   adder_use_pc and adder_use_imm to mux inputs rather than use_imm.
   assign sum_o =
-      (decoded_op_i.adder.use_pc ? decoded_op_i.pc : rs1_i) +
-      (decoded_op_i.adder.use_imm ? decoded_op_i.immediate : rs2_i);
+      (decoded_op_i.adder_use_pc ? decoded_op_i.pc : rs1_i) +
+      (decoded_op_i.adder_use_imm ? imm_sext : rs2_i);
 
-  wire [63:0] operand_b = decoded_op_i.use_imm ? decoded_op_i.immediate : rs2_i;
+  wire [63:0] operand_b = decoded_op_i.use_imm ? imm_sext : rs2_i;
 
   // Subtractor. Used for SUB, BRANCH, SLT, SLTU
   logic [63:0] difference;

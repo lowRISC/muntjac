@@ -1,4 +1,3 @@
-import cpu_common::*;
 import muntjac_pkg::*;
 
 // Interfacing to the data cache
