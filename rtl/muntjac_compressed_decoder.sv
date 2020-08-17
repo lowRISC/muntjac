@@ -1,7 +1,9 @@
 // This module decompresses RV64C 16-bit instruction to the full
 // RV64 instruction.
 // 16-bit D-extension instructions are currently expanded to illegal instruction.
-module muntjac_compressed_decoder (
+module muntjac_compressed_decoder # (
+    parameter bit RV64D = 0
+) (
   input  logic [15:0] instr_i,
   output logic [31:0] instr_o,
   output logic        illegal_instr_o
@@ -123,8 +125,17 @@ module muntjac_compressed_decoder (
           end
           3'b001: begin
             // c.fld -> fld rd', rs1', cl_ld_imm
-            // FIXME: D-extension not supported
-            illegal_instr_o = 1'b1;
+            if (RV64D) begin
+              decompressed = construct_i_type (
+                .imm (cl_ld_imm),
+                .rs1 (c_rs1s),
+                .funct3 (3'b011),
+                .rd (c_rds),
+                .opcode (OPCODE_LOAD_FP)
+              );
+            end else begin
+              illegal_instr_o = 1'b1;
+            end
           end
           3'b010: begin
             // c.lw -> lw rd', rs1', cl_lw_imm
@@ -148,8 +159,17 @@ module muntjac_compressed_decoder (
           end
           3'b101: begin
             // c.fsd -> fsd rs2', rs1', cs_sd_imm
-            // FIXME: D-extension not supported
-            illegal_instr_o = 1'b1;
+            if (RV64D) begin
+              decompressed = construct_s_type (
+                .imm (cs_sd_imm),
+                .rs2 (c_rs2s),
+                .rs1 (c_rs1s),
+                .funct3 (3'b011),
+                .opcode (OPCODE_STORE_FP)
+              );
+            end else begin
+              illegal_instr_o = 1'b1;
+            end
           end
           3'b110: begin
             // c.sw -> sw rs2', rs1', cs_sw_imm
@@ -383,7 +403,17 @@ module muntjac_compressed_decoder (
           end
           3'b001: begin
             // c.fldsp -> fld rd, x2, ci_ldsp_imm
-            illegal_instr_o = 1'b1;
+            if (RV64D) begin
+              decompressed = construct_i_type (
+                .imm (ci_ldsp_imm),
+                .rs1 (2),
+                .funct3 (3'b011),
+                .rd (c_rd),
+                .opcode (OPCODE_LOAD_FP)
+              );
+            end else begin
+              illegal_instr_o = 1'b1;
+            end
           end
           3'b010: begin
             // c.lwsp -> lw rd, x2, ci_lwsp_imm
@@ -462,7 +492,17 @@ module muntjac_compressed_decoder (
           end
           3'b101: begin
             // c.fsdsp -> fsd rs2, x2, css_sdsp_imm
-            illegal_instr_o = 1'b1;
+            if (RV64D) begin
+              decompressed = construct_s_type (
+                .imm (css_sdsp_imm),
+                .rs1 (2),
+                .rs2 (c_rs2),
+                .funct3 (3'b011),
+                .opcode (OPCODE_STORE_FP)
+              );
+            end else begin
+              illegal_instr_o = 1'b1;
+            end
           end
           3'b110: begin
             // c.swsp -> sw rs2, x2, css_swsp_imm

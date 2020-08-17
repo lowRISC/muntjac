@@ -9,11 +9,13 @@ package muntjac_pkg;
 
 typedef enum logic [6:0] {
   OPCODE_LOAD         = 7'b0000011,
+  OPCODE_LOAD_FP      = 7'b0000111,
   OPCODE_MISC_MEM     = 7'b0001111,
   OPCODE_OP_IMM       = 7'b0010011,
   OPCODE_AUIPC        = 7'b0010111,
   OPCODE_OP_IMM_32    = 7'b0011011,
   OPCODE_STORE        = 7'b0100011,
+  OPCODE_STORE_FP     = 7'b0100111,
   OPCODE_AMO          = 7'b0101111,
   OPCODE_OP           = 7'b0110011,
   OPCODE_LUI          = 7'b0110111,
