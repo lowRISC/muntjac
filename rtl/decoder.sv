@@ -1,10 +1,7 @@
 import cpu_common::*;
 import muntjac_pkg::*;
 
-module decoder # (
-    // Decide the base ISA to use. Note that the decoded immediate length will always be 32 bits.
-    parameter XLEN = 64
-) (
+module decoder (
     input  fetched_instr_t fetched_instr,
     output decoded_instr_t decoded_instr,
 
@@ -17,9 +14,6 @@ module decoder # (
     output csr_op_e csr_op,
     input  logic csr_illegal
 );
-
-    // Currently we only support RV32I and RV64I base ISAs.
-    initial assert (XLEN == 64 || XLEN == 32);
 
     //
     // Logics
@@ -88,12 +82,7 @@ module decoder # (
                 decoded_instr.mem.size = funct3[1:0];
                 decoded_instr.mem.zeroext = funct3[2];
 
-                if (XLEN == 32) begin
-                     if (funct3[1:0] == 2'b11 || funct3 == 3'b110) decoded_instr.ex_valid = 1'b1;
-                end
-                else begin
-                    if (funct3 == 3'b111) decoded_instr.ex_valid = 1'b1;
-                end
+                if (funct3 == 3'b111) decoded_instr.ex_valid = 1'b1;
             end
 
             OPCODE_MISC_MEM: begin
@@ -138,7 +127,6 @@ module decoder # (
 
                         // Shift is invalid if imm is larger than XLEN.
                         if (funct7[6:1] != 6'b0) decoded_instr.ex_valid = 1'b1;
-                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.ex_valid = 1'b1;
                     end
 
                     3'b101: begin
@@ -148,8 +136,6 @@ module decoder # (
                         else if (funct7[6:1] == 6'b010000) decoded_instr.shift_op = SHIFT_OP_SRA;
                         // Shift is invalid if imm is larger than XLEN.
                         else decoded_instr.ex_valid = 1'b1;
-
-                        if (XLEN == 32 && funct7[0] != 1'b0) decoded_instr.ex_valid = 1'b1;
                     end
                 endcase
             end
@@ -162,36 +148,33 @@ module decoder # (
             end
 
             OPCODE_OP_IMM_32: begin
-                if (XLEN == 32) decoded_instr.ex_valid = 1'b1;
-                else begin
-                    decoded_instr.rs1   = rs1;
-                    decoded_instr.rd    = rd;
-                    decoded_instr.word = 1'b1;
+                decoded_instr.rs1   = rs1;
+                decoded_instr.rd    = rd;
+                decoded_instr.word = 1'b1;
 
-                    unique case (funct3)
-                        3'b000: begin
-                            decoded_instr.alu_op = ALU_ADD;
-                        end
-                        3'b001: begin
-                            decoded_instr.alu_op = ALU_SHIFT;
-                            decoded_instr.shift_op = SHIFT_OP_SLL;
+                unique case (funct3)
+                    3'b000: begin
+                        decoded_instr.alu_op = ALU_ADD;
+                    end
+                    3'b001: begin
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SLL;
 
-                            // Shift is invalid if imm is larger than 32.
-                            if (funct7 != 7'b0) decoded_instr.ex_valid = 1'b1;
-                        end
+                        // Shift is invalid if imm is larger than 32.
+                        if (funct7 != 7'b0) decoded_instr.ex_valid = 1'b1;
+                    end
 
-                        3'b101: begin
-                            decoded_instr.alu_op = ALU_SHIFT;
+                    3'b101: begin
+                        decoded_instr.alu_op = ALU_SHIFT;
 
-                            if (funct7 == 7'b0) decoded_instr.shift_op = SHIFT_OP_SRL;
-                            else if (funct7 == 7'b0100000) decoded_instr.shift_op = SHIFT_OP_SRA;
-                            // Shift is invalid if imm is larger than 32.
-                            else decoded_instr.ex_valid = 1'b1;
-                        end
+                        if (funct7 == 7'b0) decoded_instr.shift_op = SHIFT_OP_SRL;
+                        else if (funct7 == 7'b0100000) decoded_instr.shift_op = SHIFT_OP_SRA;
+                        // Shift is invalid if imm is larger than 32.
+                        else decoded_instr.ex_valid = 1'b1;
+                    end
 
-                        default: decoded_instr.ex_valid = 1'b1;
-                    endcase
-                end
+                    default: decoded_instr.ex_valid = 1'b1;
+                endcase
             end
 
             OPCODE_STORE: begin
@@ -201,7 +184,6 @@ module decoder # (
                 decoded_instr.mem.op = MEM_STORE;
                 decoded_instr.mem.size = funct3[1:0];
                 if (funct3[2] == 1'b1) decoded_instr.ex_valid = 1'b1;
-                if (XLEN == 32 && funct3[1:0] == 2'b11) decoded_instr.ex_valid = 1'b1;
             end
 
             OPCODE_AMO: begin
@@ -298,44 +280,41 @@ module decoder # (
             end
 
             OPCODE_OP_32: begin
-                if (XLEN == 32) decoded_instr.ex_valid = 1'b1;
-                else begin
-                    decoded_instr.rs1   = rs1;
-                    decoded_instr.rs2   = rs2;
-                    decoded_instr.rd    = rd;
-                    decoded_instr.word = 1'b1;
+                decoded_instr.rs1   = rs1;
+                decoded_instr.rs2   = rs2;
+                decoded_instr.rd    = rd;
+                decoded_instr.word = 1'b1;
 
-                    unique casez ({funct7, funct3})
-                        {7'b0000001, 3'b000}: begin
-                            decoded_instr.op_type = OP_MUL;
-                            decoded_instr.mul.op = 2'b00;
-                        end
-                        {7'b0000001, 3'b1??}: begin
-                            decoded_instr.op_type = OP_DIV;
-                            decoded_instr.div.is_unsigned = funct3[0];
-                            decoded_instr.div.rem = funct3[1];
-                        end
-                        {7'b0000000, 3'b000}: begin
-                            decoded_instr.alu_op = ALU_ADD;
-                        end
-                        {7'b0100000, 3'b000}: begin
-                            decoded_instr.alu_op = ALU_SUB;
-                        end
-                        {7'b0000000, 3'b001}: begin
-                            decoded_instr.alu_op = ALU_SHIFT;
-                            decoded_instr.shift_op = SHIFT_OP_SLL;
-                        end
-                        {7'b0000000, 3'b101}: begin
-                            decoded_instr.alu_op = ALU_SHIFT;
-                            decoded_instr.shift_op = SHIFT_OP_SRL;
-                        end
-                        {7'b0100000, 3'b101}: begin
-                            decoded_instr.alu_op = ALU_SHIFT;
-                            decoded_instr.shift_op = SHIFT_OP_SRA;
-                        end
-                        default: decoded_instr.ex_valid = 1'b1;
-                    endcase
-                end
+                unique casez ({funct7, funct3})
+                    {7'b0000001, 3'b000}: begin
+                        decoded_instr.op_type = OP_MUL;
+                        decoded_instr.mul.op = 2'b00;
+                    end
+                    {7'b0000001, 3'b1??}: begin
+                        decoded_instr.op_type = OP_DIV;
+                        decoded_instr.div.is_unsigned = funct3[0];
+                        decoded_instr.div.rem = funct3[1];
+                    end
+                    {7'b0000000, 3'b000}: begin
+                        decoded_instr.alu_op = ALU_ADD;
+                    end
+                    {7'b0100000, 3'b000}: begin
+                        decoded_instr.alu_op = ALU_SUB;
+                    end
+                    {7'b0000000, 3'b001}: begin
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SLL;
+                    end
+                    {7'b0000000, 3'b101}: begin
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SRL;
+                    end
+                    {7'b0100000, 3'b101}: begin
+                        decoded_instr.alu_op = ALU_SHIFT;
+                        decoded_instr.shift_op = SHIFT_OP_SRA;
+                    end
+                    default: decoded_instr.ex_valid = 1'b1;
+                endcase
             end
 
             OPCODE_BRANCH: begin
