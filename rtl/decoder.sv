@@ -12,17 +12,18 @@ module decoder import muntjac_pkg::*; (
   input  logic csr_illegal
 );
 
-  // Use the structure to unpack the instruction word.
-  logic [31:0] instr;
+  ///////////////////
+  // Decompression //
+  ///////////////////
 
-  // C-extension decompression.
-  logic [31:0] decompressed;
+  logic [31:0] instr;
+  logic illegal_compressed;
+
   muntjac_compressed_decoder decomp (
-    .instr_i (fetched_instr.instr_word[15:0]),
-    .instr_o (decompressed),
-    .illegal_instr_o ()
+    .instr_i (fetched_instr.instr_word),
+    .instr_o (instr),
+    .illegal_instr_o (illegal_compressed)
   );
-  assign instr = fetched_instr.instr_word[1:0] == 2'b11 ? fetched_instr.instr_word : decompressed;
 
   ////////////////////
   // Field decoding //
@@ -59,7 +60,6 @@ module decoder import muntjac_pkg::*; (
 
     decoded_instr.size = 2'b11;
     decoded_instr.zeroext = 1'b0;
-    decoded_instr.adder_use_pc = 1'b0;
 
     decoded_instr.alu_op = alu_op_e'('x);
     decoded_instr.shift_op = shift_op_e'('x);
@@ -69,7 +69,7 @@ module decoder import muntjac_pkg::*; (
     rs1_enable = 1'b0;
     rs2_enable = 1'b0;
 
-    illegal_instr = 1'b0;
+    illegal_instr = illegal_compressed;
     ecall = 1'b0;
     ebreak = 1'b0;
 
@@ -85,7 +85,6 @@ module decoder import muntjac_pkg::*; (
 
       OPCODE_JAL: begin
         decoded_instr.op_type = OP_BRANCH;
-        decoded_instr.adder_use_pc = 1'b1;
         decoded_instr.condition = CC_TRUE;
         rd_enable = 1'b1;
       end
@@ -101,7 +100,6 @@ module decoder import muntjac_pkg::*; (
 
       OPCODE_BRANCH: begin
         decoded_instr.op_type = OP_BRANCH;
-        decoded_instr.adder_use_pc = 1'b1;
         rs1_enable = 1'b1;
         rs2_enable = 1'b1;
 
@@ -192,7 +190,6 @@ module decoder import muntjac_pkg::*; (
       OPCODE_AUIPC: begin
         decoded_instr.op_type = OP_ALU;
         decoded_instr.alu_op = ALU_ADD;
-        decoded_instr.adder_use_pc = 1'b1;
         rd_enable = 1'b1;
       end
 
@@ -232,6 +229,8 @@ module decoder import muntjac_pkg::*; (
             // Shift is invalid if imm is larger than XLEN.
             else illegal_instr = 1'b1;
           end
+
+          default:;
         endcase
       end
 
@@ -471,23 +470,56 @@ module decoder import muntjac_pkg::*; (
       endcase
     end
 
-    // Immedidate decoding logic
-    decoded_instr.use_imm = 1'b0;
-    decoded_instr.adder_use_imm = 1'b1;
+    //////////////////////////////////
+    // Adder and ALU operand select //
+    //////////////////////////////////
+
+    decoded_instr.adder_use_pc = 1'bx;
+    decoded_instr.adder_use_imm = 1'bx;
+    decoded_instr.use_imm = 1'bx;
+    unique case (opcode)
+      OPCODE_LOAD, OPCODE_STORE, OPCODE_AMO, OPCODE_LUI, OPCODE_JALR: begin
+        decoded_instr.adder_use_pc = 1'b0;
+        decoded_instr.adder_use_imm = 1'b1;
+      end
+      OPCODE_OP_IMM, OPCODE_OP_IMM_32: begin
+        decoded_instr.adder_use_pc = 1'b0;
+        decoded_instr.adder_use_imm = 1'b1;
+        decoded_instr.use_imm = 1'b1;
+      end
+      OPCODE_AUIPC, OPCODE_JAL: begin
+        decoded_instr.adder_use_pc = 1'b1;
+        decoded_instr.adder_use_imm = 1'b1;
+      end
+      OPCODE_BRANCH: begin
+        decoded_instr.adder_use_pc = 1'b1;
+        decoded_instr.adder_use_imm = 1'b1;
+        decoded_instr.use_imm = 1'b0;
+      end
+      OPCODE_OP, OPCODE_OP_32: begin
+        decoded_instr.adder_use_pc = 1'b0;
+        decoded_instr.adder_use_imm = 1'b0;
+        decoded_instr.use_imm = 1'b0;
+      end
+      default:;
+    endcase
+
+    ///////////////////////
+    // Immedidate select //
+    ///////////////////////
+
+    decoded_instr.immediate = 'x;
     unique case (opcode)
       // I-type
       OPCODE_LOAD, OPCODE_OP_IMM, OPCODE_OP_IMM_32, OPCODE_JALR: begin
-        decoded_instr.use_imm = 1'b1;
         decoded_instr.immediate = i_imm;
       end
       // U-Type
       OPCODE_AUIPC, OPCODE_LUI: begin
-        decoded_instr.use_imm = 1'b1;
         decoded_instr.immediate = u_imm;
       end
       // S-Type
       OPCODE_STORE: begin
-        decoded_instr.use_imm = 1'b1;
         decoded_instr.immediate = s_imm;
       end
       // B-Type
@@ -498,16 +530,11 @@ module decoder import muntjac_pkg::*; (
       OPCODE_JAL: begin
         decoded_instr.immediate = j_imm;
       end
-      // R-Type
-      OPCODE_OP, OPCODE_OP_32: begin
-        decoded_instr.adder_use_imm = 1'b0;
-        decoded_instr.immediate = 'x;
-      end
-      // Atomics. This probably should better be handled in EX stage.
+      // Atomics. Decode immediate to zero so that adder will produce rs1.
       OPCODE_AMO: begin
         decoded_instr.immediate = '0;
       end
-      default: decoded_instr.immediate = 'x;
+      default:;
     endcase
   end
 
