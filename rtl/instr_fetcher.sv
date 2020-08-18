@@ -63,6 +63,7 @@ module instr_fetcher # (
     icache_compressed comp_inst (cache, cache_uncompressed);
 
     logic [XLEN-1:0] pc;
+    logic [XLEN-1:0] npc_word;
     if_reason_e reason;
 
     logic [XLEN-1:0] pc_next;
@@ -96,8 +97,8 @@ module instr_fetcher # (
 
     logic latched;
     logic [31:0] resp_instr_latch;
-    logic [XLEN-1:0] resp_pc_latch;
     logic resp_exception_latch;
+    logic resp_exception_plus2_latch;
 
     assign o_valid = cache.resp_valid || latched;
     assign i_ready_q = o_valid && o_ready;
@@ -107,8 +108,8 @@ module instr_fetcher # (
             // To kick-start the frontend, we need o_valid to be high initially.
             latched <= 1'b1;
             resp_instr_latch <= '0;
-            resp_pc_latch <= '0;
             resp_exception_latch <= 1'b0;
+            resp_exception_plus2_latch <= 1'b0;
 
             pc <= 0;
             reason <= IF_PREFETCH;
@@ -118,8 +119,8 @@ module instr_fetcher # (
                 assert (!latched);
                 latched <= 1'b1;
                 resp_instr_latch <= cache.resp_instr;
-                resp_pc_latch <= cache.resp_pc;
                 resp_exception_latch <= cache.resp_exception;
+                resp_exception_plus2_latch <= cache.resp_exception_plus2;
             end
 
             if (o_ready) begin
@@ -137,7 +138,7 @@ module instr_fetcher # (
     assign o_fetched_instr.if_reason = reason;
     assign o_fetched_instr.ex_valid = latched ? resp_exception_latch : cache.resp_exception;
     assign o_fetched_instr.exception.cause = EXC_CAUSE_INSTR_PAGE_FAULT;
-    assign o_fetched_instr.exception.tval = latched ? resp_pc_latch : cache.resp_pc;
+    assign o_fetched_instr.exception.tval = (latched ? resp_exception_plus2_latch : cache.resp_exception_plus2) ? npc_word : pc;
 
     //
     // Static branch prediction
@@ -195,7 +196,7 @@ module instr_fetcher # (
     // This could be just `pc + (instr_word[1:0] == 2'b11 ? 4 : 2)`, but doing so would make the
     // critical path really long. Therefore we just do `pc + 4` instead, and if we need to do +2,
     // instead, we can use MUX to do that.
-    wire logic [XLEN-1:0] npc_word = {pc[XLEN-1:2], 2'b0} + 4;
+    assign npc_word = {pc[XLEN-1:2], 2'b0} + 4;
     logic [XLEN-1:0] npc;
     always_comb begin
         npc = npc_word;

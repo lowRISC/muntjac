@@ -63,9 +63,9 @@ module icache_uncached # (
     always_comb begin
         // By default output to invalid
         cache.resp_valid = 1'b0;
-        cache.resp_pc = 'x;
         cache.resp_instr = 'x;
         cache.resp_exception = 1'bx;
+        cache.resp_exception_plus2 = 1'b0;
 
         // By default keep these states
         state_d = state;
@@ -81,7 +81,6 @@ module icache_uncached # (
             STATE_FETCH: begin
                 if (mem.r_valid) begin
                     cache.resp_valid = 1'b1;
-                    cache.resp_pc = latched_pc;
                     if (XLEN == 64)
                         cache.resp_instr = latched_pc[2] ? mem.r_data[63:32] : mem.r_data[31:0];
                     else
@@ -91,7 +90,6 @@ module icache_uncached # (
             end
             STATE_EXECPTION: begin
                 cache.resp_valid = 1'b1;
-                cache.resp_pc = latched_pc;
                 cache.resp_exception = 1'b1;
                 state_d = STATE_FETCH;
             end
