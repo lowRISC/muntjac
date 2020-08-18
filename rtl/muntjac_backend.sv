@@ -77,13 +77,13 @@ module muntjac_backend import muntjac_pkg::*; (
     decoded_instr_t de_decoded;
 
     muntjac_decoder decoder (
-        .fetched_instr (fetch_instr_i),
-        .decoded_instr (de_decoded),
-        .prv (prv_o),
-        .status (status_o),
-        .csr_sel (de_csr_sel),
-        .csr_op (de_csr_op),
-        .csr_illegal (de_csr_illegal)
+        .fetched_instr_i (fetch_instr_i),
+        .decoded_instr_o (de_decoded),
+        .prv_i           (prv_o),
+        .status_i        (status_o),
+        .csr_sel_o       (de_csr_sel),
+        .csr_op_o        (de_csr_op),
+        .csr_illegal_i   (de_csr_illegal)
     );
 
     assign fetch_ready_o = !de_ex_valid || de_ex_ready;
