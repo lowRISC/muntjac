@@ -16,7 +16,7 @@ filesets:
       - ../rtl/icache/icache_compressed.sv
       - ../rtl/muntjac_cs_registers.sv
       - ../rtl/muntjac_backend.sv
-      - ../rtl/decoder.sv
+      - ../rtl/muntjac_decoder.sv
       - ../rtl/muntjac_compressed_decoder.sv
       - ../rtl/instr_fetcher.sv
       - ../rtl/muntjac_reg_file_fpga.sv

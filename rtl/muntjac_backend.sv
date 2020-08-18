@@ -76,7 +76,7 @@ module muntjac_backend import muntjac_pkg::*; (
     logic de_csr_illegal;
     decoded_instr_t de_decoded;
 
-    decoder decoder (
+    muntjac_decoder decoder (
         .fetched_instr (fetch_instr_i),
         .decoded_instr (de_decoded),
         .prv (prv_o),

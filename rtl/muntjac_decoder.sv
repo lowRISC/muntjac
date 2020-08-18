@@ -1,4 +1,4 @@
-module decoder import muntjac_pkg::*; (
+module muntjac_decoder import muntjac_pkg::*; (
   input  fetched_instr_t fetched_instr,
   output decoded_instr_t decoded_instr,
 
@@ -19,7 +19,7 @@ module decoder import muntjac_pkg::*; (
   logic [31:0] instr;
   logic illegal_compressed;
 
-  muntjac_compressed_decoder decomp (
+  muntjac_compressed_decoder decompressor (
     .instr_i (fetched_instr.instr_word),
     .instr_o (instr),
     .illegal_instr_o (illegal_compressed)
