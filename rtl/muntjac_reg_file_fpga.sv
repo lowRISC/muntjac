@@ -20,16 +20,16 @@ module muntjac_reg_file # (
     input  logic                 we_a_i
 );
 
-    bit [DataWidth-1:0] registers [1:31];
+  bit [DataWidth-1:0] registers [1:31];
 
-    // Read ports
-    assign rdata_a_o = raddr_a_i == 0 ? 0 : registers[raddr_a_i];
-    assign rdata_b_o = raddr_b_i == 0 ? 0 : registers[raddr_b_i];
+  // Read ports
+  assign rdata_a_o = raddr_a_i == 0 ? 0 : registers[raddr_a_i];
+  assign rdata_b_o = raddr_b_i == 0 ? 0 : registers[raddr_b_i];
 
-    // Write port
-    always_ff @(posedge clk_i) begin
-        if (we_a_i)
-            registers[waddr_a_i] <= wdata_a_i;
-    end
+  // Write port
+  always_ff @(posedge clk_i) begin
+    if (we_a_i)
+      registers[waddr_a_i] <= wdata_a_i;
+  end
 
 endmodule

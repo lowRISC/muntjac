@@ -292,32 +292,32 @@ parameter int unsigned CSR_MEIX_BIT = 11;
 
 // Reason for instruction fetch
 typedef enum logic [3:0] {
-    // An instruction prefetch that follows the previous instruction in program counter order.
-    IF_PREFETCH = 4'bxx00,
-    // An instruction prefetch commanded by the branch predictor.
-    IF_PREDICT = 4'bxx10,
-    // An instruction fetch caused by misprediction.
-    IF_MISPREDICT = 4'bxx01,
-    // Memory protection bits, e.g. MSTATUS, PRV or SATP has been changed
-    IF_PROT_CHANGED = 4'b0011,
-    // SATP has been changed
-    IF_SATP_CHANGED = 4'b0111,
-    // FENCE.I is executed
-    IF_FENCE_I = 4'b1011,
-    // SFENCE.VMA is executed.
-    IF_SFENCE_VMA = 4'b1111
+  // An instruction prefetch that follows the previous instruction in program counter order.
+  IF_PREFETCH = 4'bxx00,
+  // An instruction prefetch commanded by the branch predictor.
+  IF_PREDICT = 4'bxx10,
+  // An instruction fetch caused by misprediction.
+  IF_MISPREDICT = 4'bxx01,
+  // Memory protection bits, e.g. MSTATUS, PRV or SATP has been changed
+  IF_PROT_CHANGED = 4'b0011,
+  // SATP has been changed
+  IF_SATP_CHANGED = 4'b0111,
+  // FENCE.I is executed
+  IF_FENCE_I = 4'b1011,
+  // SFENCE.VMA is executed.
+  IF_SFENCE_VMA = 4'b1111
 } if_reason_e;
 
 typedef struct packed {
-    // PC of fetched instruction.
-    logic [63:0] pc;
-    // Indicate if this instruction is flushed.
-    if_reason_e if_reason;
-    // Instruction word fetched.
-    logic [31:0] instr_word;
-    // Exception happened during instruction fetch.
-    logic ex_valid;
-    exception_t exception;
+  // PC of fetched instruction.
+  logic [63:0] pc;
+  // Indicate if this instruction is flushed.
+  if_reason_e if_reason;
+  // Instruction word fetched.
+  logic [31:0] instr_word;
+  // Exception happened during instruction fetch.
+  logic ex_valid;
+  exception_t exception;
 } fetched_instr_t;
 
 /////////////////
@@ -326,12 +326,12 @@ typedef struct packed {
 
 // Type of decoded op
 typedef enum logic [3:0] {
-    OP_ALU,
-    OP_BRANCH,
-    OP_MEM,
-    OP_MUL,
-    OP_DIV,
-    OP_SYSTEM
+  OP_ALU,
+  OP_BRANCH,
+  OP_MEM,
+  OP_MUL,
+  OP_DIV,
+  OP_SYSTEM
 } op_type_e;
 
 // ALU operations
@@ -415,66 +415,66 @@ typedef enum logic [2:0] {
 } sys_op_e;
 
 typedef struct packed {
-    logic [4:0]  rs1;
-    logic [4:0]  rs2;
-    logic [4:0]  rd;
-    logic [31:0] immediate;
+  logic [4:0]  rs1;
+  logic [4:0]  rs2;
+  logic [4:0]  rd;
+  logic [31:0] immediate;
 
-    op_type_e op_type;
+  op_type_e op_type;
 
-    // For adder.
-    // Adder is special to ALU because it is also used for branch target and address computation
-    // Whether adder should use PC or RS1 as input.
-    logic adder_use_pc;
-    // Whether adder should use immediate or RS2 as input.
-    logic adder_use_imm;
+  // For adder.
+  // Adder is special to ALU because it is also used for branch target and address computation
+  // Whether adder should use PC or RS1 as input.
+  logic adder_use_pc;
+  // Whether adder should use immediate or RS2 as input.
+  logic adder_use_imm;
 
-    // Whether ALU ops or adder should use rs2 or immediate.
-    logic use_imm;
+  // Whether ALU ops or adder should use rs2 or immediate.
+  logic use_imm;
 
-    // Size of operation.
-    // For ALU, MUL, DIV, this currently can only be word (10) or dword (11).
-    logic [1:0] size;
+  // Size of operation.
+  // For ALU, MUL, DIV, this currently can only be word (10) or dword (11).
+  logic [1:0] size;
 
-    // Whether zero-extension or sign-extension should be used.
-    // Currently only used by MEM unit.
-    logic zeroext;
+  // Whether zero-extension or sign-extension should be used.
+  // Currently only used by MEM unit.
+  logic zeroext;
 
-    // ALU ops
-    alu_op_e alu_op;
+  // ALU ops
+  alu_op_e alu_op;
 
-    // For shifter
-    shift_op_e shift_op;
+  // For shifter
+  shift_op_e shift_op;
 
-    // For comparator
-    condition_code_e condition;
+  // For comparator
+  condition_code_e condition;
 
-    // For system ops
-    sys_op_e sys_op;
+  // For system ops
+  sys_op_e sys_op;
 
-    // For memory unit
-    mem_op_e mem_op;
+  // For memory unit
+  mem_op_e mem_op;
 
-    // For multiply unit
-    mul_op_e mul_op;
+  // For multiply unit
+  mul_op_e mul_op;
 
-    // For division unit
-    div_op_e div_op;
+  // For division unit
+  div_op_e div_op;
 
-    // For CSR
-    csr_op_e csr_op;
-    // If rs1 should be used as immediate instead of a register index
-    logic csr_use_imm;
+  // For CSR
+  csr_op_e csr_op;
+  // If rs1 should be used as immediate instead of a register index
+  logic csr_use_imm;
 
-    // PC of this decoded instruction.
-    logic [63:0] pc;
+  // PC of this decoded instruction.
+  logic [63:0] pc;
 
-    // Indicate the reason that this is fetched
-    if_reason_e if_reason;
+  // Indicate the reason that this is fetched
+  if_reason_e if_reason;
 
-    // Exception happened during decoding.
-    logic ex_valid;
-    exception_t exception;
+  // Exception happened during decoding.
+  logic ex_valid;
+  exception_t exception;
 } decoded_instr_t;
 
 endpackage
