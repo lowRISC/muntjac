@@ -64,6 +64,7 @@ module instr_fetcher # (
 
     logic [XLEN-1:0] pc;
     logic [XLEN-1:0] npc_word;
+    logic [XLEN-1:0] npc;
     if_reason_e reason;
 
     logic [XLEN-1:0] pc_next;
@@ -157,6 +158,7 @@ module instr_fetcher # (
     wire is_jal = instr_word[6:0] == 7'b1101111;
     logic [XLEN-1:0] j_imm;
     assign j_imm = signed'({instr_word[31], instr_word[19:12], instr_word[20], instr_word[30:21], 1'b0});
+    wire jal_rd = instr_word[11:7];
 
     wire is_c_branch = instr_word[1:0] == 2'b01 && instr_word[15:14] == 2'b11;
     // wire [XLEN-1:0] cb_imm = signed'({instr_word[12], instr_word[6:5], instr_word[2], instr_word[11:10], instr_word[4:3], 1'b0});
@@ -165,31 +167,92 @@ module instr_fetcher # (
     wire is_c_jal = instr_word[1:0] == 2'b01 && instr_word[15:13] == 3'b101;
     wire [XLEN-1:0] cj_imm = signed'({instr_word[12], instr_word[8], instr_word[10:9], instr_word[6], instr_word[7], instr_word[2], instr_word[11], instr_word[5:3], 1'b0});
 
+    wire is_jalr = instr_word[6:0] == OPCODE_JALR && instr_word[14:12] == 3'b0;
+    wire [4:0] jalr_rd = instr_word[11:7];
+    wire [4:0] jalr_rs1 = instr_word[19:15];
+
+    wire is_c_jalr = instr_word[1:0] == 2'b10 && instr_word[15:13] == 3'b100 && instr_word[6:2] == 5'd0 && instr_word[11:7] != 0;
+    wire [4:0] c_jalr_rd = {4'd0, instr_word[12]};
+    wire [4:0] c_jalr_rs1 = instr_word[11:7];
+
+    ///////////////////////
+    // Return address stack //
+    //////////////////////////
+
+    logic [63:0] ras_peek_addr;
+    logic        ras_peek_valid;
+
+    // Compute RAS action
+    logic ras_push;
+    logic ras_pop;
+
+    logic [4:0] ras_rd;
+    logic [4:0] ras_rs1;
+
+    muntjac_ras ras (
+        .clk_i (clk),
+        .rst_ni (resetn),
+        .peek_valid_o (ras_peek_valid),
+        .peek_addr_o  (ras_peek_addr),
+        .pop_i        (ras_pop && o_valid && o_ready),
+        .push_addr_i  (npc),
+        .push_i       (ras_push && o_valid && o_ready)
+    );
+
+    always_comb begin
+        unique case (1'b1)
+            is_jal: begin
+                ras_rd = jal_rd;
+                ras_rs1 = 0;
+            end
+            is_jalr: begin
+                ras_rd = jalr_rd;
+                ras_rs1 = jalr_rs1;
+            end
+            is_c_jalr: begin
+                ras_rd = c_jalr_rd;
+                ras_rs1 = c_jalr_rs1;
+            end
+            default: begin
+                ras_rd = 0;
+                ras_rs1 = 0;
+            end
+        endcase
+
+        ras_push =  ras_rd  == 5'd1 || ras_rd  == 5'd5;
+        ras_pop  = (ras_rs1 == 5'd1 || ras_rs1 == 5'd5) && (ras_rd != ras_rs1);
+    end
+
     logic predict_taken;
     logic [XLEN-1:0] predict_target;
     always_comb begin
-        unique case (1'b1)
-            BRANCH_PRED && is_branch: begin
-                predict_taken = instr_word[31];
-                predict_target = pc + b_imm;
-            end
-            BRANCH_PRED && is_jal: begin
-                predict_taken = 1'b1;
-                predict_target = pc + j_imm;
-            end
-            BRANCH_PRED && is_c_branch: begin
-                predict_taken = instr_word[12];
-                predict_target = pc + cb_imm;
-            end
-            BRANCH_PRED && is_c_jal: begin
-                predict_taken = 1'b1;
-                predict_target = pc + cj_imm;
-            end
-            default: begin
-                predict_taken = 1'b0;
-                predict_target = 'x;
-            end
-        endcase
+        if (ras_pop && ras_peek_valid) begin
+            predict_taken = 1'b1;
+            predict_target = ras_peek_addr;
+        end else begin
+            unique case (1'b1)
+                is_branch: begin
+                    predict_taken = instr_word[31];
+                    predict_target = pc + b_imm;
+                end
+                is_jal: begin
+                    predict_taken = 1'b1;
+                    predict_target = pc + j_imm;
+                end
+                is_c_branch: begin
+                    predict_taken = instr_word[12];
+                    predict_target = pc + cb_imm;
+                end
+                is_c_jal: begin
+                    predict_taken = 1'b1;
+                    predict_target = pc + cj_imm;
+                end
+                default: begin
+                    predict_taken = 1'b0;
+                    predict_target = 'x;
+                end
+            endcase
+        end
     end
 
     // Compute next PC if no branch is taken.
@@ -197,7 +260,6 @@ module instr_fetcher # (
     // critical path really long. Therefore we just do `pc + 4` instead, and if we need to do +2,
     // instead, we can use MUX to do that.
     assign npc_word = {pc[XLEN-1:2], 2'b0} + 4;
-    logic [XLEN-1:0] npc;
     always_comb begin
         npc = npc_word;
         if (instr_word[1:0] == 2'b11) begin
