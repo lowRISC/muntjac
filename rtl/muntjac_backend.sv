@@ -29,8 +29,9 @@ module muntjac_backend import muntjac_pkg::*; (
     output logic [63:0]    dbg_pc_o
 );
 
-    typedef enum logic [1:0] {
+    typedef enum logic [2:0] {
         ST_NORMAL,
+        ST_MISPREDICT,
         ST_FLUSH,
 
         // When the next instruction is an exception, an external interrupt is pending, or
@@ -235,6 +236,9 @@ module muntjac_backend import muntjac_pkg::*; (
             ST_NORMAL: begin
                 control_hazard = ex_expected_pc_q != de_ex_decoded.pc || mem_trap_valid;
             end
+            ST_MISPREDICT: begin
+                control_hazard = de_ex_decoded.if_reason !=? IF_MISPREDICT || mem_trap_valid;
+            end
             ST_FLUSH: begin
                 control_hazard = de_ex_decoded.if_reason !=? 4'bxx11;
             end
@@ -265,8 +269,6 @@ module muntjac_backend import muntjac_pkg::*; (
     if_reason_e sys_pc_redirect_reason;
     logic [63:0] sys_pc_redirect_target;
 
-    logic mispredict_q, mispredict_d;
-
     wire ex_issue = de_ex_valid && !data_hazard && !struct_hazard && !control_hazard;
     assign de_ex_ready = (!data_hazard && !struct_hazard) || control_hazard;
 
@@ -275,14 +277,15 @@ module muntjac_backend import muntjac_pkg::*; (
         sys_issue = 1'b0;
 
         ex_state_d = ex_state_q;
-        mispredict_d = mispredict_q;
 
         unique case (ex_state_q)
             ST_NORMAL: begin
-                if (de_ex_valid && de_ex_ready) mispredict_d = ex_expected_pc_q != de_ex_decoded.pc;
+                if (de_ex_valid && ex_expected_pc_q != de_ex_decoded.pc) ex_state_d = ST_MISPREDICT;
+            end
+            ST_MISPREDICT: begin
+                if (de_ex_valid && de_ex_decoded.if_reason ==? IF_MISPREDICT) ex_state_d = ST_NORMAL;
             end
             ST_FLUSH: begin
-                mispredict_d = 1'b0;
                 if (ex_issue) begin
                     ex_state_d = ST_NORMAL;
                 end
@@ -290,11 +293,9 @@ module muntjac_backend import muntjac_pkg::*; (
             // Intermediate state after we issue exception before we move to ST_FLUSH.
             // This allows the frontend to see the changed PRV.
             ST_INT: begin
-                mispredict_d = 1'b0;
                 ex_state_d = ST_FLUSH;
             end
             ST_SYS: begin
-                mispredict_d = 1'b0;
                 if (sys_ready) begin
                     ex_state_d = sys_pc_redirect_valid ? ST_FLUSH : ST_NORMAL;
                 end
@@ -302,7 +303,7 @@ module muntjac_backend import muntjac_pkg::*; (
             default:;
         endcase
 
-        if ((ex_state_q == ST_NORMAL || ex_state_q == ST_FLUSH) &&
+        if ((ex_state_q == ST_NORMAL || ex_state_q == ST_MISPREDICT || ex_state_q == ST_FLUSH) &&
             de_ex_valid && !control_hazard && !ex1_pending_q && !ex2_pending_q) begin
 
             if (de_ex_decoded.ex_valid) begin
@@ -322,11 +323,9 @@ module muntjac_backend import muntjac_pkg::*; (
     always_ff @(posedge clk_i or negedge rst_ni) begin
         if (!rst_ni) begin
             ex_state_q <= ST_FLUSH;
-            mispredict_q <= 1'b0;
         end
         else begin
             ex_state_q <= ex_state_d;
-            mispredict_q <= mispredict_d;
         end
     end
 
@@ -839,7 +838,7 @@ module muntjac_backend import muntjac_pkg::*; (
             redirect_valid_o = 1'b1;
             redirect_reason_o = sys_pc_redirect_reason;
         end
-        else if (ex_state_q == ST_NORMAL && !mispredict_q && de_ex_valid && control_hazard) begin
+        else if (ex_state_q == ST_NORMAL && de_ex_valid && ex_expected_pc_q != de_ex_decoded.pc) begin
             redirect_pc_o = ex_expected_pc_q;
             redirect_valid_o = 1'b1;
             redirect_reason_o = IF_MISPREDICT;
