@@ -18,6 +18,9 @@ filesets:
       - ../rtl/muntjac_backend.sv
       - ../rtl/muntjac_decoder.sv
       - ../rtl/muntjac_compressed_decoder.sv
+      - ../rtl/muntjac_btb.sv
+      - ../rtl/muntjac_bp_bimodal.sv
+      - ../rtl/muntjac_ras.sv
       - ../rtl/instr_fetcher.sv
       - ../rtl/muntjac_reg_file_fpga.sv
       - ../rtl/mul.sv
