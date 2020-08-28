@@ -22,8 +22,6 @@ module cpu #(
     output logic [XLEN-1:0]    dbg_pc
 );
 
-    localparam BRANCH_PRED = 1;
-
     // CSR
     logic [XLEN-1:0] satp;
     priv_lvl_e prv;
@@ -33,6 +31,7 @@ module cpu #(
     logic wb_if_valid;
     if_reason_e wb_if_reason;
     logic [XLEN-1:0] wb_if_pc;
+    branch_info_t wb_if_branch_info;
 
     // IF-DE interfacing
     logic if_de_valid;
@@ -43,13 +42,13 @@ module cpu #(
     // IF stage
     //
     instr_fetcher #(
-        .XLEN(XLEN),
-        .BRANCH_PRED (BRANCH_PRED)
+        .XLEN(XLEN)
     ) fetcher (
         .clk (clk_i),
         .resetn (rst_ni),
         .cache_uncompressed (icache),
         .i_pc (wb_if_pc),
+        .i_branch_info (wb_if_branch_info),
         .i_valid (wb_if_valid),
         .i_reason (wb_if_reason),
         .i_prv (prv[0]),
@@ -70,6 +69,7 @@ module cpu #(
         .redirect_valid_o (wb_if_valid),
         .redirect_reason_o (wb_if_reason),
         .redirect_pc_o (wb_if_pc),
+        .branch_info_o (wb_if_branch_info),
         .fetch_valid_i (if_de_valid),
         .fetch_ready_o (if_de_ready),
         .fetch_instr_i (if_de_instr),

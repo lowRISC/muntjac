@@ -89,14 +89,12 @@ module muntjac_decoder import muntjac_pkg::*; (
       ///////////
 
       OPCODE_JAL: begin
-        decoded_instr_o.op_type = OP_BRANCH;
-        decoded_instr_o.condition = CC_TRUE;
+        decoded_instr_o.op_type = OP_JUMP;
         rd_enable = 1'b1;
       end
 
       OPCODE_JALR: begin
-        decoded_instr_o.op_type = OP_BRANCH;
-        decoded_instr_o.condition = CC_TRUE;
+        decoded_instr_o.op_type = OP_JUMP;
         rd_enable = 1'b1;
         rs1_enable = 1'b1;
 

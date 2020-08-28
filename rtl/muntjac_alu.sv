@@ -24,7 +24,6 @@ module muntjac_comparator import muntjac_pkg::*; (
     ltu_flag = operand_a_i[63] == operand_b_i[63] ? difference_i[63] : operand_b_i[63];
 
     unique case ({condition_i[2:1], 1'b0})
-      CC_FALSE: result_pre_neg = 1'b0;
       CC_EQ: result_pre_neg = eq_flag;
       CC_LT: result_pre_neg = lt_flag;
       CC_LTU: result_pre_neg = ltu_flag;

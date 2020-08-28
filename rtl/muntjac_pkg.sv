@@ -320,6 +320,22 @@ typedef struct packed {
   exception_t exception;
 } fetched_instr_t;
 
+typedef enum logic [2:0] {
+  BRANCH_NONE    = 3'b000,
+  BRANCH_UNTAKEN = 3'b010,
+  BRANCH_TAKEN   = 3'b011,
+  BRANCH_JUMP    = 3'b100,
+  BRANCH_CALL    = 3'b101,
+  BRANCH_RET     = 3'b110,
+  BRANCH_YIELD   = 3'b111
+} branch_type_e;
+
+typedef struct packed {
+  branch_type_e branch_type;
+  // PC of the jump/branch instruction.
+  logic [63:0]  pc;
+} branch_info_t;
+
 /////////////////
 // Decoded Ops //
 /////////////////
@@ -327,6 +343,7 @@ typedef struct packed {
 // Type of decoded op
 typedef enum logic [3:0] {
   OP_ALU,
+  OP_JUMP,
   OP_BRANCH,
   OP_MEM,
   OP_MUL,
@@ -368,10 +385,6 @@ typedef enum logic [1:0] {
 typedef enum logic [2:0] {
   CC_EQ    = 3'b000,
   CC_NE    = 3'b001,
-  // CC_FALSE and CC_TRUE are not part of BRANCH instruction encoding, but
-  // incorporating them here allows us to unify JAL and JALR with BRANCH
-  CC_FALSE = 3'b010,
-  CC_TRUE  = 3'b011,
   CC_LT    = 3'b100,
   CC_GE    = 3'b101,
   CC_LTU   = 3'b110,

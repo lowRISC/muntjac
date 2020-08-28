@@ -3,8 +3,7 @@ import muntjac_pkg::*;
 // Instruction fetcher continuously fetch instructions until
 // it has encountered a PC override.
 module instr_fetcher # (
-    parameter XLEN = 64,
-    parameter BRANCH_PRED = 1
+    parameter XLEN = 64
 ) (
     input  logic clk,
     input  logic resetn,
@@ -14,6 +13,7 @@ module instr_fetcher # (
     // When the signals are valid, instruction fetcher needs to flush its pipeline
     // and restart fetching from the specified PC.
     input  [XLEN-1:0] i_pc,
+    input  branch_info_t i_branch_info,
     input  if_reason_e i_reason,
     input  i_valid,
 
@@ -147,35 +147,49 @@ module instr_fetcher # (
 
     wire [XLEN-1:0] instr_word = latched ? resp_instr_latch : cache.resp_instr;
 
-    // Prediction for branch
-    wire is_branch = instr_word[6:0] == 7'b1100011;
-    // Highest bits are tied to one as we only use b_imm if they're one.
-    // wire [XLEN-1:0] b_imm = signed'({instr_word[31], instr_word[7], instr_word[30:25], instr_word[11:8], 1'b0});
-    logic [XLEN-1:0] b_imm;
-    assign b_imm = signed'({1'b1, instr_word[7], instr_word[30:25], instr_word[11:8], 1'b0});
-
-    // Prediction for jal
-    wire is_jal = instr_word[6:0] == 7'b1101111;
-    logic [XLEN-1:0] j_imm;
-    assign j_imm = signed'({instr_word[31], instr_word[19:12], instr_word[20], instr_word[30:21], 1'b0});
-    wire jal_rd = instr_word[11:7];
-
-    wire is_c_branch = instr_word[1:0] == 2'b01 && instr_word[15:14] == 2'b11;
-    // wire [XLEN-1:0] cb_imm = signed'({instr_word[12], instr_word[6:5], instr_word[2], instr_word[11:10], instr_word[4:3], 1'b0});
-    wire [XLEN-1:0] cb_imm = signed'({1'b1, instr_word[6:5], instr_word[2], instr_word[11:10], instr_word[4:3], 1'b0});
-
-    wire is_c_jal = instr_word[1:0] == 2'b01 && instr_word[15:13] == 3'b101;
-    wire [XLEN-1:0] cj_imm = signed'({instr_word[12], instr_word[8], instr_word[10:9], instr_word[6], instr_word[7], instr_word[2], instr_word[11], instr_word[5:3], 1'b0});
-
-    wire is_jalr = instr_word[6:0] == OPCODE_JALR && instr_word[14:12] == 3'b0;
-    wire [4:0] jalr_rd = instr_word[11:7];
-    wire [4:0] jalr_rs1 = instr_word[19:15];
-
-    wire is_c_jalr = instr_word[1:0] == 2'b10 && instr_word[15:13] == 3'b100 && instr_word[6:2] == 5'd0 && instr_word[11:7] != 0;
-    wire [4:0] c_jalr_rd = {4'd0, instr_word[12]};
-    wire [4:0] c_jalr_rs1 = instr_word[11:7];
-
     ///////////////////////
+    // Branch Prediction //
+    ///////////////////////
+
+    logic         btb_valid;
+    branch_type_e btb_type;
+    logic [63:0]  btb_target;
+
+    muntjac_btb #(
+        .IndexWidth (6)
+    ) btb (
+        .clk_i                (clk),
+        .rst_ni               (resetn),
+        // Only train BTB for jump and taken branches, and only do so when mispredicted
+        .train_valid_i        ((i_branch_info.branch_type[2] || i_branch_info.branch_type[0]) && i_valid),
+        .train_branch_type_i  (i_branch_info.branch_type),
+        .train_pc_i           (i_branch_info.pc),
+        .train_npc_i          (i_pc),
+        .access_valid_i       (o_valid && o_ready),
+        .access_pc_i          (pc_next),
+        .access_hit_o         (btb_valid),
+        .access_branch_type_o (btb_type),
+        .access_npc_o         (btb_target)
+    );
+
+    logic bht_taken;
+
+    muntjac_bp_bimodal #(
+        .IndexWidth (9)
+    ) bht (
+        .clk_i          (clk),
+        .rst_ni         (resetn),
+        // Only train BHT for branches.
+        .train_valid_i  (i_branch_info.branch_type[2:1] == 2'b01),
+        // LSB determines whether this is BRANCH_TAKEN or BRANCH_UNTAKEN
+        .train_taken_i  (i_branch_info.branch_type[0]),
+        .train_pc_i     (i_branch_info.pc),
+        .access_valid_i (o_valid && o_ready),
+        .access_pc_i    (pc_next),
+        .access_taken_o (bht_taken)
+    );
+
+    //////////////////////////
     // Return address stack //
     //////////////////////////
 
@@ -185,9 +199,6 @@ module instr_fetcher # (
     // Compute RAS action
     logic ras_push;
     logic ras_pop;
-
-    logic [4:0] ras_rd;
-    logic [4:0] ras_rs1;
 
     muntjac_ras ras (
         .clk_i (clk),
@@ -200,58 +211,23 @@ module instr_fetcher # (
     );
 
     always_comb begin
-        unique case (1'b1)
-            is_jal: begin
-                ras_rd = jal_rd;
-                ras_rs1 = 0;
-            end
-            is_jalr: begin
-                ras_rd = jalr_rd;
-                ras_rs1 = jalr_rs1;
-            end
-            is_c_jalr: begin
-                ras_rd = c_jalr_rd;
-                ras_rs1 = c_jalr_rs1;
-            end
-            default: begin
-                ras_rd = 0;
-                ras_rs1 = 0;
-            end
-        endcase
-
-        ras_push =  ras_rd  == 5'd1 || ras_rd  == 5'd5;
-        ras_pop  = (ras_rs1 == 5'd1 || ras_rs1 == 5'd5) && (ras_rd != ras_rs1);
+        ras_push = btb_valid && btb_type[2] && btb_type[0];
+        ras_pop  = btb_valid && btb_type[2] && btb_type[1];
     end
 
     logic predict_taken;
     logic [XLEN-1:0] predict_target;
     always_comb begin
-        if (ras_pop && ras_peek_valid) begin
-            predict_taken = 1'b1;
-            predict_target = ras_peek_addr;
+        if (btb_valid) begin
+            predict_taken = btb_type[2] || bht_taken;
+            if (ras_pop && ras_peek_valid) begin
+                predict_target = ras_peek_addr;
+            end else begin
+                predict_target = btb_target;
+            end
         end else begin
-            unique case (1'b1)
-                is_branch: begin
-                    predict_taken = instr_word[31];
-                    predict_target = pc + b_imm;
-                end
-                is_jal: begin
-                    predict_taken = 1'b1;
-                    predict_target = pc + j_imm;
-                end
-                is_c_branch: begin
-                    predict_taken = instr_word[12];
-                    predict_target = pc + cb_imm;
-                end
-                is_c_jal: begin
-                    predict_taken = 1'b1;
-                    predict_target = pc + cj_imm;
-                end
-                default: begin
-                    predict_taken = 1'b0;
-                    predict_target = 'x;
-                end
-            endcase
+            predict_taken = 1'b0;
+            predict_target = 'x;
         end
     end
 

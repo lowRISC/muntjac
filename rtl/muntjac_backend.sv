@@ -13,6 +13,7 @@ module muntjac_backend import muntjac_pkg::*; (
     output logic          redirect_valid_o,
     output if_reason_e    redirect_reason_o,
     output logic [63:0]   redirect_pc_o,
+    output branch_info_t  branch_info_o,
     input                 fetch_valid_i,
     output                fetch_ready_o,
     input fetched_instr_t fetch_instr_i,
@@ -227,6 +228,8 @@ module muntjac_backend import muntjac_pkg::*; (
     logic control_hazard;
     logic sys_ready;
     logic [63:0] ex_expected_pc_q;
+    branch_type_e ex_branch_type_q;
+    logic ex_is_branch_q;
     logic mem_trap_valid;
     exception_t mem_trap;
 
@@ -521,6 +524,7 @@ module muntjac_backend import muntjac_pkg::*; (
     logic [63:0] ex1_pc_d;
     logic [4:0] ex1_rd_d;
     logic [63:0] ex_expected_pc_d;
+    branch_type_e ex_branch_type_d;
 
     always_comb begin
         ex1_pending_d = ex1_pending_q;
@@ -529,6 +533,9 @@ module muntjac_backend import muntjac_pkg::*; (
         ex1_pc_d = ex1_pc_q;
         ex1_rd_d = ex1_rd_q;
         ex_expected_pc_d = ex_expected_pc_q;
+
+        // To avoid train branch predictor multiple times, this signal is only valid for 1 cycle.
+        ex_branch_type_d = BRANCH_NONE;
 
         // If data is already valid but we couldn't move it to EX2, we need to prevent
         // it from being moved to next state.
@@ -562,9 +569,19 @@ module muntjac_backend import muntjac_pkg::*; (
                     OP_ALU: begin
                         ex1_alu_data_d = alu_result;
                     end
+                    OP_JUMP: begin
+                        ex1_alu_data_d = npc;
+                        ex_expected_pc_d = {sum[63:1], 1'b0};
+                        ex_branch_type_d = branch_type_e'({
+                            1'b1,
+                            (de_ex_decoded.rs1 == 5'd1 || de_ex_decoded.rs1 == 5'd5) && (de_ex_decoded.rd != de_ex_decoded.rs1),
+                            de_ex_decoded.rd  == 5'd1 || de_ex_decoded.rd == 5'd5
+                        });
+                    end
                     OP_BRANCH: begin
                         ex1_alu_data_d = npc;
                         ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
+                        ex_branch_type_d = branch_type_e'({2'b01, compare_result});
                     end
                     OP_MEM: begin
                         ex1_select_d = FU_MEM;
@@ -604,6 +621,7 @@ module muntjac_backend import muntjac_pkg::*; (
             ex1_alu_data_q <= 'x;
             ex1_pc_q <= 'x;
             ex_expected_pc_q <= '0;
+            ex_branch_type_q <= BRANCH_NONE;
         end
         else begin
             ex1_pending_q <= ex1_pending_d;
@@ -612,6 +630,7 @@ module muntjac_backend import muntjac_pkg::*; (
             ex1_pc_q <= ex1_pc_d;
             ex1_rd_q <= ex1_rd_d;
             ex_expected_pc_q <= ex_expected_pc_d;
+            ex_branch_type_q <= ex_branch_type_d;
         end
     end
 
@@ -827,6 +846,8 @@ module muntjac_backend import muntjac_pkg::*; (
         redirect_valid_o = 1'b0;
         redirect_reason_o = if_reason_e'('x);
         redirect_pc_o = 'x;
+        branch_info_o.branch_type = ex_branch_type_q;
+        branch_info_o.pc = ex1_pc_q;
 
         if (ex_state_q == ST_INT) begin
             redirect_pc_o = exc_tvec_q;
