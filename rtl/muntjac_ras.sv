@@ -7,69 +7,66 @@ module muntjac_ras #(
 
     output logic               peek_valid_o,
     output logic [AddrLen-1:0] peek_addr_o,
+    input  logic               pop_spec_i,
     input  logic               pop_i,
 
+    input  logic               push_spec_i,
     input  logic               push_i,
-    input  logic [AddrLen-1:0] push_addr_i
+    input  logic [AddrLen-1:0] push_addr_i,
+
+    // Revert speculative state
+    input  logic               revert_i
 );
 
-  localparam EntryLen = $clog2(NumEntry);
+  localparam EntryWidth = $clog2(NumEntry);
 
-  wire do_push     =  push_i && !(pop_i && peek_valid_o);
-  wire do_pop      = !push_i &&  (pop_i && peek_valid_o);
-  wire do_push_pop =  push_i &&  (pop_i && peek_valid_o);
+  logic [AddrLen-1:0] mem [0:NumEntry-1];
+  logic [EntryWidth-1:0] ptr_spec_q, ptr_spec_d;
+  logic [EntryWidth-1:0] ptr_q, ptr_d;
 
-  // Implement the RAS stack as shift registers.
-  logic               stack_valid [NumEntry+1:0];
-  logic [AddrLen-1:0] stack_addr  [NumEntry+1:0];
-
-  for (genvar i = 1; i <= NumEntry; i += 1) begin
-    logic               entry_valid_d;
-    logic [AddrLen-1:0] entry_addr_d;
-
-    always_comb begin
-      unique case (1'b1)
-        do_push: begin
-          entry_valid_d = stack_valid[i - 1];
-          entry_addr_d  = stack_addr [i - 1];
-        end
-        do_pop: begin
-          entry_valid_d = stack_valid[i + 1];
-          entry_addr_d  = stack_addr [i + 1];
-        end
-        default: begin
-          entry_valid_d = stack_valid[i];
-          entry_addr_d  = stack_addr [i];
-        end
-      endcase
-    end
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        stack_valid[i] <= 1'b0;
-        stack_addr [i] <= 'x;
-      end else begin
-        stack_valid[i] <= entry_valid_d;
-        stack_addr [i] <= entry_addr_d;
-      end
+  // Ensure memory has value so we don't produce X
+  initial begin
+    for (int i = 0; i < NumEntry; i++) begin
+      mem[i] = '0;
     end
   end
 
-  //////////////////////
-  // Top of the stack //
-  //////////////////////
+  // Combinational read
+  assign peek_valid_o = 1'b1;
+  assign peek_addr_o = mem[ptr_spec_q];
 
-  assign peek_valid_o = stack_valid[1];
-  assign peek_addr_o  = stack_addr [1];
+  always_comb begin
+    unique case ({push_spec_i, pop_spec_i})
+      2'b10: ptr_spec_d = ptr_q + 1;
+      2'b01: ptr_spec_d = ptr_q - 1;
+      default: ptr_spec_d = ptr_spec_q;
+    endcase
 
-  assign stack_valid[0] = 1'b1;
-  assign stack_addr [0] = push_addr_i;
+    unique case ({push_i, pop_i})
+      2'b10: ptr_d = ptr_q + 1;
+      2'b01: ptr_d = ptr_q - 1;
+      default: ptr_d = ptr_q;
+    endcase
 
-  /////////////////////////
-  // Bottom of the stack //
-  /////////////////////////
+    if (revert_i) ptr_spec_d = ptr_d;
+  end
 
-  assign stack_valid[NumEntry+1] = 1'b0;
-  assign stack_addr [NumEntry+1] = 'x;
+  // Stack update
+  always @(posedge clk_i) begin
+    if (rst_ni && push_spec_i) begin
+      mem[ptr_spec_d] <= push_addr_i;
+    end
+  end
+
+  // State update
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ptr_spec_q <= '0;
+      ptr_q <= '0;
+    end else begin
+      ptr_spec_q <= ptr_spec_d;
+      ptr_q <= ptr_d;
+    end
+  end
 
 endmodule

@@ -205,9 +205,12 @@ module instr_fetcher # (
         .rst_ni (resetn),
         .peek_valid_o (ras_peek_valid),
         .peek_addr_o  (ras_peek_addr),
-        .pop_i        (ras_pop && o_valid && o_ready),
+        .pop_spec_i   (ras_pop && o_valid && o_ready),
+        .pop_i        (i_branch_info.branch_type[2] && i_branch_info.branch_type[1]),
+        .push_spec_i  (ras_push && o_valid && o_ready),
+        .push_i       (i_branch_info.branch_type[2] && i_branch_info.branch_type[0]),
         .push_addr_i  (npc),
-        .push_i       (ras_push && o_valid && o_ready)
+        .revert_i     (i_valid_q)
     );
 
     always_comb begin
