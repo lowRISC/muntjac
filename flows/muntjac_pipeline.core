@@ -12,7 +12,7 @@ filesets:
       - ../rtl/icache/icache_intf.sv
       - ../rtl/dcache/dcache_intf.sv
       - ../rtl/muntjac_alu.sv
-      - ../rtl/cpu.sv
+      - ../rtl/muntjac_core.sv
       - ../rtl/icache/icache_compressed.sv
       - ../rtl/muntjac_cs_registers.sv
       - ../rtl/muntjac_backend.sv

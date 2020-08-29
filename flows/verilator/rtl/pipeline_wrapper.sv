@@ -7,7 +7,6 @@
 // a test harness.
 
 module pipeline_wrapper #(
-    parameter XLEN = 64
 ) (
 
     // Clock and reset
@@ -16,11 +15,11 @@ module pipeline_wrapper #(
 
     // Instruction cache interface
     output logic            icache_req_valid,
-    output logic [XLEN-1:0] icache_req_pc,
+    output logic [63:0]     icache_req_pc,
     output if_reason_e      icache_req_reason,
     output logic            icache_req_prv,
     output logic            icache_req_sum,
-    output logic [XLEN-1:0] icache_req_atp,
+    output logic [63:0]     icache_req_atp,
     input  logic            icache_resp_valid,
     input  logic [31:0]     icache_resp_instr,
     input  logic            icache_resp_exception,
@@ -29,8 +28,8 @@ module pipeline_wrapper #(
     // Data cache interface
     output logic            dcache_req_valid,
     input  logic            dcache_req_ready,
-    output logic [XLEN-1:0] dcache_req_address,
-    output logic [XLEN-1:0] dcache_req_value,
+    output logic [63:0]     dcache_req_address,
+    output logic [63:0]     dcache_req_value,
     output mem_op_e         dcache_req_op,
     output logic [1:0]      dcache_req_size,
     output logic            dcache_req_unsigned,
@@ -38,43 +37,42 @@ module pipeline_wrapper #(
     output logic            dcache_req_prv,
     output logic            dcache_req_sum,
     output logic            dcache_req_mxr,
-    output logic [XLEN-1:0] dcache_req_atp,
+    output logic [63:0]     dcache_req_atp,
     input  logic            dcache_resp_valid,
-    input  logic [XLEN-1:0] dcache_resp_value,
+    input  logic [63:0]     dcache_resp_value,
     input  logic            dcache_ex_valid,
     input  exception_t      dcache_ex_exception,
     output logic            dcache_notif_valid,
     output logic            dcache_notif_reason,
     input  logic            dcache_notif_ready,
 
-    input  logic            irq_m_timer,
-    input  logic            irq_m_software,
-    input  logic            irq_m_external,
-    input  logic            irq_s_external,
+    input  logic            irq_software_m_i,
+    input  logic            irq_timer_m_i,
+    input  logic            irq_external_m_i,
+    input  logic            irq_external_s_i,
 
-    input  logic [XLEN-1:0] mhartid,
+    input  logic [63:0]     hart_id_i,
 
     // Debug connections
-    output logic [XLEN-1:0] dbg_pc
+    output logic [63:0]     dbg_pc_o
 
 );
 
-    icache_intf #(.XLEN (XLEN)) icache(clk_i, rst_ni);
-    dcache_intf #(.XLEN (XLEN)) dcache(clk_i, rst_ni);
+    icache_intf #(.XLEN (64)) icache(clk_i, rst_ni);
+    dcache_intf #(.XLEN (64)) dcache(clk_i, rst_ni);
 
-    cpu #(
-        .XLEN (XLEN)
+    muntjac_core #(
     ) pipeline (
         .clk_i (clk_i),
         .rst_ni (rst_ni),
         .icache (icache),
         .dcache (dcache),
-        .irq_m_timer (irq_m_timer),
-        .irq_m_software (irq_m_software),
-        .irq_m_external (irq_m_external),
-        .irq_s_external (irq_s_external),
-        .mhartid (mhartid),
-        .dbg_pc (dbg_pc)
+        .irq_software_m_i,
+        .irq_timer_m_i,
+        .irq_external_m_i,
+        .irq_external_s_i,
+        .hart_id_i,
+        .dbg_pc_o
     );
 
     // Instruction cache interface
