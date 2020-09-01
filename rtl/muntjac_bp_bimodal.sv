@@ -47,7 +47,7 @@ module muntjac_bp_bimodal import muntjac_pkg::*; #(
     endcase
   endfunction
 
-  wire [IndexWidth-1:0] train_index = train_pc_i[1 +: IndexWidth];
+  wire [IndexWidth-1:0] train_index = train_pc_i[2 +: IndexWidth];
 
   always @(posedge clk_i) begin
     if (rst_ni && train_valid_i) begin
@@ -59,7 +59,7 @@ module muntjac_bp_bimodal import muntjac_pkg::*; #(
   // Access Logic //
   //////////////////
 
-  wire [IndexWidth-1:0] access_index = access_pc_i[1 +: IndexWidth];
+  wire [IndexWidth-1:0] access_index = access_pc_i[2 +: IndexWidth];
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin

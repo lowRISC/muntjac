@@ -8,19 +8,22 @@ module muntjac_btb import muntjac_pkg::*; #(
     input  logic               train_valid_i,
     input  branch_type_e       train_branch_type_i,
     input  logic [AddrLen-1:0] train_pc_i,
+    input  logic               train_partial_i,
     input  logic [AddrLen-1:0] train_npc_i,
 
     input  logic               access_valid_i,
     input  logic [AddrLen-1:0] access_pc_i,
     output logic               access_hit_o,
     output branch_type_e       access_branch_type_o,
+    output logic               access_partial_o,
     output logic [AddrLen-1:0] access_npc_o
 );
 
-  localparam TagWidth = AddrLen - IndexWidth - 1;
+  localparam TagWidth = AddrLen - IndexWidth - 2;
 
   typedef struct packed {
     logic [TagWidth-1:0] tag;
+    logic                partial;
     logic [AddrLen-2:0]  target;
     branch_type_e        branch_type;
   } btb_entry_t;
@@ -38,13 +41,14 @@ module muntjac_btb import muntjac_pkg::*; #(
   // Train Logic //
   /////////////////
 
-  wire [IndexWidth-1:0] train_index = train_pc_i[1 +: IndexWidth];
-  wire [TagWidth-1:0]   train_tag   = train_pc_i[1 + IndexWidth +: TagWidth];
+  wire [IndexWidth-1:0] train_index = train_pc_i[2 +: IndexWidth];
+  wire [TagWidth-1:0]   train_tag   = train_pc_i[2 + IndexWidth +: TagWidth];
 
   always @(posedge clk_i) begin
     if (rst_ni && train_valid_i) begin
       mem[train_index] <= btb_entry_t'{
           train_tag,
+          train_partial_i,
           train_npc_i[AddrLen-1:1],
           train_branch_type_i
       };
@@ -55,8 +59,8 @@ module muntjac_btb import muntjac_pkg::*; #(
   // Access Logic //
   //////////////////
 
-  wire [IndexWidth-1:0] access_index = access_pc_i[1 +: IndexWidth];
-  wire [TagWidth-1:0]   access_tag   = access_pc_i[1 + IndexWidth +: TagWidth];
+  wire [IndexWidth-1:0] access_index = access_pc_i[2 +: IndexWidth];
+  wire [TagWidth-1:0]   access_tag   = access_pc_i[2 + IndexWidth +: TagWidth];
 
   btb_entry_t entry;
   logic [TagWidth-1:0] access_tag_q;
@@ -75,8 +79,9 @@ module muntjac_btb import muntjac_pkg::*; #(
 
   always_comb begin
     access_hit_o = entry.tag == access_tag_q;
-    access_npc_o = {entry.target, 1'b0};
     access_branch_type_o = entry.branch_type;
+    access_partial_o = entry.partial;
+    access_npc_o = {entry.target, 1'b0};
   end
 
 endmodule

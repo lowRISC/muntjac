@@ -525,6 +525,7 @@ module muntjac_backend import muntjac_pkg::*; (
     logic [4:0] ex1_rd_d;
     logic [63:0] ex_expected_pc_d;
     branch_type_e ex_branch_type_d;
+    logic ex1_compressed_q, ex1_compressed_d;
 
     always_comb begin
         ex1_pending_d = ex1_pending_q;
@@ -536,6 +537,7 @@ module muntjac_backend import muntjac_pkg::*; (
 
         // To avoid train branch predictor multiple times, this signal is only valid for 1 cycle.
         ex_branch_type_d = BRANCH_NONE;
+        ex1_compressed_d = 1'b0;
 
         // If data is already valid but we couldn't move it to EX2, we need to prevent
         // it from being moved to next state.
@@ -564,6 +566,7 @@ module muntjac_backend import muntjac_pkg::*; (
                 ex1_alu_data_d = 'x;
 
                 ex_expected_pc_d = npc;
+                ex1_compressed_d = de_ex_decoded.exception.tval[1:0] != 2'b11;
 
                 unique case (de_ex_decoded.op_type)
                     OP_ALU: begin
@@ -622,6 +625,7 @@ module muntjac_backend import muntjac_pkg::*; (
             ex1_pc_q <= 'x;
             ex_expected_pc_q <= '0;
             ex_branch_type_q <= BRANCH_NONE;
+            ex1_compressed_q <= 1'b0;
         end
         else begin
             ex1_pending_q <= ex1_pending_d;
@@ -631,6 +635,7 @@ module muntjac_backend import muntjac_pkg::*; (
             ex1_rd_q <= ex1_rd_d;
             ex_expected_pc_q <= ex_expected_pc_d;
             ex_branch_type_q <= ex_branch_type_d;
+            ex1_compressed_q <= ex1_compressed_d;
         end
     end
 
@@ -848,6 +853,7 @@ module muntjac_backend import muntjac_pkg::*; (
         redirect_pc_o = 'x;
         branch_info_o.branch_type = ex_branch_type_q;
         branch_info_o.pc = ex1_pc_q;
+        branch_info_o.compressed = ex1_compressed_q;
 
         if (ex_state_q == ST_INT) begin
             redirect_pc_o = exc_tvec_q;

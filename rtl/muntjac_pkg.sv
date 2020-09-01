@@ -334,6 +334,8 @@ typedef struct packed {
   branch_type_e branch_type;
   // PC of the jump/branch instruction.
   logic [63:0]  pc;
+  // If the instruction is compressed.
+  logic         compressed;
 } branch_info_t;
 
 /////////////////
