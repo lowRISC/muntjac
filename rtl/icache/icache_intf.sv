@@ -24,9 +24,7 @@ interface icache_intf #(
     logic [31:0]     resp_instr;
     // This tells whether exception happens during instruction fetch. In our current design, the
     // only possible exception is instruction page fault.
-    // When fault happens, if resp_exception_plus2 is set, the tval is pc + 2 rather than PC.
     logic            resp_exception;
-    logic            resp_exception_plus2;
 
     // A note on flow control: currently there are no flow control signals. The cache is expected
     // only to process one request at a time for now, and the output must be immediately consumed
@@ -45,8 +43,7 @@ interface icache_intf #(
 
         output resp_valid,
         output resp_instr,
-        output resp_exception,
-        output resp_exception_plus2
+        output resp_exception
     );
 
     modport user (
@@ -62,8 +59,7 @@ interface icache_intf #(
 
         input  resp_valid,
         input  resp_instr,
-        input  resp_exception,
-        input  resp_exception_plus2
+        input  resp_exception
     );
 
 endinterface

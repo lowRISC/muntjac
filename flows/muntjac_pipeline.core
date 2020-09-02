@@ -13,7 +13,6 @@ filesets:
       - ../rtl/dcache/dcache_intf.sv
       - ../rtl/muntjac_alu.sv
       - ../rtl/muntjac_core.sv
-      - ../rtl/icache/icache_compressed.sv
       - ../rtl/muntjac_cs_registers.sv
       - ../rtl/muntjac_backend.sv
       - ../rtl/muntjac_decoder.sv
@@ -21,7 +20,7 @@ filesets:
       - ../rtl/muntjac_btb.sv
       - ../rtl/muntjac_bp_bimodal.sv
       - ../rtl/muntjac_ras.sv
-      - ../rtl/instr_fetcher.sv
+      - ../rtl/muntjac_frontend.sv
       - ../rtl/muntjac_reg_file_fpga.sv
       - ../rtl/mul.sv
     file_type: systemVerilogSource

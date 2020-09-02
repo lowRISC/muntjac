@@ -30,7 +30,7 @@ module muntjac_core import muntjac_pkg::*; #(
   logic            fetch_ready;
   fetched_instr_t  fetch_instr;
 
-  instr_fetcher fetcher (
+  muntjac_frontend frontend (
       .clk_i,
       .rst_ni,
       .icache,

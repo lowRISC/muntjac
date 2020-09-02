@@ -65,7 +65,6 @@ module icache_uncached # (
         cache.resp_valid = 1'b0;
         cache.resp_instr = 'x;
         cache.resp_exception = 1'bx;
-        cache.resp_exception_plus2 = 1'b0;
 
         // By default keep these states
         state_d = state;
