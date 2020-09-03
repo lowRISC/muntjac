@@ -1,0 +1,33 @@
+# This is a basic workflow to help you get started with Actions
+
+name: lint-verilator
+
+# Controls when the action will run. Triggers the workflow on push or pull request
+# events but only for the master branch
+on:
+  push:
+    branches: [ master, dev ]
+  pull_request:
+    branches: [ master, dev ]
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+
+      - name: Install Verilator
+        run: sudo apt install verilator
+
+      - name: Install FuseSoC
+        run: pip install fusesoc
+      
+      - name: Run lint
+        run: fusesoc --cores-root $GITHUB_WORKSPACE/flows run --target=lint --tool=verilator lowrisc:muntjac:muntjac_pipeline:0.1
+
