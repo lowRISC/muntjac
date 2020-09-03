@@ -24,10 +24,13 @@ jobs:
 
       - name: Install Verilator
         run: sudo apt install verilator
+      
+      - name: Install Python dependencies
+        run: pip3 install setuptools wheel
 
       - name: Install FuseSoC
         run: pip3 install fusesoc
       
       - name: Run lint
-        run: fusesoc --cores-root $GITHUB_WORKSPACE/flows run --target=lint --tool=verilator lowrisc:muntjac:muntjac_pipeline:0.1
+        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE/flows run --target=lint --tool=verilator lowrisc:muntjac:muntjac_pipeline:0.1
 
