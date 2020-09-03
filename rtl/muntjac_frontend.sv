@@ -243,7 +243,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
 
   logic prev_valid_q, prev_valid_d;
   logic [63:0] prev_pc_q;
-  if_reason_e prev_reason_q;
+  if_reason_e prev_reason_q, prev_reason_d;
   logic [15:0] prev_instr_q;
 
   logic second_half_q, second_half_d;
@@ -252,6 +252,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
     prev_valid_d = prev_valid_q;
     align_ready = 1'b0;
     second_half_d = second_half_q;
+    prev_reason_d = IF_PREFETCH;
 
     fetch_valid_o = 1'b0;
     fetch_instr_o.instr_word = 'x;
@@ -277,6 +278,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
       // discard the lower half, without waiting for the fetch_ready_i signal.
       prev_valid_d = 1'b1;
       second_half_d = 1'b0;
+      prev_reason_d = align_reason;
 
       align_ready = 1'b1;
     end else if (align_valid) begin
@@ -357,7 +359,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
       if (align_ready) begin
         prev_instr_q <= align_instr[31:16];
         prev_pc_q <= {align_pc[63:2], 2'b10};
-        prev_reason_q <= align_reason;
+        prev_reason_q <= prev_reason_d;
       end
     end
   end
