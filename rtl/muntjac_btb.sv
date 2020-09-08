@@ -28,12 +28,62 @@ module muntjac_btb import muntjac_pkg::*; #(
     branch_type_e        branch_type;
   } btb_entry_t;
 
-  btb_entry_t mem [0:2 ** IndexWidth - 1];
+  logic                  a_req;
+  logic [IndexWidth-1:0] a_addr;
+  btb_entry_t            a_data;
+  logic                  b_req;
+  logic [IndexWidth-1:0] b_addr;
+  btb_entry_t            b_data;
 
-  // Ensure memory has value so we don't produce X
-  initial begin
-    for (int i = 0; i < 2 ** IndexWidth; i++) begin
-      mem[i] = '0;
+  prim_generic_ram_2p #(
+    .Width           ($bits(btb_entry_t)),
+    .Depth           (2 ** IndexWidth),
+    .DataBitsPerMask ($bits(btb_entry_t))
+  ) mem (
+    .clk_a_i   (clk_i),
+    .clk_b_i   (clk_i),
+
+    .a_req_i   (a_req),
+    .a_write_i (1'b0),
+    .a_addr_i  (a_addr),
+    .a_wdata_i ('0),
+    .a_wmask_i ('0),
+    .a_rdata_o (a_data),
+
+    .b_req_i   (b_req),
+    .b_write_i (1'b1),
+    .b_addr_i  (b_addr),
+    .b_wdata_i (b_data),
+    .b_wmask_i ('1),
+    .b_rdata_o ()
+  );
+
+  /////////////////
+  // Reset Logic //
+  /////////////////
+
+  logic reset_in_progress_q, reset_in_progress_d;
+  logic [IndexWidth-1:0] reset_index_q, reset_index_d;
+
+  always_comb begin
+    reset_in_progress_d = reset_in_progress_q;
+    reset_index_d = reset_index_q;
+
+    if (reset_in_progress_q) begin
+      reset_index_d = reset_index_q + 1;
+      if (reset_index_d == 0) begin
+        reset_in_progress_d = 1'b0;
+      end
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      reset_in_progress_q <= 1'b1;
+      reset_index_q <= '0;
+    end else begin
+      reset_in_progress_q <= reset_in_progress_d;
+      reset_index_q <= reset_index_d;
     end
   end
 
@@ -44,16 +94,14 @@ module muntjac_btb import muntjac_pkg::*; #(
   wire [IndexWidth-1:0] train_index = train_pc_i[2 +: IndexWidth];
   wire [TagWidth-1:0]   train_tag   = train_pc_i[2 + IndexWidth +: TagWidth];
 
-  always @(posedge clk_i) begin
-    if (rst_ni && train_valid_i) begin
-      mem[train_index] <= btb_entry_t'{
-          train_tag,
-          train_partial_i,
-          train_npc_i[AddrLen-1:1],
-          train_branch_type_i
-      };
-    end
-  end
+  assign b_req = reset_in_progress_q ? 1'b1 : train_valid_i;
+  assign b_addr = reset_in_progress_q ? reset_index_q : train_index;
+  assign b_data = reset_in_progress_q ? '0 : btb_entry_t'{
+      train_tag,
+      train_partial_i,
+      train_npc_i[AddrLen-1:1],
+      train_branch_type_i
+  };
 
   //////////////////
   // Access Logic //
@@ -62,26 +110,26 @@ module muntjac_btb import muntjac_pkg::*; #(
   wire [IndexWidth-1:0] access_index = access_pc_i[2 +: IndexWidth];
   wire [TagWidth-1:0]   access_tag   = access_pc_i[2 + IndexWidth +: TagWidth];
 
-  btb_entry_t entry;
+  assign a_req  = rst_ni && access_valid_i;
+  assign a_addr = access_index;
+
   logic [TagWidth-1:0] access_tag_q;
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      entry <= '0;
       access_tag_q <= '1;
     end else begin
       if (access_valid_i) begin
-        entry <= mem[access_index];
         access_tag_q <= access_tag;
       end
     end
   end
 
   always_comb begin
-    access_hit_o = entry.tag == access_tag_q;
-    access_branch_type_o = entry.branch_type;
-    access_partial_o = entry.partial;
-    access_npc_o = {entry.target, 1'b0};
+    access_hit_o = a_data.tag == access_tag_q;
+    access_branch_type_o = a_data.branch_type;
+    access_partial_o = a_data.partial;
+    access_npc_o = {a_data.target, 1'b0};
   end
 
 endmodule
