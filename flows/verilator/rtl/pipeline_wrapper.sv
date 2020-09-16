@@ -57,53 +57,64 @@ module pipeline_wrapper #(
 
 );
 
-    icache_intf #(.XLEN (64)) icache(clk_i, rst_ni);
-    dcache_intf #(.XLEN (64)) dcache(clk_i, rst_ni);
+  icache_intf #(.XLEN (64)) icache(clk_i, rst_ni);
+  dcache_intf #(.XLEN (64)) dcache(clk_i, rst_ni);
 
-    muntjac_core #(
-    ) pipeline (
-        .clk_i (clk_i),
-        .rst_ni (rst_ni),
-        .icache (icache),
-        .dcache (dcache),
-        .irq_software_m_i,
-        .irq_timer_m_i,
-        .irq_external_m_i,
-        .irq_external_s_i,
-        .hart_id_i,
-        .dbg_pc_o
-    );
+  muntjac_core #(
+  ) pipeline (
+      .clk_i (clk_i),
+      .rst_ni (rst_ni),
+      .icache (icache),
+      .dcache (dcache),
+      .irq_software_m_i,
+      .irq_timer_m_i,
+      .irq_external_m_i,
+      .irq_external_s_i,
+      .hart_id_i,
+      .dbg_pc_o
+  );
 
-    // Instruction cache interface
-    assign icache_req_valid = icache.req_valid;
-    assign icache_req_pc = icache.req_pc;
-    assign icache_req_reason = icache.req_reason;
-    assign icache_req_prv = icache.req_prv;
-    assign icache_req_sum = icache.req_sum;
-    assign icache_req_atp = icache.req_atp;
-    assign icache.resp_valid = icache_resp_valid;
-    assign icache.resp_instr = icache_resp_instr;
-    assign icache.resp_exception = icache_resp_exception;
+  // Instruction cache interface
+  assign icache_req_valid = icache.req_valid;
+  assign icache_req_pc = icache.req_pc;
+  assign icache_req_reason = icache.req_reason;
+  assign icache_req_prv = icache.req_prv;
+  assign icache_req_sum = icache.req_sum;
+  assign icache_req_atp = icache.req_atp;
+  assign icache.resp_valid = icache_resp_valid;
+  assign icache.resp_instr = icache_resp_instr;
+  assign icache.resp_exception = icache_resp_exception;
 
-    // Data cache interface
-    assign dcache_req_valid = dcache.req_valid;
-    assign dcache.req_ready = dcache_req_ready;
-    assign dcache_req_address = dcache.req_address;
-    assign dcache_req_value = dcache.req_value;
-    assign dcache_req_op = dcache.req_op;
-    assign dcache_req_size = dcache.req_size;
-    assign dcache_req_unsigned = dcache.req_unsigned;
-    assign dcache_req_amo = dcache.req_amo;
-    assign dcache_req_prv = dcache.req_prv;
-    assign dcache_req_sum = dcache.req_sum;
-    assign dcache_req_mxr = dcache.req_mxr;
-    assign dcache_req_atp = dcache.req_atp;
-    assign dcache.resp_valid = dcache_resp_valid;
-    assign dcache.resp_value = dcache_resp_value;
-    assign dcache.ex_valid = dcache_ex_valid;
-    assign dcache.ex_exception = dcache_ex_exception;
-    assign dcache_notif_valid = dcache.notif_valid;
-    assign dcache_notif_reason = dcache.notif_reason;
-    assign dcache.notif_ready = dcache_notif_ready;
+  // Data cache interface
+  assign dcache_req_valid = dcache.req_valid;
+  assign dcache.req_ready = dcache_req_ready;
+  assign dcache_req_address = dcache.req_address;
+  assign dcache_req_value = dcache.req_value;
+  assign dcache_req_op = dcache.req_op;
+  assign dcache_req_size = dcache.req_size;
+  assign dcache_req_unsigned = dcache.req_unsigned;
+  assign dcache_req_amo = dcache.req_amo;
+  assign dcache_req_prv = dcache.req_prv;
+  assign dcache_req_sum = dcache.req_sum;
+  assign dcache_req_mxr = dcache.req_mxr;
+  assign dcache_req_atp = dcache.req_atp;
+  assign dcache.resp_valid = dcache_resp_valid;
+  assign dcache.resp_value = dcache_resp_value;
+  assign dcache.ex_valid = dcache_ex_valid;
+  assign dcache.ex_exception = dcache_ex_exception;
+  assign dcache_notif_valid = dcache.notif_valid;
+  assign dcache_notif_reason = dcache.notif_reason;
+  assign dcache.notif_ready = dcache_notif_ready;
+
+  // Set the pipeline's program counter during reset.
+  function write_reset_pc;
+    // verilator public
+    input [63:0] new_pc;
+    begin
+      pipeline.frontend.redirect_valid_i = 1;
+      pipeline.frontend.redirect_reason_i = IF_FENCE_I;
+      pipeline.frontend.redirect_pc_i = new_pc;
+    end
+  endfunction
 
 endmodule
