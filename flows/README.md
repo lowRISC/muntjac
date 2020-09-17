@@ -41,8 +41,14 @@ Once built, the simulator will be available at `./build/lowrisc_muntjac_pipeline
 RISC-V binaries can be executed using:
 
 ```
-muntjac_pipeline <executable> [program arguments]
+muntjac_pipeline [simulator arguments] <executable> [program arguments]
 ```
+
+| Simulator argument | Description |
+| --- | --- |
+| `-memory-latency=X` | Set main memory latency to X cycles |
+| `-timeout=X` | Force end of simulation after X cycles |
+| `-v` | Display additional information as simulation proceeds |
 
 ## Vivado
 
