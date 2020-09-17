@@ -28,4 +28,4 @@ jobs:
         run: pip3 install fusesoc
 
       - name: Run lint
-        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE/flows run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1
+        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1

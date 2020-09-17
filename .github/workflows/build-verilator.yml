@@ -28,9 +28,9 @@ jobs:
         run: pip3 install fusesoc
 
       - name: Run build
-        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE/flows run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1
+        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1
 
       - uses: actions/upload-artifact@v2
         with:
           name: muntjac_pipeline
-          path: $GITHUB_WORKSPACE/flows/build/lowrisc_muntjac_pipeline_0.1/sim-verilator/muntjac_pipeline
+          path: $GITHUB_WORKSPACE/build/lowrisc_muntjac_pipeline_0.1/sim-verilator/muntjac_pipeline
