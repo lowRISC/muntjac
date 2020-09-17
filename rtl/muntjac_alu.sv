@@ -152,7 +152,7 @@ module muntjac_alu import muntjac_pkg::*; (
       ALU_OR:    alu_result = rs1_i | operand_b;
       ALU_XOR:   alu_result = rs1_i ^ operand_b;
       ALU_SHIFT: alu_result = shift_result;
-      ALU_SCC:   alu_result = compare_result_o;
+      ALU_SCC:   alu_result = {63'b0, compare_result_o};
       default:   alu_result = 'x;
     endcase
 

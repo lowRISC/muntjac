@@ -46,7 +46,7 @@ filesets:
 
   files_lint_verilator:
     files:
-#      - lint/verilator_waiver.vlt: {file_type: vlt}
+      - verilator/lint_waiver.vlt: {file_type: vlt}
 
   files_lint_verible:
     files:

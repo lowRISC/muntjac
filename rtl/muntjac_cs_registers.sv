@@ -252,9 +252,9 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       // User Trap Handling CSRs not supported
 
       // User Floating-point CSRs
-      CSR_FFLAGS: if (RV64F) csr_rdata_int = fflags_q;
-      CSR_FRM: if (RV64F) csr_rdata_int = frm_q;
-      CSR_FCSR: if (RV64F) csr_rdata_int = {frm_q, fflags_q};
+      CSR_FFLAGS: if (RV64F) csr_rdata_int = {59'b0, fflags_q};
+      CSR_FRM: if (RV64F) csr_rdata_int = {61'b0, frm_q};
+      CSR_FCSR: if (RV64F) csr_rdata_int = {56'b0, frm_q, fflags_q};
 
       // User Counter/Timers CSRs
       CSR_CYCLE: csr_rdata_int = mcycle_q;
@@ -281,7 +281,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         if (mideleg_q.irq_external_s) csr_rdata_int[CSR_SEIX_BIT] = mie_q.irq_external_s;
       end
       CSR_STVEC: csr_rdata_int = stvec_q;
-      CSR_SCOUNTEREN: csr_rdata_int = scounteren_q;
+      CSR_SCOUNTEREN: csr_rdata_int = {61'b0, scounteren_q};
 
       CSR_SSCRATCH: csr_rdata_int = sscratch_q;
       CSR_SEPC: csr_rdata_int = sepc_q;
@@ -322,7 +322,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       // misa
       CSR_MISA: csr_rdata_int = MISA_VALUE;
 
-      CSR_MEDELEG: csr_rdata_int = medeleg_q;
+      CSR_MEDELEG: csr_rdata_int = {48'b0, medeleg_q};
       CSR_MIDELEG: begin
         csr_rdata_int = '0;
         csr_rdata_int[CSR_SSIX_BIT] = mideleg_q.irq_software_s;
@@ -339,7 +339,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         csr_rdata_int[CSR_MEIX_BIT] = mie_q.irq_external_m;
       end
       CSR_MTVEC: csr_rdata_int = mtvec_q;
-      CSR_MCOUNTEREN: csr_rdata_int = mcounteren_q;
+      CSR_MCOUNTEREN: csr_rdata_int = {61'b0, mcounteren_q};
 
       CSR_MSCRATCH: csr_rdata_int = mscratch_q;
       CSR_MEPC: csr_rdata_int = mepc_q;
@@ -688,7 +688,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   always_comb begin
     mcycle_d = mcycle_q;
     minstret_d = minstret_q;
-    
+
     if (1'b1) mcycle_d = mcycle_q + 1;
     if (instr_ret_i) minstret_d = minstret_q + 1;
 

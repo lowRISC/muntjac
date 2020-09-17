@@ -1,0 +1,73 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// Lint waivers for Verilator
+// See https://www.veripool.org/projects/verilator/wiki/Manual-verilator#CONFIGURATION-FILES
+// for documentation.
+//
+// Important: This file must included *before* any other Verilog file is read.
+// Otherwise, only global waivers are applied, but not file-specific waivers.
+
+`verilator_config
+
+// The pipeline_wrapper is only included for Verilator compatibility. It is non-
+// synthesisable and includes some "unsafe" behaviour which helps with
+// debugging.
+lint_off -file "*/rtl/pipeline_wrapper.sv"
+
+// Temporary files, due to be rewritten.
+lint_off -file "*/rtl/mul.sv"
+lint_off -file "*/rtl/icache/icache_intf.sv"
+lint_off -file "*/rtl/dcache/dcache_intf.sv"
+
+// Multiple closely-related modules have been intentionally grouped together in
+// a single file.
+lint_off -rule DECLFILENAME -file "*/rtl/muntjac_alu.sv" -match "Filename 'muntjac_alu' does not match MODULE name: 'muntjac_comparator'"
+
+// For generic/swappable components, the module name is intentionally generic,
+// while the filename matches a specific implementation.
+lint_off -rule DECLFILENAME -file "*/rtl/muntjac_reg_file_fpga.sv" -match "Filename 'muntjac_reg_file_fpga' does not match MODULE name: 'muntjac_reg_file'"
+
+// The program counter is always aligned to a 2-byte boundary, leaving the
+// least significant bit zero. We pass the whole PC around to keep the code
+// clean.
+lint_off -rule UNUSED -file "*/rtl/muntjac_frontend.sv" -match "*'redirect_pc_q'[0]"
+lint_off -rule UNUSED -file "*/rtl/muntjac_btb.sv" -match "*'train_npc_i'[0]"
+lint_off -rule UNUSED -file "*/rtl/muntjac_compressed_decoder.sv" -match "*'imm'[0]"
+
+// The branch predictor selects part of the program counter to determine which
+// counter to access. The bits accessed depend on the size of the predictor and
+// other implementation decisions, but there is no obligation to use all bits.
+lint_off -rule UNUSED -file "*/rtl/muntjac_bp_bimodal.sv" -match "*'train_pc_i'*"
+lint_off -rule UNUSED -file "*/rtl/muntjac_bp_bimodal.sv" -match "*'access_pc_i'*"
+
+// A whole decoded instruction is passed around for convenience, but only part
+// of it is needed by any given functional unit.
+lint_off -rule UNUSED -file "*/rtl/muntjac_alu.sv" -match "*'decoded_op_i'*"
+
+// Many related status bits are passed around together, but not all are needed
+// in all places.
+lint_off -rule UNUSED -file "*/rtl/muntjac_frontend.sv" -match "*'status_i'*"
+lint_off -rule UNUSED -file "*/rtl/muntjac_decoder.sv" -match "*'status_i'*"
+
+// A reset signal is provided to the register file to improve generality. This
+// implementation synthesises to flip-flops instead of RAMs if it uses the reset
+// signal.
+lint_off -rule UNUSED -file "*/rtl/muntjac_reg_file_fpga.sv" -match "*'rst_ni'"
+
+// The ALU code is easier to read if all operands are reported as the same
+// width.
+lint_off -rule UNUSED -file "*/rtl/muntjac_alu.sv" -match "*'difference_i'[62:0]"
+lint_off -rule UNUSED -file "*/rtl/muntjac_alu.sv" -match "*'operand_b_i'[63:6]"
+
+// When right-shifting, the 65th bit is known to be unused. There is no known
+// neat solution to this which has good tool support.
+lint_off -rule WIDTH -file "*/rtl/muntjac_alu.sv" -match "Operator ASSIGN expects 64 bits on the Assign RHS, but Assign RHS's SHIFTRS generates 65 bits."
+
+// The CSRs use enum values to index into various arrays, even if those arrays
+// do not match the size of the enum. This is known to be safe since all indices
+// are constant.
+// There are workarounds, e.g. slice/extend the enum members to make them the
+// correct size, but this has limited tool support and hurts code readability.
+lint_off -rule WIDTH -file "*/rtl/muntjac_cs_registers.sv" -match "*requires * bit index, not 5 bits."

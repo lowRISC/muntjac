@@ -453,7 +453,7 @@ module muntjac_decoder import muntjac_pkg::*; (
         illegal_instr: begin
           decoded_instr_o.ex_valid = 1'b1;
           decoded_instr_o.exception.cause = EXC_CAUSE_ILLEGAL_INSN;
-          decoded_instr_o.exception.tval = fetched_instr_i.instr_word;
+          decoded_instr_o.exception.tval = {32'b0, fetched_instr_i.instr_word};
         end
         ecall: begin
           decoded_instr_o.ex_valid = 1'b1;
@@ -468,7 +468,7 @@ module muntjac_decoder import muntjac_pkg::*; (
         default: begin
           decoded_instr_o.ex_valid = 1'b0;
           decoded_instr_o.exception.cause = exc_cause_e'('x);
-          decoded_instr_o.exception.tval = fetched_instr_i.instr_word;
+          decoded_instr_o.exception.tval = {32'b0, fetched_instr_i.instr_word};
         end
       endcase
     end
