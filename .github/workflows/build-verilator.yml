@@ -1,7 +1,13 @@
 name: build-verilator
 
 # Controls when the action will run.
-on: [push, pull_request]
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
 
 jobs:
 
