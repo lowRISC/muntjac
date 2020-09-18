@@ -229,7 +229,6 @@ module muntjac_backend import muntjac_pkg::*; (
     logic sys_ready;
     logic [63:0] ex_expected_pc_q;
     branch_type_e ex_branch_type_q;
-    logic ex_is_branch_q;
     logic mem_trap_valid;
     exception_t mem_trap;
 

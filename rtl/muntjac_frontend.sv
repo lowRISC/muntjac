@@ -84,7 +84,6 @@ module muntjac_frontend import muntjac_pkg::*; #(
   if_reason_e reason;
 
   logic predict_taken;
-  logic predict_partial;
   logic [63:0] predict_target;
 
   // Next PC word to fetch if no branch is taken.
