@@ -1,0 +1,87 @@
+name: riscv-tests
+
+# Controls when the action will run. Triggered by a successful Verilator build.
+on:
+  repository_dispatch:
+    types: [build-verilator]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      # Checks-out repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+        with:
+          repository: riscv/riscv-tests
+          submodules: recursive
+
+      - name: Download compiler toolchain
+        uses: i3h/download-release-asset@v1
+        with:
+          owner: lowRISC
+          repo: lowrisc-toolchains
+          tag: 20200904-1
+          file: lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
+
+      # Also add the tools to PATH for later access.
+      - name: Extract compiler toolchain
+        run: |
+          tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
+          echo "::add-path::`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin"
+
+      - name: Build ISA tests
+        run: |
+          cd $GITHUB_WORKSPACE/isa
+          make -j
+          rm *.dump
+
+      - name: Get simulator
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          github_token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          workflow: build-verilator.yml
+          name: muntjac_pipeline
+
+      # Create a summary of each test outcome in the JUnit XML format.
+      # TODO: There's also rv64um, rv64ua, rv64uc, rv64si, rv64mi.
+      - name: Run tests
+        run: |
+          chmod +x muntjac_pipeline
+          cd $GITHUB_WORKSPACE/isa
+
+          for test in rv64ui-p-*; do
+            /usr/bin/time --quiet -o $test.time -f "%e" $GITHUB_WORKSPACE/muntjac_pipeline $test -timeout=1000000 > $test.out 2> $test.err || true
+
+            echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" > $test.xml
+
+            if ! grep -q "Exiting with argument 1$" $test.out; then
+              echo "<failure type=\"failure\">" >> $test.xml
+
+              echo "System error:" >> $test.xml
+              sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.err >> $test.xml
+              echo "" >> $test.xml
+              echo "System out:" >> $test.xml
+              sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.out >> $test.xml
+
+              echo "</failure>" >> $test.xml
+            fi
+            echo "</testcase>" >> $test.xml
+          done
+
+      - name: Compile results
+        run: |
+          echo "<testsuite tests=\"`ls $GITHUB_WORKSPACE/isa/*.xml | wc -l`\">" > results.xml
+          cat $GITHUB_WORKSPACE/isa/*.xml >> results.xml
+          echo "</testsuite>" >> results.xml
+
+      # TODO: this report currently attaches to the build-verilator workflow
+      # that triggers this one. See if it can attach to this workflow instead.
+      - name: Publish test report
+        uses: scacap/action-surefire-report@v1
+        if: always()
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          report_paths: 'results.xml'
+          check_name: 'RV64I (user)'

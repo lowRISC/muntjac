@@ -2,9 +2,9 @@
 
 ## Status
 
- * Code style: ![lint-verilator](https://github.com/db434/muntjac/workflows/lint-verilator/badge.svg)
- * Builds: ![build-verilator](https://github.com/db434/muntjac/workflows/build-verilator/badge.svg), Vivado, OpenROAD, Synopsys
- * Tests: unit tests, riscv-tests, riscv-compliance, riscv-dv
+ * Code style: ![lint-verilator](https://github.com/lowRISC/muntjac/workflows/lint-verilator/badge.svg)
+ * Builds: ![build-verilator](https://github.com/lowRISC/muntjac/workflows/build-verilator/badge.svg), Vivado, OpenROAD, Synopsys
+ * Tests: unit tests, ![riscv-tests](https://github.com/lowRISC/muntjac/workflows/riscv-tests/badge.svg), riscv-compliance, riscv-dv
  * System metrics: CoreMark/MHz, frequency, area
 
 ## How to contribute

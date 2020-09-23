@@ -27,12 +27,12 @@ apt install verilator
 The goal is that if linting succeeds, the source will successfully build on any of the supported platforms.
 
 ```
-fusesoc --cores-root=. run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1
+fusesoc --cores-root=.. run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1
 ```
 
 ### Build simulator
 ```
-fusesoc --cores-root=. run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1
+fusesoc --cores-root=.. run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1
 ```
 
 Once built, the simulator will be available at `./build/lowrisc_muntjac_pipeline_0.1/sim-verilator/muntjac_pipeline`.
