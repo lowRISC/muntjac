@@ -286,6 +286,28 @@ parameter int unsigned CSR_MTIX_BIT = 7;
 parameter int unsigned CSR_SEIX_BIT = 9;
 parameter int unsigned CSR_MEIX_BIT = 11;
 
+////////////////////
+// Virtual memory //
+////////////////////
+
+parameter int unsigned PTE_V_BIT = 0;
+parameter int unsigned PTE_R_BIT = 1;
+parameter int unsigned PTE_W_BIT = 2;
+parameter int unsigned PTE_X_BIT = 3;
+parameter int unsigned PTE_U_BIT = 4;
+parameter int unsigned PTE_G_BIT = 5;
+parameter int unsigned PTE_A_BIT = 6;
+parameter int unsigned PTE_D_BIT = 7;
+
+typedef struct packed {
+  logic valid;
+  logic readable;
+  logic writable;
+  logic executable;
+  logic user;
+  logic is_global;
+} page_prot_t;
+
 ///////////////////////
 // Instruction fetch //
 ///////////////////////
