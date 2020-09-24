@@ -1,4 +1,4 @@
-interface tl_channel import tl_pkg::*; #(
+interface tl_channel #(
     parameter  int unsigned SourceWidth = 1,
     parameter  int unsigned SinkWidth   = 1,
     parameter  int unsigned AddrWidth   = 56,
@@ -6,6 +6,8 @@ interface tl_channel import tl_pkg::*; #(
     parameter  int unsigned BurstSize   = 8,
     parameter  int unsigned SizeWidth   = 3
 );
+
+  import tl_pkg::*;
 
   localparam int unsigned MaskWidth = DataWidth / 8;
 
