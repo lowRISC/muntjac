@@ -1,12 +1,14 @@
 name: riscv-tests
 
-# Controls when the action will run. Triggered by a successful Verilator build.
+# Triggered by a successful Verilator build.
 on:
   repository_dispatch:
     types: [build-verilator]
 
 jobs:
 
+  # TODO: building tests does not depend on Verilator. Consider pulling this out
+  # to a separate workflow.
   build:
     runs-on: ubuntu-20.04
 
@@ -25,7 +27,7 @@ jobs:
           tag: 20200904-1
           file: lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
 
-      # Also add the tools to PATH for later access.
+      # Also add the tools to PATH for next step.
       - name: Extract compiler toolchain
         run: |
           tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
@@ -36,6 +38,43 @@ jobs:
           cd $GITHUB_WORKSPACE/isa
           make -j
           rm *.dump
+          mkdir $GITHUB_WORKSPACE/tests
+          mv rv64*-*-* $GITHUB_WORKSPACE/tests
+
+      - name: Upload test binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: isa-tests
+          path: tests
+          if-no-files-found: error
+
+
+  test:
+    runs-on: ubuntu-20.04
+    needs: build
+
+    strategy:
+      matrix:
+        include:
+          - isa: rv64ui
+            name: RV64I (user)
+          - isa: rv64um
+            name: RV64M
+          - isa: rv64ua
+            name: RV64A
+          - isa: rv64uc
+            name: RV64C
+          - isa: rv64si
+            name: RV64I (supervisor)
+          - isa: rv64mi
+            name: RV64I (machine)
+
+    steps:
+      - name: Get test binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: isa-tests
+          path: tests
 
       - name: Get simulator
         uses: dawidd6/action-download-artifact@v2
@@ -45,14 +84,12 @@ jobs:
           name: muntjac_pipeline
 
       # Create a summary of each test outcome in the JUnit XML format.
-      # TODO: There's also rv64um, rv64ua, rv64uc, rv64si, rv64mi.
       - name: Run tests
         run: |
           chmod +x muntjac_pipeline
-          cd $GITHUB_WORKSPACE/isa
 
-          for test in rv64ui-p-*; do
-            /usr/bin/time --quiet -o $test.time -f "%e" $GITHUB_WORKSPACE/muntjac_pipeline $test -timeout=1000000 > $test.out 2> $test.err || true
+          for test in tests/${{ matrix.isa }}-p-*; do
+            /usr/bin/time --quiet -o $test.time -f "%e" ./muntjac_pipeline $test -timeout=1000000 > $test.out 2> $test.err || true
 
             echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" > $test.xml
 
@@ -72,16 +109,17 @@ jobs:
 
       - name: Compile results
         run: |
-          echo "<testsuite tests=\"`ls $GITHUB_WORKSPACE/isa/*.xml | wc -l`\">" > results.xml
-          cat $GITHUB_WORKSPACE/isa/*.xml >> results.xml
+          echo "<testsuite tests=\"`ls tests/*.xml | wc -l`\">" > results.xml
+          cat tests/*.xml >> results.xml
           echo "</testsuite>" >> results.xml
 
-      # TODO: this report currently attaches to the build-verilator workflow
-      # that triggers this one. See if it can attach to this workflow instead.
+      # TODO: this report seems to attach to either the build-verilator workflow
+      # or the lint-verilator workflow. See if it can attach to this workflow
+      # instead.
       - name: Publish test report
         uses: scacap/action-surefire-report@v1
         if: always()
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           report_paths: 'results.xml'
-          check_name: 'RV64I (user)'
+          check_name: ${{ matrix.name }}
