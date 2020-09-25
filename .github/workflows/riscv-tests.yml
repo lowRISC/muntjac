@@ -2,8 +2,11 @@ name: riscv-tests
 
 # Triggered by a successful Verilator build.
 on:
-  repository_dispatch:
-    types: [build-verilator]
+  workflow_run:
+    workflows:
+      - build-verilator
+    types:
+      - completed
 
 jobs:
 

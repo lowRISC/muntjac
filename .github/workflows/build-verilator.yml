@@ -35,9 +35,3 @@ jobs:
           name: muntjac_pipeline
           path: build/lowrisc_muntjac_pipeline_0.1/sim-verilator/muntjac_pipeline
           if-no-files-found: error
-
-      - name: Notify dependent workflows
-        uses: peter-evans/repository-dispatch@v1
-        with:
-          token: ${{ secrets.REPO_ACCESS_TOKEN }}
-          event-type: build-verilator
