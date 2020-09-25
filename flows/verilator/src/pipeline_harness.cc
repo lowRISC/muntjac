@@ -155,7 +155,7 @@ protected:
         case 2: data_read = (signed_data << 32) >> 32; break;
         case 3: break;
         default:
-          MUNTJAC_ERROR << "Unsupported memory request size: " << dut.dcache_req_size << endl;
+          MUNTJAC_ERROR << "Unsupported memory request size: " << (int)dut.dcache_req_size << endl;
           exit(1);
           break;
       }
@@ -165,7 +165,7 @@ protected:
     if (dut.dcache_req_op == MEM_AMO) {
       switch (dut.dcache_req_amo) {
         default:
-          MUNTJAC_ERROR << "Unsupported atomic memory operation: " << dut.dcache_req_amo << endl;
+          MUNTJAC_ERROR << "Unsupported atomic memory operation: " << (int)dut.dcache_req_amo << endl;
           exit(1);
           break;
       }
@@ -189,25 +189,21 @@ protected:
           case 2: memory.write32(address, (uint32_t)data_write); break;
           case 3: memory.write64(address, data_write); break;
           default:
-            MUNTJAC_ERROR << "Unsupported memory request size: " << dut.dcache_req_size << endl;
+            MUNTJAC_ERROR << "Unsupported memory request size: " << (int)dut.dcache_req_size << endl;
             exit(1);
             break;
         }
         break;
 
       default:
-        MUNTJAC_ERROR << "Unsupported memory operation: " << dut.dcache_req_op << endl;
+        MUNTJAC_ERROR << "Unsupported memory operation: " << (int)dut.dcache_req_op << endl;
         exit(1);
         break;
     }
 
-    bool has_response = (dut.dcache_req_op == MEM_LOAD) ||
-                        (dut.dcache_req_op == MEM_LR) ||
-                        (dut.dcache_req_op == MEM_AMO) ||
-                        (dut.dcache_req_op == MEM_SC);
-
-    if (has_response)
-      queue_response(data_read);
+    // All memory operations must send a response. Even if there is no payload,
+    // there may have been an exception.
+    queue_response(data_read);
 
   }
 
@@ -216,9 +212,9 @@ protected:
   }
 
   virtual void send_response(response_t& response) {
-    // TODO: resp_exception
     dut.dcache_resp_value = response.data;
     dut.dcache_resp_valid = 1;
+    dut.dcache_ex_valid = 0;
     response.all_sent = true;
   }
 
