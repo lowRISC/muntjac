@@ -82,7 +82,7 @@ jobs:
       - name: Get simulator
         uses: dawidd6/action-download-artifact@v2
         with:
-          github_token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow: build-verilator.yml
           name: muntjac_pipeline
 
