@@ -1429,7 +1429,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           state_d = StateException;
           ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
         end else if (reservation_failed_q) begin
-          op_d[1] = 1'b0;
           cache.req_ready = 1'b1;
           resp_valid = 1'b1;
           resp_value = 1;
