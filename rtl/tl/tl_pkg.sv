@@ -32,9 +32,9 @@ typedef enum logic [2:0] {
   ReleaseAck    = 3'h6
 } tl_d_op_e;
 
-parameter logic [2:0]  toT = 0;
-parameter logic [2:0]  toB = 1;
-parameter logic [2:0]  toN = 2;
+parameter logic [1:0]  toT = 0;
+parameter logic [1:0]  toB = 1;
+parameter logic [1:0]  toN = 2;
 
 parameter logic [2:0] NtoB = 0;
 parameter logic [2:0] NtoT = 1;

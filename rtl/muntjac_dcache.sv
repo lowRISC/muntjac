@@ -889,7 +889,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   muntjac_tlb tlb (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
-      .satp_i           (cache.req_atp),
+      .satp_i           (req_atp),
       .req_valid_i      (req_valid && req_atp[63]),
       .req_vpn_i        (req_address[38:12]),
       .resp_valid_o     (ppn_valid_pulse),
@@ -909,7 +909,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   muntjac_ptw ptw (
       .clk_i             (clk_i),
       .rst_ni            (rst_ni),
-      .satp_i            (cache.req_atp),
+      .satp_i            (req_atp),
       .req_valid_i       (ptw_req_valid),
       .req_vpn_i         (ptw_req_vpn),
       .resp_valid_o      (ptw_resp_valid),
@@ -1074,7 +1074,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       ProbeStateIdle: begin
         mem.b_ready = probe_lock_q == 0;
 
-        if (mem_probe_valid && mem.b_ready) begin
+        if (mem_probe_valid && probe_lock_q == 0) begin
           probe_address_d = mem_probe_address[PhysAddrLen-1:6];
           probe_param_d = mem_probe_param;
           probe_source_d = mem_probe_source;
@@ -1163,6 +1163,23 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   flush_state_e flush_state_q = FlushStateReset, flush_state_d;
   logic [SetsWidth-1:0] flush_index_q, flush_index_d;
 
+  // Dirty tag check
+  logic                 flush_has_dirty;
+  logic [WaysWidth-1:0] flush_dirty_way;
+  tag_t                 flush_dirty_tag;
+  always_comb begin
+    flush_has_dirty = 1'b0;
+    flush_dirty_way = 'x;
+    for (int i = NumWays - 1; i >= 0; i--) begin
+      if (read_tag[i].valid &&
+          read_tag[i].writable) begin
+        flush_has_dirty = 1'b1;
+        flush_dirty_way = i;
+        flush_dirty_tag = read_tag[i];
+      end
+    end
+  end
+
   always_comb begin
     flush_read_index = 'x;
     flush_read_req_tag = 1'b0;
@@ -1215,30 +1232,19 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
       // Check tags and initiate cache line release.
       FlushStateCheck: begin
-        // Determine if release is necessary
-        automatic logic [WaysWidth-1:0] chosen = 'x;
-        automatic logic has_write = 1'b0;
-        for (int i = NumWays - 1; i >= 0; i--) begin
-          if (read_tag[i].valid &&
-              read_tag[i].writable) begin
-            chosen = i;
-            has_write = 1'b1;
-          end
-        end
-
-        if (has_write) begin
+        if (flush_has_dirty) begin
           // If eviction is necesasry do it.
           flush_state_d = FlushStateAck;
 
           wb_flush_req_valid = 1'b1;
-          wb_flush_req_way = chosen;
-          wb_flush_req_address = {read_tag[chosen].tag, flush_index_q};
-          wb_flush_req_dirty = read_tag[chosen].dirty;
+          wb_flush_req_way = flush_dirty_way;
+          wb_flush_req_address = {flush_dirty_tag.tag, flush_index_q};
+          wb_flush_req_dirty = flush_dirty_tag.dirty;
           wb_flush_req_param = TtoN;
 
           flush_write_req_tag = 1'b1;
           flush_write_ways = '0;
-          flush_write_ways[chosen] = 1'b1;
+          flush_write_ways[flush_dirty_way] = 1'b1;
           flush_write_index = flush_index_q;
           flush_write_tag.valid = 1'b0;
         end else begin
@@ -1296,7 +1302,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   // Main Logic //
   ////////////////
 
-  typedef enum logic [4:0] {
+  typedef enum logic [3:0] {
     StateIdle,
     StateFetch,
     StateReplay,
@@ -1304,6 +1310,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     StateEvict,
     StateFill,
     StateUncached,
+    StateExceptionLocked,
     StateException
   } state_e;
 
@@ -1315,9 +1322,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   // Fill-related logic
   logic req_sent_q, req_sent_d;
 
-  // Helper signal to detect if cache.req_address is a canonical address
-  wire canonical_virtual  = ~|cache.req_address[63:VirtAddrLen-1] | &cache.req_address[63:VirtAddrLen-1];
-  wire canonical_physical = ~|cache.req_address[63:PhysAddrLen-1];
+  // Helper signal to detect if req_address is a canonical address
+  wire canonical_virtual  = ~|req_address[63:VirtAddrLen-1] | &req_address[63:VirtAddrLen-1];
+  wire canonical_physical = ~|req_address[63:PhysAddrLen-1];
 
   logic [63:0] address_q, address_d;
   logic [63:0] value_q, value_d;
@@ -1412,6 +1419,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         // Release the access lock. In this state we either complete an access, or we need to
         // wait for refill/TLB access. In either case we will need to release the lock and
         // re-acquire later to prevent deadlock.
+        //
+        // Note: When we are evicting, we will move the lock from access to writeback, so
+        // conceptually we shouldn't be releasing the lock. However this is okay because
+        // release_lock_move takes precedence to access_lock_rel.
         access_lock_rel = 1'b1;
 
         if (req_atp[63] && !ppn_valid) begin
@@ -1464,7 +1475,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
           if (hit_tag.valid &&
               hit_tag.writable) begin
-            access_lock_rel = 1'b0;
             state_d = StateEvict;
 
             wb_rel_req_valid = 1'b1;
@@ -1571,6 +1581,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
 
+      StateExceptionLocked: begin
+        if (lock_holder_q == LockHolderAccess) begin
+          access_lock_rel = 1'b1;
+          state_d = StateException;
+        end
+      end
+
       StateException: begin
         ex_valid = 1'b1;
         ex_exception.cause = ex_code_q;
@@ -1604,22 +1621,21 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       // If we failed to acquire the lock this cycle, move into replay state.
       if (!access_locking) state_d = StateReplay;
 
-      // Misaligned memory load/store will trigger an exception
+      // Misaligned memory load/store will trigger an exception.
+      // Note that we would like to avoid complicating the condition for access_lock_acq
+      // to trigger, so move to an intermediate state to have the lock released.
       if (!is_aligned(req_address[2:0], req_size)) begin
-        access_lock_acq = 1'b0;
-        state_d = StateException;
+        state_d = StateExceptionLocked;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_MISALIGN : EXC_CAUSE_STORE_MISALIGN;
       end
 
       if (req_atp[63] && !canonical_virtual) begin
-        access_lock_acq = 1'b0;
-        state_d = StateException;
+        state_d = StateExceptionLocked;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        access_lock_acq = 1'b0;
-        state_d = StateException;
+        state_d = StateExceptionLocked;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
       end
     end
