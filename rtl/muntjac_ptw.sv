@@ -1,4 +1,5 @@
 module muntjac_ptw import muntjac_pkg::*; #(
+    parameter Dummy = 1,
     localparam int unsigned VirtAddrLen = 39,
     localparam int unsigned PhysAddrLen = 56
 ) (
