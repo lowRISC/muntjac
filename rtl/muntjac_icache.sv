@@ -748,6 +748,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   assign mem.a_source = 0;
   assign mem.a_corrupt = 1'b0;
+  assign mem.a_data = 'x;
   wire mem_req_ready   = mem.a_ready;
 
   always_comb begin
@@ -761,7 +762,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     mem.a_param = 'x;
     mem.a_size = 'x;
     mem.a_mask = 'x;
-    mem.a_data = 'x;
 
     refill_req_address = address_phys[PhysAddrLen-1:6];
     refill_req_way = way_q;
