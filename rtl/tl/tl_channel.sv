@@ -120,7 +120,7 @@ interface tl_channel #(
     input  a_source,
     input  a_address,
     input  a_mask,
-    output a_corrupt,
+    input  a_corrupt,
     input  a_data,
 
     input  b_ready,

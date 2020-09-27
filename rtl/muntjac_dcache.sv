@@ -1170,6 +1170,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   always_comb begin
     flush_has_dirty = 1'b0;
     flush_dirty_way = 'x;
+    flush_dirty_tag = tag_t'('x);
     for (int i = NumWays - 1; i >= 0; i--) begin
       if (read_tag[i].valid &&
           read_tag[i].writable) begin
@@ -1350,6 +1351,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
+  assign mem.a_source = 0;
+  assign mem.a_corrupt = 1'b0;
   wire mem_req_ready   = mem.a_ready;
 
   always_comb begin

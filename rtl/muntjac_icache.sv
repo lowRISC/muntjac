@@ -746,6 +746,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
+  assign mem.a_source = 0;
+  assign mem.a_corrupt = 1'b0;
   wire mem_req_ready   = mem.a_ready;
 
   always_comb begin
