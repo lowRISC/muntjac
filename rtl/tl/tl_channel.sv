@@ -63,7 +63,7 @@ interface tl_channel #(
   logic                       d_ready;
   logic                       d_valid;
   tl_d_op_e                   d_opcode;
-  logic                 [1:0] d_param;
+  logic                 [2:0] d_param;
   logic       [SizeWidth-1:0] d_size;
   logic     [SourceWidth-1:0] d_source;
   logic       [SinkWidth-1:0] d_sink;

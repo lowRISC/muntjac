@@ -225,7 +225,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [63:0]    mem_grant_data   = mem.d_data;
   wire tl_d_op_e mem_grant_opcode = mem.d_opcode;
-  wire [1:0]     mem_grant_param  = mem.d_param;
+  wire [2:0]     mem_grant_param  = mem.d_param;
   wire           mem_grant_denied = mem.d_denied;
 
   wire mem_grant_valid_refill  = mem.d_valid && mem.d_opcode inside {Grant, GrantData};
@@ -549,8 +549,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     assign read_tag[i] = tag_bypass_valid ? tag_bypass : tag_raw;
     always_comb begin
-      for (int i = 0; i < 8; i++) begin
-        data_bypassed[i*8 +: 8] = data_bypass_valid[i] ? data_bypass[i*8 +: 8] : data_raw[i*8 +: 8];
+      for (int j = 0; j < 8; j++) begin
+        data_bypassed[j*8 +: 8] = data_bypass_valid[j] ? data_bypass[j*8 +: 8] : data_raw[j*8 +: 8];
       end
     end
     assign read_data[i] = data_bypassed;

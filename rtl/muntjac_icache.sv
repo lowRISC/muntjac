@@ -54,7 +54,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic flush_ready;
 
   logic        resp_valid;
-  logic [63:0] resp_value;
+  logic [31:0] resp_value;
   logic        ex_valid;
   exc_cause_e  resp_ex_code;
 
@@ -70,7 +70,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   wire           mem_grant_valid  = mem.d_valid;
   wire [63:0]    mem_grant_data   = mem.d_data;
   wire tl_d_op_e mem_grant_opcode = mem.d_opcode;
-  wire [1:0]     mem_grant_param  = mem.d_param;
   wire           mem_grant_denied = mem.d_denied;
 
   logic mem_grant_ready;
@@ -741,7 +740,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic        sum_q, sum_d;
 
   wire [63:0] hit_data = read_data[hit_way];
-  wire [63:0] hit_data_aligned = address_q[2] ? hit_data[63:32] : hit_data[31:0];
+  wire [31:0] hit_data_aligned = address_q[2] ? hit_data[63:32] : hit_data[31:0];
 
   logic [WaysWidth-1:0] way_q, way_d;
 
