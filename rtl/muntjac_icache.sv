@@ -56,11 +56,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic        resp_valid;
   logic [63:0] resp_value;
   logic        ex_valid;
-  exception_t  ex_exception;
+  exc_cause_e  resp_ex_code;
 
   assign cache.resp_valid     = resp_valid || ex_valid;
   assign cache.resp_instr     = resp_value;
   assign cache.resp_exception = ex_valid;
+  assign cache.resp_ex_code   = resp_ex_code;
 
   //////////////////////////////////
   // MEM Channel D Demultiplexing //
@@ -755,7 +756,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     resp_valid = 1'b0;
     resp_value = 'x;
     ex_valid = 1'b0;
-    ex_exception = exception_t'('x);
+    resp_ex_code = exc_cause_e'('x);
     mem.a_valid = 1'b0;
     mem.a_opcode = tl_a_op_e'('x);
     mem.a_address = 'x;
@@ -878,8 +879,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
       StateException: begin
         ex_valid = 1'b1;
-        ex_exception.cause = ex_code_q;
-        ex_exception.tval = address_q;
+        resp_ex_code = ex_code_q;
         state_d = StateIdle;
       end
 
@@ -915,13 +915,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       if (req_atp[63] && !canonical_virtual) begin
-        access_lock_acq = 1'b0;
         state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        access_lock_acq = 1'b0;
         state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
       end

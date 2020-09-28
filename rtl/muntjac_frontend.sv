@@ -209,10 +209,12 @@ module muntjac_frontend import muntjac_pkg::*; #(
   logic resp_latched;
   logic [31:0] resp_instr_latched;
   logic resp_exception_latched;
+  exc_cause_e resp_ex_code_latched;
 
   wire align_valid = resp_latched ? 1'b1 : icache.resp_valid;
   wire [31:0] align_instr = resp_latched ? resp_instr_latched : icache.resp_instr;
   wire align_exception = resp_latched ? resp_exception_latched : icache.resp_exception;
+  wire exc_cause_e align_ex_code = resp_latched ? resp_ex_code_latched : icache.resp_ex_code;
   wire [63:0] align_pc = pc;
   wire if_reason_e align_reason = reason;
   wire [1:0] align_strb = pc[1] ? 2'b10 : (predict_taken && btb_partial ? 2'b01 : 2'b11);
@@ -222,6 +224,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
       resp_latched <= 1'b1;
       resp_instr_latched <= '0;
       resp_exception_latched <= 1'b0;
+      resp_ex_code_latched <= exc_cause_e'('x);
     end
     else begin
       if (!align_ready && icache.resp_valid) begin
@@ -229,6 +232,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
         resp_latched <= 1'b1;
         resp_instr_latched <= icache.resp_instr;
         resp_exception_latched <= icache.resp_exception;
+        resp_ex_code_latched <= icache.resp_ex_code;
       end
 
       if (align_ready) begin
@@ -268,7 +272,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
       fetch_instr_o.pc = prev_valid_q && align_reason ==? IF_PREFETCH ? prev_pc_q : align_pc;
       fetch_instr_o.if_reason = prev_valid_q && align_reason ==? IF_PREFETCH ? prev_reason_q : align_reason;
       fetch_instr_o.ex_valid = 1'b1;
-      fetch_instr_o.exception.cause = EXC_CAUSE_INSTR_PAGE_FAULT;
+      fetch_instr_o.exception.cause = align_ex_code;
       fetch_instr_o.exception.tval = align_pc;
 
       if (fetch_ready_i) align_ready = 1'b1;
