@@ -518,18 +518,19 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     end
   end
 
-  for (genvar i = 0; i < NumWays; i++) begin
+  for (genvar i = 0; i < NumWays; i++) begin: ram
 
     logic tag_bypass_valid;
-    logic data_bypass_valid;
+    logic [7:0] data_bypass_valid;
 
     tag_t        tag_raw;
     logic [63:0] data_raw;
+    logic [63:0] data_bypassed;
 
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
         tag_bypass_valid <= 1'b0;
-        data_bypass_valid <= 1'b0;
+        data_bypass_valid <= 0;
       end else begin
         if (read_req_tag) begin
           tag_bypass_valid <= 1'b0;
@@ -538,16 +539,21 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           end
         end
         if (read_req_data) begin
-          data_bypass_valid <= 1'b0;
+          data_bypass_valid <= 0;
           if (write_req_data && write_ways[i] && write_addr == read_addr[SetsWidth+3-1:0]) begin
-            data_bypass_valid <= 1'b1;
+            data_bypass_valid <= write_strb;
           end
         end
       end
     end
 
     assign read_tag[i] = tag_bypass_valid ? tag_bypass : tag_raw;
-    assign read_data[i] = data_bypass_valid ? data_bypass : data_raw;
+    always_comb begin
+      for (int i = 0; i < 8; i++) begin
+        data_bypassed[i*8 +: 8] = data_bypass_valid[i] ? data_bypass[i*8 +: 8] : data_raw[i*8 +: 8];
+      end
+    end
+    assign read_data[i] = data_bypassed;
 
     prim_generic_ram_2p #(
         .Width           ($bits(tag_t)),
