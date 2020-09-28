@@ -1,10 +1,23 @@
 interface tl_channel #(
-    parameter  int unsigned SourceWidth = 1,
-    parameter  int unsigned SinkWidth   = 1,
-    parameter  int unsigned AddrWidth   = 56,
-    parameter  int unsigned DataWidth   = 64,
-    parameter  int unsigned BurstSize   = 8,
-    parameter  int unsigned SizeWidth   = 3
+    // Property of the signals
+    parameter  int unsigned SourceWidth   = 1,
+    parameter  int unsigned SinkWidth     = 1,
+    parameter  int unsigned AddrWidth     = 56,
+    parameter  int unsigned DataWidth     = 64,
+    parameter  int unsigned SizeWidth     = 3,
+
+    ////////////////////////////
+    // Capability of the link //
+    ////////////////////////////
+
+    // The maximum number of bursts supported
+    parameter  int unsigned BurstSize     = 8,
+
+    // The number of bits of SourceIds used by the host
+    parameter  int unsigned SourceIdWidth = 1,
+
+    // The number of bits of SinkIds used by the device
+    parameter  int unsigned SinkIdWidth   = 1
 );
 
   import tl_pkg::*;
