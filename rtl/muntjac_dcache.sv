@@ -1567,8 +1567,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         mem.a_param = 0;
         mem.a_size = size_q;
         mem.a_address = address_phys;
-        mem.a_mask = access_write_strb;
-        mem.a_data = access_write_data;
+        mem.a_mask = align_strb(address_q[2:0], size_q);
+        mem.a_data = align_store(value_q, address_q[2:0]);
         if (mem_req_ready) req_sent_d = 1'b1;
 
         if (mem_grant_valid_access) begin
