@@ -23,6 +23,7 @@ module pipeline_wrapper #(
     input  logic            icache_resp_valid,
     input  logic [31:0]     icache_resp_instr,
     input  logic            icache_resp_exception,
+    input  exc_cause_e      icache_resp_ex_code,
 
     // Data cache interface
     output logic            dcache_req_valid,
@@ -84,6 +85,7 @@ module pipeline_wrapper #(
   assign icache.resp_valid = icache_resp_valid;
   assign icache.resp_instr = icache_resp_instr;
   assign icache.resp_exception = icache_resp_exception;
+  assign icache.resp_ex_code = icache_resp_ex_code;
 
   // Data cache interface
   assign dcache_req_valid = dcache.req_valid;

@@ -22,8 +22,7 @@ interface icache_intf #(
 
     logic            resp_valid;
     logic [31:0]     resp_instr;
-    // This tells whether exception happens during instruction fetch. In our current design, the
-    // only possible exception is instruction page fault.
+    // This tells whether exception happens during instruction fetch.
     logic            resp_exception;
     exc_cause_e      resp_ex_code;
 
