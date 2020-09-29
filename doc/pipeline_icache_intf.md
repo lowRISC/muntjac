@@ -22,6 +22,7 @@ There are no flow control signals. The cache is expected to process only one req
 | `resp_valid` | Boolean | Whether the response is valid. |
 | `resp_instr` | 32 bits | Response instruction. |
 | `resp_exception` | Boolean | Whether there was an exception when accessing the instruction. The only possible exception is a page fault. |
+| `resp_ex_code` | `exc_cause_e` | The type of exception. ([Available options](#exc_cause_e)) |
 
 ## `if_reason_e`
 Reasons for an instruction fetch taking place.
@@ -35,3 +36,11 @@ Reasons for an instruction fetch taking place.
 | `IF_SATP_CHANGED` | The SATP (Supervisor Address Translation and Protection) control register has been changed. |
 | `IF_FENCE_I` | The `FENCE.I` instruction was executed. |
 | `IF_SFENCE_VMA` | The `SFENCE.VMA` instruction was executed. |
+
+## `exc_cause_e`
+Reasons for an exception taking place. More options are available; these are the ones relevant to the instruction cache.
+
+| Value | Description |
+| --- | --- |
+| `EXC_CAUSE_INSTR_ACCESS_FAULT` | Insufficient permissions. |
+| `EXC_CAUSE_INSTR_PAGE_FAULT` | Page fault. |

@@ -2,6 +2,8 @@
 
 This interface allows the pipeline to read and write information to the data cache.
 
+Every request **must** receive a response, even if that response is only "the request completed without triggering an exception".
+
 ## Pipeline to data cache
 
 | Signal | Type | Description |

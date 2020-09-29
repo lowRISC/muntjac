@@ -51,7 +51,7 @@ Information about an exception. A compound type consisting of:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `cause` | `exc_cause_e` | The cause of the exception. The only possible instruction fetch exception in Muntjac is `EXC_CAUSE_INSTR_PAGE_FAULT`. |
+| `cause` | `exc_cause_e` | The cause of the exception. The only possible instruction fetch exceptions in Muntjac are `EXC_CAUSE_INSTR_PAGE_FAULT` and `EXC_CAUSE_INSTR_ACCESS_FAULT`. |
 | `tval` | 64 bits | Address being accessed when the exception occurred. |
 
 
