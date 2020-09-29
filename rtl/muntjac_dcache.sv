@@ -936,7 +936,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   assign mem_ptw.a_corrupt = 1'b0;
   assign mem_ptw.a_data = 'x;
 
-  assign mem_ptw.b_ready = 1'b0;
+  assign mem_ptw.b_ready = 1'b1;
 
   assign mem_ptw.c_valid = 1'b0;
   assign mem_ptw.c_opcode = tl_c_op_e'('x);
