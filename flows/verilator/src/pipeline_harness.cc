@@ -33,6 +33,14 @@ double sc_time_stamp() {
   return cycle;
 }
 
+// Sign-extend the lowest `bytes` of `original` to create a signed 64-bit
+// integer.
+int64_t sign_extend(uint64_t original, size_t bytes) {
+  int shift = 64 - (bytes * 8);
+  int64_t result = original;
+  return (result << shift) >> shift;
+}
+
 // 0 = no logging
 // 1 = all logging
 // Potential to add more options here.
@@ -93,7 +101,7 @@ public:
   DataPort(DUT& dut, MainMemory& memory, uint latency) :
       MemoryPort<uint64_t>(memory, latency),
       dut(dut) {
-    // Nothing.
+    clear_all_reservations();
   }
 
 protected:
@@ -112,14 +120,15 @@ protected:
     //  * req_atp
 
     MemoryAddress address = dut.dcache_req_address;
+    uint64_t operand = dut.dcache_req_value;
 
     uint64_t data_read = 0;
-    uint64_t data_write = dut.dcache_req_value;
+    uint64_t data_write = 0;
 
     // Data read.
     switch (dut.dcache_req_op) {
       case MEM_LOAD:
-//      case MEM_LR:
+      case MEM_LR:
       case MEM_AMO:
         // Not all request sizes are valid for all memory operations, but I
         // ignore that.
@@ -138,6 +147,7 @@ protected:
       case MEM_STORE:
       case MEM_SC:
         // No data read.
+        data_write = operand;
         break;
 
       default:
@@ -146,30 +156,37 @@ protected:
         break;
     }
 
-    // Sign extension.
-    if (dut.dcache_req_op == MEM_LOAD && !dut.dcache_req_unsigned) {
-      int64_t signed_data = data_read;
-      switch (dut.dcache_req_size) {
-        case 0: data_read = (signed_data << 56) >> 56; break;
-        case 1: data_read = (signed_data << 48) >> 48; break;
-        case 2: data_read = (signed_data << 32) >> 32; break;
-        case 3: break;
-        default:
-          MUNTJAC_ERROR << "Unsupported memory request size: " << (int)dut.dcache_req_size << endl;
-          exit(1);
-          break;
-      }
+    // Sign extend data for signed loads and all atomics.
+    if ((dut.dcache_req_op == MEM_LOAD && !dut.dcache_req_unsigned) ||
+        (dut.dcache_req_op == MEM_AMO) ||
+        (dut.dcache_req_op == MEM_LR)) {
+      size_t bytes = 1 << dut.dcache_req_size;
+      data_read = sign_extend(data_read, bytes);
+      operand = sign_extend(operand, bytes);
     }
 
     // Atomic data update.
     if (dut.dcache_req_op == MEM_AMO) {
-      switch (dut.dcache_req_amo) {
+      switch (dut.dcache_req_amo >> 2) {
+        case 0: data_write = data_read + operand; break;
+        case 1: data_write = operand; break;
+        case 4: data_write = data_read ^ operand; break;
+        case 8: data_write = data_read | operand; break;
+        case 12: data_write = data_read & operand; break;
+        case 16: data_write = (int64_t)data_read < (int64_t)operand ? data_read : operand; break;
+        case 20: data_write = (int64_t)data_read < (int64_t)operand ? operand : data_read; break;
+        case 24: data_write = data_read < operand ? data_read : operand; break;
+        case 28: data_write = data_read < operand ? operand : data_read; break;
+
         default:
           MUNTJAC_ERROR << "Unsupported atomic memory operation: " << (int)dut.dcache_req_amo << endl;
           exit(1);
           break;
       }
     }
+
+    if (dut.dcache_req_op == MEM_LR)
+      make_reservation(address);
 
     // Data write.
     switch (dut.dcache_req_op) {
@@ -178,9 +195,16 @@ protected:
         // No data write.
         break;
 
+      case MEM_SC:
+        if (check_reservation(address))
+          data_read = 0;
+          // no break: fall-through to MEM_STORE
+        else {
+          data_read = 1;
+          break;
+        }
       case MEM_AMO:
       case MEM_STORE:
-//      case MEM_SC:
         // Not all request sizes are valid for all memory operations, but I
         // ignore that.
         switch (dut.dcache_req_size) {
@@ -193,6 +217,7 @@ protected:
             exit(1);
             break;
         }
+        clear_reservation(address);
         break;
 
       default:
@@ -224,9 +249,34 @@ protected:
     // Also respond immediately to SFENCE signals (and clear the response when
     // the signal is deasserted again).
     dut.dcache_notif_ready = dut.dcache_notif_valid;
+
+    if (dut.dcache_notif_valid)
+      clear_all_reservations();
   }
 
 private:
+
+  // Do the minimum possible to support load-reserved/store-conditional.
+  // Maintain a single reserved address, and clear it whenever any memory is
+  // written.
+  // Better performance is possible, but if you're using a simulated d-cache,
+  // you probably don't care about performance.
+  MemoryAddress reserved;
+  bool reservation_valid;
+
+  void make_reservation(MemoryAddress address) {
+    reserved = address;
+    reservation_valid = true;
+  }
+  bool check_reservation(MemoryAddress address) {
+    return reservation_valid && (reserved == address);
+  }
+  void clear_reservation(MemoryAddress address) {
+    clear_all_reservations();
+  }
+  void clear_all_reservations() {
+    reservation_valid = false;
+  }
 
   DUT& dut;
 };
