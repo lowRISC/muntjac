@@ -845,10 +845,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         refill_write_tag.dirty = 1'b0;
         refill_write_tag.valid = 1'b1;
 
-        refill_index_d = refill_index_q + 1;
-
-        if (mem_grant_valid_refill && &refill_index_q) begin
-          refill_state_d = RefillStateComplete;
+        if (mem_grant_valid_refill && mem_grant_ready_refill) begin
+          refill_index_d = refill_index_q + 1;
+          if (&refill_index_q) begin
+            refill_state_d = RefillStateComplete;
+          end
         end
       end
       RefillStateComplete: begin

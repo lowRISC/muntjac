@@ -457,10 +457,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         refill_write_tag.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
         refill_write_tag.valid = 1'b1;
 
-        refill_index_d = refill_index_q + 1;
-
-        if (mem_grant_valid && &refill_index_q) begin
-          refill_state_d = RefillStateComplete;
+        if (mem_grant_valid && mem_grant_ready) begin
+          refill_index_d = refill_index_q + 1;
+          if (&refill_index_q) begin
+            refill_state_d = RefillStateComplete;
+          end
         end
       end
       RefillStateComplete: begin
