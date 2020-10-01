@@ -17,15 +17,20 @@ MemoryPort<T>::MemoryPort(MainMemory& memory, uint latency) :
 }
 
 template<typename T>
-void MemoryPort<T>::cycle(uint64_t time) {
+void MemoryPort<T>::get_inputs(uint64_t time) {
   current_cycle = time;
-
-  // Clear any previous outputs.
-  clear_response();
 
   // Receive requests from core.
   if (can_receive_request())
     get_request();  // Puts requests into request queue.
+}
+
+template<typename T>
+void MemoryPort<T>::set_outputs(uint64_t time) {
+  current_cycle = time;
+
+  // Clear any previous outputs.
+  clear_response();
 
   // Send responses to core.
   if (!responses.empty() && responses.front().time <= time && can_send_response()) {
@@ -38,11 +43,11 @@ void MemoryPort<T>::cycle(uint64_t time) {
 }
 
 template<typename T>
-void MemoryPort<T>::queue_response(T data) {
-  // Send data the cycle before it is due to arrive.
+void MemoryPort<T>::queue_response(T data, exc_cause_e exception) {
   response_t response;
-  response.time = current_cycle + latency - 1;
+  response.time = current_cycle + latency;
   response.data = data;
+  response.exception = exception;
   response.all_sent = false;
 
   responses.push(response);

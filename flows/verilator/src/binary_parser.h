@@ -20,6 +20,9 @@ public:
   // given program.
   static MemoryAddress entry_point(char* filename);
 
+  // Get the memory address to which the named symbol is mapped.
+  static MemoryAddress symbol_location(char* filename, std::string symbol);
+
 };
 
 #endif  // BINARY_PARSER_H

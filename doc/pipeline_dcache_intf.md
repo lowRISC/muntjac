@@ -27,7 +27,7 @@ Every request **must** receive a response, even if that response is only "the re
 | Signal | Type | Description |
 | --- | --- | --- |
 | `req_ready` | Boolean | Whether the cache is ready to receive a new request. |
-| `resp_valid` | Boolean | Whether the response is valid. |
+| `resp_valid` | Boolean | Whether the response is valid. This signal cannot be high if `ex_valid` is also high. |
 | `resp_value` | 64 bits | Response data. |
 | `ex_valid` | Boolean | Whether there was an exception when performing the operation. |
 | `ex_exception` | `exception_t` | Information about exception. ([More details](#exception_t)) |

@@ -9,23 +9,15 @@
 
 #include <queue>
 #include "main_memory.h"
+#include "types.h"
 
 using std::queue;
-
-// Verilator doesn't provide access to constants defined in the RTL.
-// Always ensure this matches mem_op_e in muntjac_pkg.sv.
-typedef enum {
-  MEM_LOAD  = 1,
-  MEM_STORE = 2,
-  MEM_LR    = 5,
-  MEM_SC    = 6,
-  MEM_AMO   = 7
-} MemoryOperation;
 
 template<typename T>
 struct MemoryResponse {
   uint64_t time;  // Cycle for response to be sent.
   T data; // Data to send.
+  exc_cause_e exception;
   bool all_sent; // May need to send data in multiple chunks.
 };
 
@@ -42,13 +34,19 @@ public:
 
   MemoryPort(MainMemory& memory, uint latency);
 
-  void cycle(uint64_t time);
+  // Split a cycle into two phases to allow Verilator to access state in
+  // between. Ordering should go:
+  //   * get_inputs()
+  //   * verilator_module.eval()
+  //   * set_outputs()
+  void get_inputs(uint64_t time);
+  void set_outputs(uint64_t time);
 
 protected:
 
   virtual bool can_receive_request() = 0;
   virtual void get_request() = 0;
-  virtual void queue_response(T data);
+  virtual void queue_response(T data, exc_cause_e exception = EXC_CAUSE_NONE);
   virtual bool can_send_response() = 0;
   virtual void send_response(response_t& response) = 0;
   virtual void clear_response() = 0;

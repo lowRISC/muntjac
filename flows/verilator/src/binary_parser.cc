@@ -7,13 +7,13 @@
 //   https://code.google.com/p/elfinfo/source/browse/trunk/elfinfo.c
 
 // TODO
-//  * Probably switch to Elf64_*
 //  * Check that arguments should be stored the same way as Loki.
 
 #include <cassert>
 #include <cstring>
 #include <elf.h>
 #include <fstream>
+#include <iostream>
 #include <stdio.h>
 #include <vector>
 #include "binary_parser.h"
@@ -61,6 +61,9 @@ Elf64_Ehdr get_elf_header(ifstream& file) {
   file.seekg(0, file.beg);
   file.read((char*)&header, sizeof(Elf64_Ehdr));
 
+  if (header.e_machine != EM_RISCV)
+    throw std::runtime_error("Received non-RISC-V binary");
+
   return header;
 }
 
@@ -69,14 +72,28 @@ Elf64_Shdr get_section_header(ifstream& file, Elf64_Ehdr& elf_header,
   int num_sections = elf_header.e_shnum;
 
   assert(section >= 0);
-  assert(section <= num_sections);
+  assert(section < num_sections);
 
   Elf64_Shdr section_header;
   uint offset = elf_header.e_shoff + elf_header.e_shentsize*section;
   file.seekg(offset, file.beg);
-  file.read((char*)&section_header, sizeof(Elf32_Shdr));
+  file.read((char*)&section_header, sizeof(Elf64_Shdr));
 
   return section_header;
+}
+
+Elf64_Sym get_symbol(ifstream& file, Elf64_Shdr& section_header, int symbol) {
+  int num_symbols = section_header.sh_size / section_header.sh_entsize;
+
+  assert(symbol >= 0);
+  assert(symbol < num_symbols);
+
+  Elf64_Sym sym;
+  uint offset = section_header.sh_offset + section_header.sh_entsize*symbol;
+  file.seekg(offset, file.beg);
+  file.read((char*)&sym, sizeof(Elf64_Sym));
+
+  return sym;
 }
 
 DataBlock get_section(ifstream& file, Elf64_Shdr& header) {
@@ -100,9 +117,6 @@ vector<DataBlock> elf(char* filename) {
   ifstream file(filename);
 
   Elf64_Ehdr elf_header = get_elf_header(file);
-
-  if (elf_header.e_machine != EM_RISCV)
-    throw std::runtime_error("Received non-RISC-V binary to execute");
 
   int num_sections = elf_header.e_shnum;
   vector<DataBlock> blocks;
@@ -142,4 +156,46 @@ MemoryAddress BinaryParser::entry_point(char* filename) {
   Elf64_Ehdr elf_header = get_elf_header(file);
   file.close();
   return elf_header.e_entry;
+}
+
+MemoryAddress BinaryParser::symbol_location(char* file_name,
+                                            std::string symbol_name) {
+  ifstream file(file_name);
+  Elf64_Ehdr elf_header = get_elf_header(file);
+
+  int num_sections = elf_header.e_shnum;
+  for (int i=0; i<num_sections; i++) {
+    Elf64_Shdr section_header = get_section_header(file, elf_header, i);
+
+    if (section_header.sh_type != SHT_SYMTAB)
+      continue;
+
+    int num_symbols = section_header.sh_size / section_header.sh_entsize;
+    for (int j=0; j<num_symbols; j++) {
+      Elf64_Sym symbol = get_symbol(file, section_header, j);
+
+      // Section where the names are.
+      Elf64_Shdr target = get_section_header(file, elf_header,
+                                             section_header.sh_link);
+      uint64_t name_location = target.sh_offset + symbol.st_name;
+      if (file.fail())
+        break;
+
+      // +1 for null terminator.
+      char name[symbol_name.length()+1];
+      file.seekg(name_location, file.beg);
+      file.read(name, symbol_name.length()+1);
+
+      if (std::string(name) == symbol_name) {
+        file.close();
+        return symbol.st_value;
+      }
+    }
+  }
+
+  file.close();
+
+  std::cout << "[sim] Warning: couldn't find symbol \"" << symbol_name << "\" in ELF" << std::endl;
+
+  return -1;
 }

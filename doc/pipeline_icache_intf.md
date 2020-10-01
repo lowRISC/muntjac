@@ -9,7 +9,7 @@ There are no flow control signals. The cache is expected to process only one req
 | Signal | Type | Description |
 | --- | --- | --- |
 | `req_valid` | Boolean | Whether the request is valid. |
-| `req_pc` | 64 bits | Memory address to be accessed. |
+| `req_pc` | 64 bits | Memory address to be accessed. The cache will round this address down to the nearest 4-byte boundary, with the pipeline expected to extract the portion of the response that it needs. |
 | `req_reason` | `if_reason_e` | Reason for accessing instruction cache. ([Available options](#if_reason_e)) |
 | `req_prv` | Boolean | Whether the core was in Supervisor mode at the time of the most recent non-speculative instruction fetch. |
 | `req_sum` | Boolean | The value of the MSTATUS control register's SUM bit (permit Supervisor User Memory access) at the time of the most recent non-speculative instruction fetch. |
@@ -21,7 +21,7 @@ There are no flow control signals. The cache is expected to process only one req
 | --- | --- | --- |
 | `resp_valid` | Boolean | Whether the response is valid. |
 | `resp_instr` | 32 bits | Response instruction. |
-| `resp_exception` | Boolean | Whether there was an exception when accessing the instruction. The only possible exception is a page fault. |
+| `resp_exception` | Boolean | Whether there was an exception when accessing the instruction. |
 | `resp_ex_code` | `exc_cause_e` | The type of exception. ([Available options](#exc_cause_e)) |
 
 ## `if_reason_e`

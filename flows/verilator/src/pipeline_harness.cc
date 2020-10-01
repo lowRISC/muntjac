@@ -12,6 +12,7 @@
 #include "binary_parser.h"
 #include "main_memory.h"
 #include "memory_port.h"
+#include "page_table_walker.h"
 
 #include <verilated.h>
 #include <verilated_vcd_c.h>
@@ -41,6 +42,28 @@ int64_t sign_extend(uint64_t original, size_t bytes) {
   return (result << shift) >> shift;
 }
 
+// TODO: move this into the main memory class.
+// Select the appropriate access fault exception code for the given operation.
+exc_cause_e access_fault(MemoryOperation operation) {
+  switch (operation) {
+    case MEM_LOAD:
+    case MEM_LR:
+      return EXC_CAUSE_LOAD_ACCESS_FAULT;
+
+    case MEM_STORE:
+    case MEM_SC:
+    case MEM_AMO:
+      return EXC_CAUSE_STORE_ACCESS_FAULT;
+
+    case MEM_FETCH:
+      return EXC_CAUSE_INSTR_ACCESS_FAULT;
+
+    default:
+      assert(false);
+      break;
+  }
+}
+
 // 0 = no logging
 // 1 = all logging
 // Potential to add more options here.
@@ -52,8 +75,9 @@ class InstructionPort : public MemoryPort<uint32_t> {
 public:
   InstructionPort(DUT& dut, MainMemory& memory, uint latency) :
       MemoryPort<uint32_t>(memory, latency),
-      dut(dut) {
-    // Nothing.
+      dut(dut),
+      page_table_walker(memory) {
+    // Nothing
   }
 
 protected:
@@ -65,13 +89,36 @@ protected:
   virtual void get_request() {
     assert(can_receive_request());
 
-    // TODO:
-    //  * req_reason
-    //  * req_prv
-    //  * req_sum
-    //  * req_atp
+    // Always fetch from an aligned 4-byte block. If the lower bits were
+    // non-zero, the pipeline will extract the required part.
+    MemoryAddress address = dut.icache_req_pc & ~0x3;
 
-    MemoryAddress address = dut.icache_req_pc;
+    // Do virtual -> physical address translation if necessary.
+    AddressTranslationProtection64 atp(dut.icache_req_atp);
+    if (atp.mode() != ATP_MODE_BARE) {
+      ptw_response_t response = page_table_walker.translate(
+        address,
+        MEM_FETCH,
+        dut.icache_req_prv,
+        dut.icache_req_sum,
+        false,  // MXR bit not needed by icache
+        atp
+      );
+
+      if (response.exception == EXC_CAUSE_NONE)
+        address = response.physical_address;
+      else {
+        queue_response(address, response.exception);
+        return;
+      }
+    }
+
+    // TODO: move this into the main memory class.
+    if (address > Sv39::MAX_PHYSICAL_ADDRESS) {
+      queue_response(address, access_fault(MEM_FETCH));
+      return;
+    }
+
     uint32_t instruction = memory.read32(address);
     queue_response(instruction);
   }
@@ -83,24 +130,35 @@ protected:
   virtual void send_response(response_t& response) {
     dut.icache_resp_instr = response.data;
     dut.icache_resp_valid = 1;
-    dut.icache_resp_exception = 0;
+    dut.icache_resp_exception = (response.exception != EXC_CAUSE_NONE);
+
+    if (dut.icache_resp_exception) {
+      dut.icache_resp_ex_code = response.exception;
+
+      // Invalidate the normal response. (Only dcache does this?)
+      //dut.icache_resp_valid = 0;
+    }
+
     response.all_sent = true;
   }
 
   virtual void clear_response() {
     dut.icache_resp_valid = 0;
+    dut.icache_resp_exception = 0;
   }
 
 private:
 
   DUT& dut;
+  PageTableWalkerSv39 page_table_walker;
 };
 
 class DataPort : public MemoryPort<uint64_t> {
 public:
   DataPort(DUT& dut, MainMemory& memory, uint latency) :
       MemoryPort<uint64_t>(memory, latency),
-      dut(dut) {
+      dut(dut),
+      page_table_walker(memory) {
     clear_all_reservations();
   }
 
@@ -113,14 +171,34 @@ protected:
   virtual void get_request() {
     assert(can_receive_request());
 
-    // TODO:
-    //  * req_prv
-    //  * req_sum
-    //  * req_mxr
-    //  * req_atp
-
     MemoryAddress address = dut.dcache_req_address;
     uint64_t operand = dut.dcache_req_value;
+
+    // Do virtual -> physical address translation if necessary.
+    AddressTranslationProtection64 atp(dut.dcache_req_atp);
+    if (atp.mode() != ATP_MODE_BARE) {
+      ptw_response_t response = page_table_walker.translate(
+        address,
+        (MemoryOperation)dut.dcache_req_op,
+        dut.dcache_req_prv,
+        dut.dcache_req_sum,
+        dut.dcache_req_mxr,
+        atp
+      );
+
+      if (response.exception == EXC_CAUSE_NONE)
+        address = response.physical_address;
+      else {
+        queue_response(address, response.exception);
+        return;
+      }
+    }
+
+    // TODO: move this into the main memory class.
+    if (address > Sv39::MAX_PHYSICAL_ADDRESS) {
+      queue_response(address, access_fault((MemoryOperation)dut.dcache_req_op));
+      return;
+    }
 
     uint64_t data_read = 0;
     uint64_t data_write = 0;
@@ -239,12 +317,26 @@ protected:
   virtual void send_response(response_t& response) {
     dut.dcache_resp_value = response.data;
     dut.dcache_resp_valid = 1;
-    dut.dcache_ex_valid = 0;
+    dut.dcache_ex_valid = (response.exception != EXC_CAUSE_NONE);
+
+    if (dut.dcache_ex_valid) {
+      // Verilator breaks an exception_t (4-bit cause, 64-bit payload) down into
+      // an array of 3 32-bit values. Need to do some unpacking to get the
+      // information across properly.
+      dut.dcache_ex_exception[2] = response.exception;
+      dut.dcache_ex_exception[1] = response.data >> 32;
+      dut.dcache_ex_exception[0] = response.data & 0xFFFFFFFF;
+
+      // Invalidate the normal response.
+      dut.dcache_resp_valid = 0;
+    }
+
     response.all_sent = true;
   }
 
   virtual void clear_response() {
     dut.dcache_resp_valid = 0;
+    dut.dcache_ex_valid = 0;
 
     // Also respond immediately to SFENCE signals (and clear the response when
     // the signal is deasserted again).
@@ -279,12 +371,13 @@ private:
   }
 
   DUT& dut;
+  PageTableWalkerSv39 page_table_walker;
 };
 
 void init(DUT& dut) {
   cycle = 0.0;
 
-  dut.clk_i = 0;
+  dut.clk_i = 1;
   dut.rst_ni = 1;
 
   dut.icache_resp_valid = 0;
@@ -309,21 +402,20 @@ void reset(DUT& dut, MemoryAddress program_counter) {
   dut.rst_ni = 0;
 
   for (int i=0; i<10; i++) {
-    dut.clk_i = !dut.clk_i;
     dut.eval();
-    cycle += 0.5;
+    dut.clk_i = !dut.clk_i;
   }
 
   dut.rst_ni = 1;
-  dut.eval();
-
   dut.pipeline_wrapper->write_reset_pc(program_counter);
+  dut.eval();
 }
 
-// Trap on writes to a magic memory address.
-// This behaviour may be specific to riscv-tests.
+// Trap on accesses to magic memory addresses.
+MemoryAddress tohost = -1;
+MemoryAddress fromhost = -1;
 bool is_system_call(MemoryAddress address, uint64_t write_data) {
-  return (address == 0x80010000);
+  return (address == tohost) || (address == fromhost);
 }
 void system_call(MemoryAddress address, uint64_t write_data) {
   assert(is_system_call(address, write_data));
@@ -372,9 +464,6 @@ int main(int argc, char** argv) {
     if (arg_string.rfind("--memory-latency", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
       main_memory_latency = std::stoi(value);
-
-      // FIXME
-      assert(main_memory_latency >= 2);
     }
     else if (arg_string.rfind("--timeout", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
@@ -414,6 +503,10 @@ int main(int argc, char** argv) {
   MemoryAddress entry_point = BinaryParser::entry_point(argv[arg]);
   MemoryAddress pc = 0;
 
+  // System calls: this may be specific to riscv-tests.
+  tohost = BinaryParser::symbol_location(argv[arg], "tohost");
+  fromhost = BinaryParser::symbol_location(argv[arg], "fromhost");
+
   VerilatedVcdC trace;
   if (trace_on) {
     Verilated::traceEverOn(true);
@@ -425,15 +518,34 @@ int main(int argc, char** argv) {
   reset(dut, entry_point);
 
   while (!Verilated::gotFinish() && cycle < timeout) {
-    dut.clk_i = !dut.clk_i;
-
-    if (dut.clk_i) {
-      instruction_port.cycle(cycle);
-      data_port.cycle(cycle);
-    }
+    dut.clk_i = 1;
 
     dut.eval();
 
+    if (trace_on) {
+      trace.dump((uint64_t)(10*cycle));
+      trace.flush();
+    }
+
+
+    cycle += 0.5;
+    dut.clk_i = 0;
+
+    // The pipeline updates its outputs on the posedge, so we need:
+    //   posedge -> eval -> get_inputs
+    instruction_port.get_inputs(cycle);
+    data_port.get_inputs(cycle);
+
+    dut.eval();
+
+    // The pipeline may respond to these signals combinatorically, and then
+    // confirm a state change on the next posedge, so we need:
+    //   set_outputs -> eval -> posedge -> eval
+    instruction_port.set_outputs(cycle);
+    data_port.set_outputs(cycle);
+
+    // Could have extra trace dumps between interface activity and dut activity.
+    // If so, make small offsets to the dump times, e.g. 10*cycle + 2.
     if (trace_on) {
       trace.dump((uint64_t)(10*cycle));
       trace.flush();
