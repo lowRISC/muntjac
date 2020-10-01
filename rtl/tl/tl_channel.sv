@@ -17,7 +17,10 @@ interface tl_channel #(
     parameter  int unsigned SourceIdWidth = 1,
 
     // The number of bits of SinkIds used by the device
-    parameter  int unsigned SinkIdWidth   = 1
+    parameter  int unsigned SinkIdWidth   = 1,
+
+    // Whether the device guarantees to reply requests in FIFO order
+    parameter  bit          FifoReply     = 1
 );
 
   import tl_pkg::*;
