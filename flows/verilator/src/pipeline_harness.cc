@@ -304,8 +304,9 @@ void print_help() {
   cout << "Usage: muntjac_pipeline [simulator args] <program> [program args]" << endl;
   cout << endl;
   cout << "Simulator arguments:" << endl;
-  cout << "  -memory-latency=X\tSet main memory latency to X cycles" << endl;
-  cout << "  -timeout=X\t\tForce end of simulation after X cycles" << endl;
+  cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
+  cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
+  cout << "  --trace=X\t\tDump VCD output to file X" << endl;
   cout << "  -v\t\t\tDisplay additional information as simulation proceeds" << endl;
   cout << "  --help\t\tDisplay this information and exit" << endl;
 }
@@ -322,18 +323,18 @@ int main(int argc, char** argv) {
   while ((arg < argc) && (argv[arg][0] == '-')) {
     string arg_string = argv[arg];
 
-    if (arg_string.rfind("-memory-latency", 0) == 0) {
+    if (arg_string.rfind("--memory-latency", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
       main_memory_latency = std::stoi(value);
 
       // FIXME
       assert(main_memory_latency >= 2);
     }
-    else if (arg_string.rfind("-timeout", 0) == 0) {
+    else if (arg_string.rfind("--timeout", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
       timeout = std::stoi(value);
     }
-    else if (arg_string.rfind("-trace", 0) == 0) {
+    else if (arg_string.rfind("--trace", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
       trace_file = value;
       trace_on = true;
