@@ -389,20 +389,18 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic [2:0] refill_index_q, refill_index_d;
 
-  logic [SinkWidth-1:0] ack_sink_q, ack_sink_d;
-  logic                 ack_pending_q, ack_pending_d;
-
   wire [SinkWidth-1:0] mem_grant_sink = mem.d_sink;
-  wire                 mem_ack_ready  = mem.e_ready;
 
   typedef enum logic [1:0] {
     RefillStateIdle,
     RefillStateProgress,
-    RefillStateComplete,
-    RefillStateAck
+    RefillStateComplete
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
+
+  assign mem.e_valid = 1'b0;
+  assign mem.e_sink = 'x;
 
   always_comb begin
     refill_write_way = 'x;
@@ -418,26 +416,16 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
     refill_index_d = refill_index_q;
     refill_state_d = refill_state_q;
-    ack_sink_d = ack_sink_q;
-    ack_pending_d = ack_pending_q;
-
-    mem.e_valid = ack_pending_q;
-    mem.e_sink = ack_sink_q;
-
-    // Process Ack on E channel
-    if (mem_ack_ready) ack_pending_d = 1'b0;
 
     unique case (refill_state_q)
       RefillStateIdle: begin
         if (mem_grant_valid) begin
           refill_index_d = mem_grant_opcode == AccessAckData ? 0 : 7;
-          ack_sink_d = mem_grant_sink;
-          ack_pending_d = 1'b1;
 
           if (mem_grant_denied) begin
             // Consume this request instantly
             mem_grant_ready = 1'b1;
-            refill_state_d = RefillStateAck;
+            refill_state_d = RefillStateIdle;
           end else begin
             refill_lock_acq = 1'b1;
             refill_state_d = RefillStateProgress;
@@ -467,12 +455,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       RefillStateComplete: begin
         refill_index_d = 0;
         refill_lock_move = 1'b1;
-        refill_state_d = RefillStateAck;
-      end
-      RefillStateAck: begin
-        if (!ack_pending_d) begin
-          refill_state_d = RefillStateIdle;
-        end
+        refill_state_d = RefillStateIdle;
       end
     endcase
   end
@@ -481,13 +464,9 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     if (!rst_ni) begin
       refill_index_q <= 0;
       refill_state_q <= RefillStateIdle;
-      ack_sink_q <= 'x;
-      ack_pending_q <= 1'b0;
     end else begin
       refill_index_q <= refill_index_d;
       refill_state_q <= refill_state_d;
-      ack_sink_q <= ack_sink_d;
-      ack_pending_q <= ack_pending_d;
     end
   end
 
