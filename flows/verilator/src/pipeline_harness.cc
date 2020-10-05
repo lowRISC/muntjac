@@ -13,7 +13,8 @@
 #include "main_memory.h"
 #include "memory_port.h"
 
-#include "verilated.h"
+#include <verilated.h>
+#include <verilated_vcd_c.h>
 #include "Vpipeline_wrapper.h"
 #include "Vpipeline_wrapper_pipeline_wrapper.h"  // Verilator internals
 
@@ -313,6 +314,9 @@ int main(int argc, char** argv) {
   int main_memory_latency = 10;
   uint64_t timeout = 1000000;
 
+  bool trace_on = false;
+  string trace_file;
+
   // Check for simulation arguments. They all begin with a hyphen.
   int arg = 1; // Skip over argv[0] (this simulator)
   while ((arg < argc) && (argv[arg][0] == '-')) {
@@ -328,6 +332,11 @@ int main(int argc, char** argv) {
     else if (arg_string.rfind("-timeout", 0) == 0) {
       string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
       timeout = std::stoi(value);
+    }
+    else if (arg_string.rfind("-trace", 0) == 0) {
+      string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
+      trace_file = value;
+      trace_on = true;
     }
     else if (arg_string == "-v")
       log_level = 1;
@@ -358,6 +367,13 @@ int main(int argc, char** argv) {
   MemoryAddress entry_point = BinaryParser::entry_point(argv[arg]);
   MemoryAddress pc = 0;
 
+  VerilatedVcdC trace;
+  if (trace_on) {
+    Verilated::traceEverOn(true);
+  	dut.trace(&trace, 100);
+  	trace.open(trace_file.c_str());
+  }
+
   init(dut);
   reset(dut, entry_point);
 
@@ -371,6 +387,11 @@ int main(int argc, char** argv) {
 
     dut.eval();
 
+    if (trace_on) {
+      trace.dump((uint64_t)(10*cycle));
+      trace.flush();
+    }
+
     if (dut.dbg_pc_o != pc) {
       pc = dut.dbg_pc_o;
       MUNTJAC_LOG(1) << "PC: 0x" << std::hex << pc << std::dec << endl;
@@ -378,6 +399,9 @@ int main(int argc, char** argv) {
 
     cycle += 0.5;
   }
+
+  if (trace_on)
+    trace.close();
 
   if (cycle >= timeout) {
     MUNTJAC_ERROR << "Simulation timed out after " << timeout << " cycles" << endl;

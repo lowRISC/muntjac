@@ -119,3 +119,5 @@ targets:
         verilator_options:
           - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
           - "-o muntjac_pipeline"
+          - "--trace --trace-structs"
+          - "-O3"
