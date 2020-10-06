@@ -2,12 +2,16 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cassert>
+
+#include "logs.h"
 #include "main_memory.h"
 #include "memory_port.h"
 
 // Need to list the possible template parameters.
 template class MemoryPort<uint32_t>;
 template class MemoryPort<uint64_t>;
+
 
 template<typename T>
 MemoryPort<T>::MemoryPort(MainMemory& memory, uint latency) :

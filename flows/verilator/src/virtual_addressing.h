@@ -37,6 +37,27 @@ private:
 class Sv39 {
 public:
 
+  // The maximum physical memory address allowed by the spec.
+  static const MemoryAddress MAX_PHYSICAL_ADDRESS = (1ULL << 56) - 1;
+
+  // Base ISA width.
+  static const uint XLEN = 64;
+
+  // Bits in a virtual address.
+  static const uint VALEN = 39;
+
+  // Minimum size of a page.
+  static const uint PAGESIZE = 4096;
+
+  // Bytes in a page table entry.
+  static const uint PTESIZE = 8;
+
+  // Maximum depth of page table hierarchy.
+  static const uint LEVELS = 3;
+
+  // Corresponding MODE bits in the SATP control register.
+  static const atp_mode_e ATP_MODE = ATP_MODE_SV39;
+
   Sv39(uint64_t value) : value(value) {}
   Sv39(uint offset, uint ppn0, uint ppn1, uint ppn2) {
     value = offset
@@ -60,9 +81,6 @@ public:
       default: return (value >> 12) & 0x7FFFFFFULL;
     }
   }
-
-  // The maximum physical memory address allowed by the spec.
-  static const MemoryAddress MAX_PHYSICAL_ADDRESS = (1ULL << 56) - 1;
 
 private:
 

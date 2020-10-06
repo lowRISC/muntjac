@@ -4,38 +4,14 @@
 
 #include <cassert>
 
-#include "page_table_walker.h"
+#include "exceptions.h"
 #include "page_table_entry.h"
+#include "page_table_walker.h"
 #include "virtual_addressing.h"
-
-#include <iostream>
-using std::cout;
-using std::endl;
 
 PageTableWalkerSv39::PageTableWalkerSv39(MainMemory& memory) :
     memory(memory) {
   // Nothing
-}
-
-// Select the appropriate page fault exception code for the given operation.
-exc_cause_e page_fault(MemoryOperation operation) {
-  switch (operation) {
-    case MEM_LOAD:
-    case MEM_LR:
-      return EXC_CAUSE_LOAD_PAGE_FAULT;
-
-    case MEM_STORE:
-    case MEM_SC:
-    case MEM_AMO:
-      return EXC_CAUSE_STORE_PAGE_FAULT;
-
-    case MEM_FETCH:
-      return EXC_CAUSE_INSTR_PAGE_FAULT;
-
-    default:
-      assert(false);
-      break;
-  }
 }
 
 // This is the algorithm given in the RISC-V spec.
@@ -89,7 +65,7 @@ exc_cause_e page_fault(MemoryOperation operation) {
 //        pa.ppn[i − 1 : 0] = va.vpn[i − 1 : 0].
 //      • pa.ppn[LEVELS − 1 : i] = pte.ppn[LEVELS − 1 : i].
 
-ptw_response_t PageTableWalkerSv39::translate(
+MemoryAddress PageTableWalkerSv39::translate(
     MemoryAddress virtual_address,
     MemoryOperation operation,
     bool supervisor, // Are we in supervisor mode?
@@ -97,53 +73,40 @@ ptw_response_t PageTableWalkerSv39::translate(
     bool mxr,        // Allow loads from executable pages
     AddressTranslationProtection64 atp) { // Address translation data
 
+  // TODO: make the addressing mode a (template?) parameter.
+  assert(atp.mode() == Sv39::ATP_MODE);
+
   Sv39 va(virtual_address);
 
-  assert(atp.mode() == ATP_MODE_SV39);
-
-  ptw_response_t result;
-  result.physical_address = 0;
-  result.exception = EXC_CAUSE_NONE;
-
   // 1. Ensure all upper bits match the MSB of the virtual address.
-  bool msb = (virtual_address >> (VALEN - 1)) & 0x1;
-  int64_t upper = (int64_t)virtual_address >> VALEN;
-  if ((msb && (upper != -1)) || (!msb && (upper != 0))) {
-    // cout << "Invalid upper bits of virtual address" << endl;
-    result.exception = page_fault(operation);
-    return result;
-  }
+  bool msb = (virtual_address >> (Sv39::VALEN - 1)) & 0x1;
+  int64_t upper = (int64_t)virtual_address >> Sv39::VALEN;
+  if ((msb && (upper != -1)) || (!msb && (upper != 0)))
+    throw PageFault(virtual_address, "Invalid upper bits of virtual address");
 
   // 2. Initialisation.
-  MemoryAddress a = atp.physical_page_number() * PAGESIZE;
+  MemoryAddress a = atp.physical_page_number() * Sv39::PAGESIZE;
   MemoryAddress pte_address = 0;
   PageTableEntrySv39 pte(0);
-  int i = LEVELS - 1;
+  int i = Sv39::LEVELS - 1;
 
   while (true) {
     // 3. Access page table entry. (Not simulating memory latency).
-    pte_address = a + va.virtual_page_number(i) * PTESIZE;
+    pte_address = a + va.virtual_page_number(i) * Sv39::PTESIZE;
     pte = PageTableEntrySv39(memory.read64(pte_address));
-    // TODO: PMA + PMP checks?
 
     // 4. Check that PTE is valid.
-    if (!pte.valid() || (!pte.readable() && pte.writable())) {
-      // cout << "Invalid page table entry" << endl;
-      result.exception = page_fault(operation);
-      return result;
-    }
+    if (!pte.valid() || (!pte.readable() && pte.writable()))
+      throw PageFault(virtual_address, "Invalid page table entry");
 
     // 5. Check if this page table entry is a leaf.
     if (pte.readable() || pte.executable())
       break;
 
     i = i - 1;
-    if (i < 0) {
-      // cout << "Didn't find leaf page" << endl;
-      result.exception = page_fault(operation);
-      return result;
-    }
-    a = pte.physical_page_number() * PAGESIZE;
+    if (i < 0)
+      throw PageFault(virtual_address, "Didn't find leaf page");
+    a = pte.physical_page_number() * Sv39::PAGESIZE;
   }
 
   // 6. Check permissions.
@@ -157,19 +120,14 @@ ptw_response_t PageTableWalkerSv39::translate(
       (execute && !pte.executable()) ||
       (supervisor && pte.user_mode_accessible() && (!sum || (execute && pte.executable()))) ||
       (!supervisor && !pte.user_mode_accessible())) {
-    // cout << "Insufficient permissions" << endl;
-    result.exception = page_fault(operation);
-    return result;
+    throw PageFault(virtual_address, "Insufficient permissions");
   }
 
   // 7. Check for misaligned superpage.
   if (i > 0)
     for (uint j=0; j<i; j++)
-      if (pte.physical_page_number(j) != 0) {
-        // cout << "Misaligned superpage" << endl;
-        result.exception = page_fault(operation);
-        return result;
-      }
+      if (pte.physical_page_number(j) != 0)
+        throw PageFault(virtual_address, "Misaligned superpage");
 
   // 8. Update page table entry's accessed/dirty bits.
   if (!pte.accessed() || (write && !pte.dirty())) {
@@ -179,7 +137,6 @@ ptw_response_t PageTableWalkerSv39::translate(
       pte.set_dirty();
 
     memory.write64(pte_address, pte.get_value());
-    // TODO: PMA + PMP checks?
   }
 
   // 9. Do address translation.
@@ -187,7 +144,6 @@ ptw_response_t PageTableWalkerSv39::translate(
   uint ppn0 = (i > 0) ? va.virtual_page_number(0) : pte.physical_page_number(0);
   uint ppn1 = (i > 1) ? va.virtual_page_number(1) : pte.physical_page_number(1);
   uint ppn2 = (i > 2) ? va.virtual_page_number(2) : pte.physical_page_number(2);
-  result.physical_address = Sv39(offset, ppn0, ppn1, ppn2).get_value();
-  return result;
+  return Sv39(offset, ppn0, ppn1, ppn2).get_value();
 
 }

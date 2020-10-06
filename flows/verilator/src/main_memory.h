@@ -20,6 +20,10 @@ public:
   MainMemory();
   ~MainMemory();
 
+  // Check whether the address is allowed to be accessed. Throw an AccessFault
+  // if not.
+  void check_access(MemoryAddress address);
+
   // Read `num_bytes` bytes, starting at `address`.
   DataBlock read(MemoryAddress address, size_t num_bytes);
 

@@ -98,7 +98,7 @@ jobs:
           chmod +x muntjac_pipeline
 
           for test in tests/${{ matrix.isa }}-*; do
-            /usr/bin/time --quiet -o $test.time -f "%e" ./muntjac_pipeline $test -timeout=1000000 > $test.out 2> $test.err || true
+            /usr/bin/time --quiet -o $test.time -f "%e" ./muntjac_pipeline $test --timeout=1000000 > $test.out 2> $test.err || true
 
             echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" > $test.xml
 

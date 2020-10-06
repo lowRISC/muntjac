@@ -7,6 +7,7 @@
 #ifndef MEMORY_PORT_H
 #define MEMORY_PORT_H
 
+#include <cassert>
 #include <queue>
 #include "main_memory.h"
 #include "types.h"

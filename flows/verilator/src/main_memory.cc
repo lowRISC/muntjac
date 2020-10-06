@@ -4,7 +4,10 @@
 
 #include <cassert>
 #include <cstring>
+
+#include "exceptions.h"
 #include "main_memory.h"
+#include "virtual_addressing.h"
 
 extern bool is_system_call(MemoryAddress address, uint64_t write_data);
 extern void system_call(MemoryAddress address, uint64_t write_data);
@@ -32,7 +35,14 @@ MainMemory::~MainMemory() {
     delete[] it->second;
 }
 
+void MainMemory::check_access(MemoryAddress address) {
+  // TODO: make virtual memory system configurable.
+  if (address > Sv39::MAX_PHYSICAL_ADDRESS)
+    throw AccessFault(address, "Physical address exceeds Sv39 limit");
+}
+
 DataBlock MainMemory::read(MemoryAddress address, size_t num_bytes) {
+  check_access(address + num_bytes - 1);
 
   char* data = new char[num_bytes];
 
@@ -65,6 +75,8 @@ DataBlock MainMemory::read(MemoryAddress address, size_t num_bytes) {
 }
 
 void MainMemory::write(DataBlock data) {
+  check_access(data.get_address() + data.get_num_bytes() - 1);
+
   size_t bytes_copied = 0;
   while (bytes_copied < data.get_num_bytes()) {
     char* page = get_page(data.get_address() + bytes_copied);
@@ -81,12 +93,16 @@ void MainMemory::write(DataBlock data) {
 }
 
 uint8_t MainMemory::read8(MemoryAddress address) {
+  check_access(address + sizeof(uint8_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   return page[offset];
 }
 
 uint16_t MainMemory::read16(MemoryAddress address) {
+  check_access(address + sizeof(uint16_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   uint16_t result;
@@ -107,6 +123,8 @@ uint16_t MainMemory::read16(MemoryAddress address) {
 }
 
 uint32_t MainMemory::read32(MemoryAddress address) {
+  check_access(address + sizeof(uint32_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   uint32_t result;
@@ -127,6 +145,8 @@ uint32_t MainMemory::read32(MemoryAddress address) {
 }
 
 uint64_t MainMemory::read64(MemoryAddress address) {
+  check_access(address + sizeof(uint64_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   uint64_t result;
@@ -152,6 +172,8 @@ void MainMemory::write8(MemoryAddress address, uint8_t data) {
     return;
   }
 
+  check_access(address + sizeof(uint8_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   page[offset] = data;
@@ -162,6 +184,8 @@ void MainMemory::write16(MemoryAddress address, uint16_t data) {
     system_call(address, data);
     return;
   }
+
+  check_access(address + sizeof(uint16_t) - 1);
 
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
@@ -186,6 +210,8 @@ void MainMemory::write32(MemoryAddress address, uint32_t data) {
     return;
   }
 
+  check_access(address + sizeof(uint32_t) - 1);
+
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);
   uint32_t result = data;
@@ -208,6 +234,8 @@ void MainMemory::write64(MemoryAddress address, uint64_t data) {
     system_call(address, data);
     return;
   }
+
+  check_access(address + sizeof(uint64_t) - 1);
 
   char* page = get_page(address);
   MemoryAddress offset = get_offset(address);

@@ -16,7 +16,9 @@
 #include <iostream>
 #include <stdio.h>
 #include <vector>
+
 #include "binary_parser.h"
+#include "logs.h"
 #include "main_memory.h"
 
 using std::ifstream;
@@ -195,7 +197,7 @@ MemoryAddress BinaryParser::symbol_location(char* file_name,
 
   file.close();
 
-  std::cout << "[sim] Warning: couldn't find symbol \"" << symbol_name << "\" in ELF" << std::endl;
+  MUNTJAC_WARN << "Couldn't find symbol \"" << symbol_name << "\" in ELF" << endl;
 
   return -1;
 }
