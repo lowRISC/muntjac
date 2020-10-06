@@ -34,7 +34,7 @@ jobs:
       - name: Extract compiler toolchain
         run: |
           tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
-          echo "::add-path::`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin"
+          echo "`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin" >> $GITHUB_PATH
 
       - name: Build ISA tests
         run: |
