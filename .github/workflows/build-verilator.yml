@@ -26,7 +26,7 @@ jobs:
         run: pip3 install setuptools wheel
 
       - name: Install FuseSoC
-        run: pip3 install fusesoc
+        run: pip3 install -r python-requirements.txt
 
       - name: Run build
         run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1

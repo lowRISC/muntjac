@@ -25,7 +25,7 @@ jobs:
         run: pip3 install setuptools wheel
 
       - name: Install FuseSoC
-        run: pip3 install fusesoc
+        run: pip3 install -r python-requirements.txt
 
       - name: Run lint
         run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1
