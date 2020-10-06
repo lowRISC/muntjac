@@ -1,4 +1,4 @@
-module muntjac_core import muntjac_pkg::*; #(
+module muntjac_pipeline import muntjac_pkg::*; #(
 ) (
     // Clock and reset
     input  logic            clk_i,
