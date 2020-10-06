@@ -277,7 +277,7 @@ void reset(DUT& dut, MemoryAddress program_counter) {
 // Trap on writes to a magic memory address.
 // This behaviour may be specific to riscv-tests.
 bool is_system_call(MemoryAddress address, uint64_t write_data) {
-  return (address == 0x80001000);
+  return (address == 0x80010000);
 }
 void system_call(MemoryAddress address, uint64_t write_data) {
   assert(is_system_call(address, write_data));

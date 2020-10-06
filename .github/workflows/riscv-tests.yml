@@ -10,17 +10,22 @@ on:
 
 jobs:
 
-  # TODO: building tests does not depend on Verilator. Consider pulling this out
-  # to a separate workflow.
   build:
     runs-on: ubuntu-20.04
 
     steps:
-      # Checks-out repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
+
+      - name: Checkout riscv-tests
+        uses: actions/checkout@v2
         with:
           repository: riscv/riscv-tests
           submodules: recursive
+          path: riscv-tests
+
+      - name: Override with custom link.ld
+        run: |
+          cp flows/link.ld riscv-tests/env/p/link.ld
 
       - name: Download compiler toolchain
         uses: i3h/download-release-asset@v1
@@ -38,17 +43,18 @@ jobs:
 
       - name: Build ISA tests
         run: |
-          cd $GITHUB_WORKSPACE/isa
+          cd $GITHUB_WORKSPACE/riscv-tests/isa
           make -j
           rm *.dump
-          mkdir $GITHUB_WORKSPACE/tests
-          mv rv64*-*-* $GITHUB_WORKSPACE/tests
+          mkdir $GITHUB_WORKSPACE/riscv-tests/tests
+          rm rv64mi-p-breakpoint
+          mv rv64*-*-* $GITHUB_WORKSPACE/riscv-tests/tests
 
       - name: Upload test binaries
         uses: actions/upload-artifact@v2
         with:
           name: isa-tests
-          path: tests
+          path: riscv-tests/tests
           if-no-files-found: error
 
 
