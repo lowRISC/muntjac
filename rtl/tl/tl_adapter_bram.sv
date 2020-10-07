@@ -18,12 +18,33 @@ module tl_adapter_bram #(
 
   import tl_pkg::*;
 
-  localparam DataBitWidth = $clog2(DataWidthInBytes);
+  localparam NonBurstSize = $clog2(DataWidthInBytes);
 
   // Static checks of interface matching
+  if (host.NumCachedHosts != 0) $fatal(1, "host.NumCachedHosts != 0");
   if (DataWidth != host.DataWidth ||
-      DataBitWidth + BramAddrWidth > host.AddrWidth)
+      NonBurstSize + BramAddrWidth > host.AddrWidth)
     $fatal(1, "AddrWidth or DataWidth mismatch");
+  if (host.MaxSize > NonBurstSize) $fatal(1, "Bursts not supported");
+
+  /////////////////////
+  // Unused channels //
+  /////////////////////
+
+  // We don't use channel B.
+  assign host.b_valid = 1'b0;
+  assign host.b_opcode = tl_b_op_e'('x);
+  assign host.b_param = 'x;
+  assign host.b_size = 'x;
+  assign host.b_source = 'x;
+  assign host.b_address = 'x;
+  assign host.b_mask = 'x;
+  assign host.b_corrupt = 'x;
+  assign host.b_data = 'x;
+
+  // We don't use channel C and E
+  assign host.c_ready = 1'b1;
+  assign host.e_ready = 1'b1;
 
   /////////////////////////////////
   // Request channel handshaking //
@@ -39,7 +60,7 @@ module tl_adapter_bram #(
 
   assign bram_en_o    = do_op;
   assign bram_we_o    = host.a_opcode != Get;
-  assign bram_addr_o  = host.a_address[DataBitWidth +: BramAddrWidth];
+  assign bram_addr_o  = host.a_address[NonBurstSize +: BramAddrWidth];
   assign bram_wmask_o = host.a_mask;
   assign bram_wdata_o = host.a_data;
 

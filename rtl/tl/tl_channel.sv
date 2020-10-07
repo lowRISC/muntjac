@@ -10,16 +10,20 @@ interface tl_channel #(
     // Capability of the link //
     ////////////////////////////
 
-    // The maximum number of bursts supported
-    parameter  int unsigned BurstSize     = 8,
+    // The maximum size of transactions supported
+    parameter  int unsigned MaxSize       = 6,
 
-    // The number of bits of SourceIds used by the host
+    // The number of hosts attached to this link
+    parameter  int unsigned NumHosts       = 1,
+    parameter  int unsigned NumCachedHosts = 1,
+
+    // The number of bits of SourceIds used per host
     parameter  int unsigned SourceIdWidth = 1,
 
-    // The number of bits of SinkIds used by the device
+    // The number of bits of SinkIds used by all devices
     parameter  int unsigned SinkIdWidth   = 1,
 
-    // Whether the device guarantees to reply requests in FIFO order
+    // Whether responses to requests in FIFO order
     parameter  bit          FifoReply     = 1
 );
 
@@ -28,8 +32,8 @@ interface tl_channel #(
   localparam int unsigned MaskWidth = DataWidth / 8;
 
   if ((1 << $clog2(DataWidth)) != DataWidth) $fatal(1, "DataWidth is not power of 2");
-  if ((1 << $clog2(BurstSize)) != BurstSize) $fatal(1, "BurstSize is not power of 2");
-  if (2 ** (2 ** SizeWidth - 1) < MaskWidth * BurstSize) $fatal(1, "SizeWidth is not large enough");
+  if (MaxSize >= 2 ** SizeWidth) $fatal(1, "SizeWidth is not large enough");
+  if (SourceIdWidth + $clog2(NumHosts) > SourceWidth) $fatal(1, "SourceWidth is not large enough");
 
   logic                       a_ready;
   logic                       a_valid;
