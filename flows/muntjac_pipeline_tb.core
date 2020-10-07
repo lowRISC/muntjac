@@ -2,30 +2,33 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:muntjac:pipeline:0.1"
-description: "Muntjac, a small RV64IMAC pipeline (no caches)"
+name: "lowrisc:muntjac:pipeline_tb:0.1"
+description: "Test of Muntjac Pipeline"
 
 filesets:
   files_rtl:
     depend:
-      - lowrisc:prim_generic:ram_2p
-    files:
-      - ../rtl/muntjac_pkg.sv
-      - ../rtl/icache/icache_intf.sv
-      - ../rtl/dcache/dcache_intf.sv
-      - ../rtl/muntjac_alu.sv
-      - ../rtl/muntjac_pipeline.sv
-      - ../rtl/muntjac_cs_registers.sv
-      - ../rtl/muntjac_backend.sv
-      - ../rtl/muntjac_decoder.sv
-      - ../rtl/muntjac_compressed_decoder.sv
-      - ../rtl/muntjac_btb.sv
-      - ../rtl/muntjac_bp_bimodal.sv
-      - ../rtl/muntjac_ras.sv
-      - ../rtl/muntjac_frontend.sv
-      - ../rtl/muntjac_reg_file_fpga.sv
-      - ../rtl/mul.sv
+      - lowrisc:muntjac:pipeline
     file_type: systemVerilogSource
+
+  files_verilator:
+    files:
+      - verilator/rtl/pipeline_wrapper.sv
+    file_type: systemVerilogSource
+
+  files_verilator_harness:
+    files:
+      - verilator/src/binary_parser.h: {is_include_file: true}
+      - verilator/src/data_block.h: {is_include_file: true}
+      - verilator/src/main_memory.h: {is_include_file: true}
+      - verilator/src/memory_port.h: {is_include_file: true}
+      - verilator/src/types.h: {is_include_file: true}
+      - verilator/src/binary_parser.cc
+      - verilator/src/data_block.cc
+      - verilator/src/main_memory.cc
+      - verilator/src/memory_port.cc
+      - verilator/src/pipeline_harness.cc
+    file_type: cppSource
 
   files_lint_verilator:
     files:
@@ -57,7 +60,8 @@ targets:
       - tool_verilator ? (files_lint_verilator)
       - tool_veriblelint ? (files_lint_verible)
       - files_rtl
-    toplevel: muntjac_pipeline
+      - tool_verilator ? (files_verilator)
+    toplevel: pipeline_wrapper
     parameters:
       - tool_vivado ? (FPGA_XILINX=true)
   lint:
@@ -86,3 +90,18 @@ targets:
       veribleformat:
         verible_format_args:
           - "--inplace"
+  sim:
+    filesets:
+      - files_rtl
+      - files_verilator
+      - files_verilator_harness
+    default_tool: verilator
+    toplevel: pipeline_wrapper
+    tools:
+      verilator:
+        mode: cc
+        verilator_options:
+          - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
+          - "-o muntjac_pipeline"
+          - "--trace --trace-structs"
+          - "-O3"
