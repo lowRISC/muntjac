@@ -54,7 +54,7 @@ module axi_regslice #(
     //
 
     typedef master.aw_pack_t aw_pack_t;
-    regslice #(
+    openip_regslice #(
         .TYPE             (aw_pack_t),
         .FORWARD          ((AW_MODE & 1) != 0),
         .REVERSE          ((AW_MODE & 2) != 0),
@@ -81,7 +81,7 @@ module axi_regslice #(
     //
 
     typedef master.w_pack_t w_pack_t;
-    regslice #(
+    openip_regslice #(
         .TYPE             (w_pack_t),
         .FORWARD          ((W_MODE & 1) != 0),
         .REVERSE          ((W_MODE & 2) != 0),
@@ -102,7 +102,7 @@ module axi_regslice #(
     //
 
     typedef master.b_pack_t b_pack_t;
-    regslice #(
+    openip_regslice #(
         .TYPE             (b_pack_t),
         .FORWARD          ((B_MODE & 1) != 0),
         .REVERSE          ((B_MODE & 2) != 0),
@@ -123,7 +123,7 @@ module axi_regslice #(
     //
 
     typedef master.ar_pack_t ar_pack_t;
-    regslice #(
+    openip_regslice #(
         .TYPE             (ar_pack_t),
         .FORWARD          ((AR_MODE & 1) != 0),
         .REVERSE          ((AR_MODE & 2) != 0),
@@ -150,7 +150,7 @@ module axi_regslice #(
     //
 
     typedef master.r_pack_t r_pack_t;
-    regslice #(
+    openip_regslice #(
         .TYPE             (r_pack_t),
         .FORWARD          ((R_MODE & 1) != 0),
         .REVERSE          ((R_MODE & 2) != 0),

@@ -2,16 +2,13 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:adapter_tlul:0.1"
-description: "TL-UH to TL-UL interface adapter"
 
+name: "garyguo.net:openip:regslice"
+description: "Register Slice"
 filesets:
   files_rtl:
-    depend:
-      - lowrisc:tl:common
-      - garyguo.net:openip:regslice
     files:
-      - ../rtl/tl/tl_adapter_tlul.sv
+      - ../vendor/OpenIP/util/regslice.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
@@ -33,8 +30,7 @@ filesets:
 targets:
   default:
     filesets:
-      - tool_verilator ? (files_verilator_waiver)
-      - tool_ascentlint ? (files_ascentlint_waiver)
+      - tool_verilator   ? (files_verilator_waiver)
+      - tool_ascentlint  ? (files_ascentlint_waiver)
       - tool_veriblelint ? (files_veriblelint_waiver)
       - files_rtl
-

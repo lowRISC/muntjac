@@ -437,7 +437,7 @@ module axi_to_lite #(
     // Register slices (FIFOs) for passing information around.
     //
 
-    regslice #(
+    openip_regslice #(
         .TYPE             (xact_t),
         .HIGH_PERFORMANCE (HIGH_PERFORMANCE)
     ) rfifo (
@@ -451,7 +451,7 @@ module axi_to_lite #(
         .r_data  (rfifo_xact)
     );
 
-    regslice #(
+    openip_regslice #(
         .TYPE             (xact_t),
         .HIGH_PERFORMANCE (HIGH_PERFORMANCE)
     ) wfifo (

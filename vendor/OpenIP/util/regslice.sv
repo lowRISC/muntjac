@@ -32,7 +32,7 @@
 // HIGH_PERFORMANCE: If both FORWARD and REVERSE are set, set HIGH_PERFORMANCE to 1 allows 100% throughput while set
 //     HIGH_PERFORMANCE to 0 will create bubbles and allows 50% throughput only. This parameter is only honoured if
 //     both FORWARD and REVERSE are 1.
-module regslice #(
+module openip_regslice #(
     parameter DATA_WIDTH       = 1,
     parameter type TYPE        = logic [DATA_WIDTH-1:0],
     parameter FORWARD          = 1,

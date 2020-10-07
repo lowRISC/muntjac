@@ -72,7 +72,7 @@ module axi_lite_bram_ctrl #(
     logic                       aw_valid;
     logic                       aw_ready;
     logic [BRAM_ADDR_WIDTH-1:0] aw_addr;
-    regslice #(
+    openip_regslice #(
         .DATA_WIDTH   (BRAM_ADDR_WIDTH),
         .FORWARD      (1'b0)
     ) awfifo (
@@ -96,7 +96,7 @@ module axi_lite_bram_ctrl #(
         logic [STRB_WIDTH-1:0] strb;
     } w_pack_t;
 
-    regslice #(
+    openip_regslice #(
         .TYPE         (w_pack_t),
         .FORWARD      (1'b0)
     ) wfifo (
@@ -113,7 +113,7 @@ module axi_lite_bram_ctrl #(
     logic                       ar_valid;
     logic                       ar_ready;
     logic [BRAM_ADDR_WIDTH-1:0] ar_addr;
-    regslice #(
+    openip_regslice #(
         .DATA_WIDTH   (BRAM_ADDR_WIDTH),
         .FORWARD      (1'b0)
     ) arfifo (

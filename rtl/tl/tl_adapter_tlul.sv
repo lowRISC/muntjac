@@ -101,7 +101,7 @@ module tl_adapter_tlul import tl_pkg::*; #(
   logic xact_fifo_peek_valid;
   xact_t xact_fifo_peek_data;
 
-  regslice #(
+  openip_regslice #(
       .TYPE             (xact_t),
       .HIGH_PERFORMANCE (1'b1)
   ) xact_fifo (
