@@ -1,6 +1,8 @@
 module icache_uncached # (
     parameter XLEN = 64
 ) (
+    input clk,
+    input rstn,
     // Interface to CPU
     icache_intf.provider cache,
 
@@ -12,9 +14,6 @@ module icache_uncached # (
 
     localparam VA_LEN = XLEN == 64 ? 39 : 32;
     localparam PA_LEN = XLEN == 64 ? 56 : 34;
-
-    wire clk = cache.clk;
-    wire rstn = cache.rstn;
 
     // Bus valid/address that is only high for only cycle
     logic bus_valid;

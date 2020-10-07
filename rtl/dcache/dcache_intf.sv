@@ -1,17 +1,13 @@
 import muntjac_pkg::*;
 
 // Interfacing to the data cache
-interface dcache_intf #(
-    parameter XLEN = 64
-) (
-    input  logic clk,
-    input  logic rstn
-);
+interface dcache_intf;
+
     logic            req_valid;
     logic            req_ready;
-    logic [XLEN-1:0] req_address;
+    logic [63:0]     req_address;
     // Value to be stored or to be used in AMO operation.
-    logic [XLEN-1:0] req_value;
+    logic [63:0]     req_value;
     // Type of memory operation: LOAD, STORE, LR, SC, AMO
     mem_op_e         req_op;
     // Size of access. This must only be 2'b10 and 2'b11 when req_op is LR, SC or AMO.
@@ -25,10 +21,10 @@ interface dcache_intf #(
     logic            req_prv;
     logic            req_sum;
     logic            req_mxr;
-    logic [XLEN-1:0] req_atp;
+    logic [63:0]     req_atp;
 
     logic            resp_valid;
-    logic [XLEN-1:0] resp_value;
+    logic [63:0]     resp_value;
 
     logic            ex_valid;
     exception_t      ex_exception;
@@ -40,9 +36,6 @@ interface dcache_intf #(
     logic            notif_ready;
 
     modport provider (
-        input  clk,
-        input  rstn,
-
         input  req_valid,
         output req_ready,
 
@@ -69,9 +62,6 @@ interface dcache_intf #(
     );
 
     modport user (
-        input  clk,
-        input  rstn,
-
         output req_valid,
         input  req_ready,
 

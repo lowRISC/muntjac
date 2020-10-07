@@ -58,8 +58,8 @@ module pipeline_wrapper #(
 
 );
 
-  icache_intf #(.XLEN (64)) icache(clk_i, rst_ni);
-  dcache_intf #(.XLEN (64)) dcache(clk_i, rst_ni);
+  icache_intf icache();
+  dcache_intf dcache();
 
   muntjac_pipeline #(
   ) pipeline (

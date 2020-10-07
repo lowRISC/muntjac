@@ -118,15 +118,14 @@ endfunction
 module dcache_uncached # (
     parameter XLEN = 64
 ) (
+    input clk,
+    input rstn,
     // Interface to CPU
     dcache_intf.provider cache,
 
     // AXI channel to memory
     axi_channel.master mem
 );
-
-    wire clk = cache.clk;
-    wire rstn = cache.rstn;
 
     wire            req_valid    = cache.req_valid;
     wire [XLEN-1:0] req_address  = cache.req_address;

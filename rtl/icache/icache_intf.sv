@@ -1,15 +1,10 @@
 // Interfacing to the instruction cache
-interface icache_intf #(
-    parameter XLEN = 64
-) (
-    input  logic clk,
-    input  logic rstn
-);
+interface icache_intf;
 
     import muntjac_pkg::*;
 
     logic            req_valid;
-    logic [XLEN-1:0] req_pc;
+    logic [63:0]     req_pc;
     if_reason_e      req_reason;
     // The following values are for address translation. Because they usually are fed directly from
     // CSR register file, when they are changed, pipeline should be flushed. This includes:
@@ -18,7 +13,7 @@ interface icache_intf #(
     // * Change address translation, i.e. change SATP and SFENCE.VMA
     logic            req_prv;
     logic            req_sum;
-    logic [XLEN-1:0] req_atp;
+    logic [63:0]     req_atp;
 
     logic            resp_valid;
     logic [31:0]     resp_instr;
@@ -31,9 +26,6 @@ interface icache_intf #(
     // as valid is high for single cycle per request.
 
     modport provider (
-        input  clk,
-        input  rstn,
-
         input  req_valid,
         input  req_pc,
         input  req_reason,
@@ -48,9 +40,6 @@ interface icache_intf #(
     );
 
     modport user (
-        input  clk,
-        input  rstn,
-
         output req_valid,
         output req_pc,
         output req_reason,
