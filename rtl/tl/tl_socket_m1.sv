@@ -145,9 +145,9 @@ module tl_socket_m1 import tl_pkg::*; #(
         if (req_len_q == 0) begin
           if (req.opcode < 4)
             req_len_q <= burst_len(req.size);
-          end else begin
-            req_len_q <= req_len_q - 1;
-          end
+        end else begin
+          req_len_q <= req_len_q - 1;
+        end
       end
     end
   end
@@ -318,9 +318,9 @@ module tl_socket_m1 import tl_pkg::*; #(
           if (rel_len_q == 0) begin
             if (rel.opcode[0])
               rel_len_q <= burst_len(rel.size);
-            end else begin
-              rel_len_q <= rel_len_q - 1;
-            end
+          end else begin
+            rel_len_q <= rel_len_q - 1;
+          end
         end
       end
     end
