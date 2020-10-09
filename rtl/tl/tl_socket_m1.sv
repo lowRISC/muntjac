@@ -7,12 +7,21 @@ module tl_socket_m1 import tl_pkg::*; #(
 
   parameter  int unsigned MaxSize        = 6,
   parameter  int unsigned NumCachedHosts = 1,
-  parameter  int unsigned SourceIdWidth  = 1,
 
   // Number of host links
   parameter  int unsigned NumLinks       = 1,
+  localparam int unsigned LinkWidth     = vbits(NumLinks),
   // Number of host links that contain cached hosts
-  parameter  int unsigned NumCachedLinks = 1
+  parameter  int unsigned NumCachedLinks = NumLinks,
+
+  // Source ID routing table.
+  // These 4 parameters determine how B and C channel messages are to be routed.
+  // Ranges must not overlap.
+  // If no ranges match, the message is routed to Link 0.
+  parameter int unsigned NumSourceRange = 1,
+  parameter logic [NumSourceRange-1:0][SourceWidth-1:0] SourceBase = '0,
+  parameter logic [NumSourceRange-1:0][SourceWidth-1:0] SourceMask = '0,
+  parameter logic [NumSourceRange-1:0][LinkWidth-1:0]   SourceLink = '0
 ) (
   input  logic clk_i,
   input  logic rst_ni,
@@ -92,20 +101,11 @@ module tl_socket_m1 import tl_pkg::*; #(
   logic [NumLinks-1:0] req_ready_mult;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    logic [SourceWidth-1:0] source;
-
-    // Shift source IDs
-    if (SourceIdWidth == 0) begin
-      assign source = i;
-    end else begin
-      assign source = {i, host[i].a_source[SourceIdWidth-1:0]};
-    end
-
     assign req_mult[i] = req_t'{
       host[i].a_opcode,
       host[i].a_param,
       host[i].a_size,
-      source,
+      host[i].a_source,
       host[i].a_address,
       host[i].a_mask,
       host[i].a_corrupt,
@@ -210,15 +210,15 @@ module tl_socket_m1 import tl_pkg::*; #(
 
   if (NumCachedLinks != 0) begin: prb_demux
 
-    logic [vbits(NumLinks)-1:0] prb_host_id;
-    logic [SourceWidth-1:0]     prb_source;
+    logic [LinkWidth-1:0] prb_host_id;
 
-    if (NumLinks == 1) begin
-      assign prb_host_id = 0;
-      assign prb_source  = device.b_source;
-    end else begin
-      assign prb_host_id = device.b_source[$clog2(NumLinks)-1:0];
-      assign prb_source  = device.b_source[SourceWidth-1:$clog2(NumLinks)];
+    always_comb begin
+      prb_host_id = 0;
+      for (int i = 0; i < NumSourceRange; i++) begin
+        if ((device.b_source &~ SourceMask[i]) == SourceBase[i]) begin
+          prb_host_id = SourceLink[i];
+        end
+      end
     end
 
     logic [NumCachedLinks-1:0] prb_ready_mult;
@@ -230,7 +230,7 @@ module tl_socket_m1 import tl_pkg::*; #(
       assign host[i].b_opcode  = device.b_opcode;
       assign host[i].b_param   = device.b_param;
       assign host[i].b_size    = device.b_size;
-      assign host[i].b_source  = prb_source;
+      assign host[i].b_source  = device.b_source;
       assign host[i].b_address = device.b_address;
       assign host[i].b_mask    = device.b_mask;
       assign host[i].b_corrupt = device.b_corrupt;
@@ -238,10 +238,6 @@ module tl_socket_m1 import tl_pkg::*; #(
     end
 
     assign device.b_ready = |prb_ready_mult;
-
-  end else begin
-
-    assign device.b_ready = 1'b1;
 
   end
 
@@ -267,20 +263,11 @@ module tl_socket_m1 import tl_pkg::*; #(
     logic [NumCachedLinks-1:0] rel_ready_mult;
 
     for (genvar i = 0; i < NumCachedLinks; i++) begin
-      logic [SourceWidth-1:0] source;
-
-      // Shift source IDs
-      if (SourceIdWidth == 0) begin
-        assign source = i;
-      end else begin
-        assign source = {i, host[i].c_source[SourceIdWidth-1:0]};
-      end
-
       assign rel_mult[i] = rel_t'{
         host[i].c_opcode,
         host[i].c_param,
         host[i].c_size,
-        source,
+        host[i].c_source,
         host[i].c_address,
         host[i].c_corrupt,
         host[i].c_data
@@ -394,15 +381,15 @@ module tl_socket_m1 import tl_pkg::*; #(
   // Grant channel demultiplexer //
   /////////////////////////////////
 
-  logic [vbits(NumLinks)-1:0] gnt_host_id;
-  logic [SourceWidth-1:0]     gnt_source;
+  logic [LinkWidth-1:0] gnt_host_id;
 
-  if (NumLinks == 1) begin
-    assign gnt_host_id = 0;
-    assign gnt_source  = device.d_source;
-  end else begin
-    assign gnt_host_id = device.d_source[$clog2(NumLinks)-1:0];
-    assign gnt_source  = device.d_source[SourceWidth-1:$clog2(NumLinks)];
+  always_comb begin
+    gnt_host_id = 0;
+    for (int i = 0; i < NumSourceRange; i++) begin
+      if ((device.d_source &~ SourceMask[i]) == SourceBase[i]) begin
+        gnt_host_id = SourceLink[i];
+      end
+    end
   end
 
   logic [NumLinks-1:0] gnt_ready_mult;
@@ -414,7 +401,7 @@ module tl_socket_m1 import tl_pkg::*; #(
     assign host[i].d_opcode  = device.d_opcode;
     assign host[i].d_param   = device.d_param;
     assign host[i].d_size    = device.d_size;
-    assign host[i].d_source  = gnt_source;
+    assign host[i].d_source  = device.d_source;
     assign host[i].d_sink    = device.d_sink;
     assign host[i].d_denied  = device.d_denied;
     assign host[i].d_corrupt = device.d_corrupt;

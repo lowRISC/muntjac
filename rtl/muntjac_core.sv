@@ -42,8 +42,13 @@ module muntjac_core import muntjac_pkg::*; #(
 
   tl_socket_m1 #(
     .SourceWidth(4),
-    .SourceIdWidth(0),
-    .NumLinks (4)
+    .NumLinks (4),
+    .NumCachedLinks (1),
+
+    .NumSourceRange(3),
+    .SourceBase({4'd1, 4'd2, 4'd3}),
+    .SourceMask({4'd0, 4'd0, 4'd0}),
+    .SourceLink({2'd1, 2'd2, 2'd3})
   ) socket (
     .clk_i,
     .rst_ni,
@@ -51,11 +56,17 @@ module muntjac_core import muntjac_pkg::*; #(
     .device (mem)
   );
 
-  muntjac_icache icache_inst (
+  muntjac_icache #(
+    .SourceBase (1),
+    .PtwSourceBase (3)
+  ) icache_inst (
       clk_i, rst_ni, icache, ch[1], ch[3]
   );
 
-  muntjac_dcache dcache_inst (
+  muntjac_dcache #(
+    .SourceBase (0),
+    .PtwSourceBase (2)
+  ) dcache_inst (
       clk_i, rst_ni, dcache, ch[0], ch[2]
   );
 
