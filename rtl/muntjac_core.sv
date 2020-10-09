@@ -1,4 +1,6 @@
 module muntjac_core import muntjac_pkg::*; #(
+  parameter int unsigned SourceWidth = 4,
+  parameter int unsigned SourceBase = 0
 ) (
     // Clock and reset
     input  logic            clk_i,
@@ -17,6 +19,13 @@ module muntjac_core import muntjac_pkg::*; #(
     // Debug connections
     output logic [63:0] dbg_pc_o
 );
+
+  localparam [SourceWidth-1:0] DcacheSourceBase = SourceBase | 0;
+  localparam [SourceWidth-1:0] IcacheSourceBase = SourceBase | 1;
+  localparam [SourceWidth-1:0] DptwSourceBase = SourceBase | 2;
+  localparam [SourceWidth-1:0] IptwSourceBase = SourceBase | 3;
+
+  localparam [SourceWidth-1:0] SourceMask = 0;
 
   icache_intf icache();
   dcache_intf dcache();
@@ -37,18 +46,18 @@ module muntjac_core import muntjac_pkg::*; #(
   tl_channel #(
     .AddrWidth(56),
     .DataWidth(64),
-    .SourceWidth(4)
+    .SourceWidth(SourceWidth)
   ) ch[4] ();
 
   tl_socket_m1 #(
-    .SourceWidth(4),
+    .SourceWidth(SourceWidth),
     .NumLinks (4),
     .NumCachedLinks (1),
 
     .NumSourceRange(3),
-    .SourceBase({4'd1, 4'd2, 4'd3}),
-    .SourceMask({4'd0, 4'd0, 4'd0}),
-    .SourceLink({2'd1, 2'd2, 2'd3})
+    .SourceBase({IcacheSourceBase, DptwSourceBase, IptwSourceBase}),
+    .SourceMask({      SourceMask,     SourceMask,     SourceMask}),
+    .SourceLink({2'd            1, 2'd          2, 2'd          3})
   ) socket (
     .clk_i,
     .rst_ni,
@@ -57,15 +66,15 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   muntjac_icache #(
-    .SourceBase (1),
-    .PtwSourceBase (3)
+    .SourceBase (IcacheSourceBase),
+    .PtwSourceBase (IptwSourceBase)
   ) icache_inst (
       clk_i, rst_ni, icache, ch[1], ch[3]
   );
 
   muntjac_dcache #(
-    .SourceBase (0),
-    .PtwSourceBase (2)
+    .SourceBase (DcacheSourceBase),
+    .PtwSourceBase (DptwSourceBase)
   ) dcache_inst (
       clk_i, rst_ni, dcache, ch[0], ch[2]
   );
