@@ -21,11 +21,9 @@ module tl_adapter_bram #(
   localparam NonBurstSize = $clog2(DataWidthInBytes);
 
   // Static checks of interface matching
-  if (host.NumCachedHosts != 0) $fatal(1, "host.NumCachedHosts != 0");
   if (DataWidth != host.DataWidth ||
       NonBurstSize + BramAddrWidth > host.AddrWidth)
     $fatal(1, "AddrWidth or DataWidth mismatch");
-  if (host.MaxSize > NonBurstSize) $fatal(1, "Bursts not supported");
 
   /////////////////////
   // Unused channels //

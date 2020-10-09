@@ -55,8 +55,6 @@ module tl_socket_1n import tl_pkg::*; #(
   if (host.SinkWidth > SinkWidth) $fatal(1, "SinkWidth mismatch");
   if (host.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
   if (host.SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-  if (host.MaxSize < MaxSize) $fatal(1, "MaxSize mismatch");
-  if (host.FifoReply) $fatal(1, "socket_1n does not perserve FIFO order");
 
   for (genvar i = 0; i < NumLinks; i++) begin
     initial begin
@@ -64,7 +62,6 @@ module tl_socket_1n import tl_pkg::*; #(
       if (device[i].SinkWidth < SinkWidth) $fatal(1, "SinkWidth mismatch");
       if (device[i].DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
       if (device[i].SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-      if (device[i].MaxSize > MaxSize) $fatal(1, "MaxSize mismatch");
     end
   end
 

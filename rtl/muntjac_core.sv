@@ -37,8 +37,7 @@ module muntjac_core import muntjac_pkg::*; #(
   tl_channel #(
     .AddrWidth(56),
     .DataWidth(64),
-    .SourceWidth(4),
-    .SourceIdWidth(0)
+    .SourceWidth(4)
   ) ch[4] ();
 
   tl_socket_m1 #(

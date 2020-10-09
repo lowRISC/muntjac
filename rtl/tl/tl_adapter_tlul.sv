@@ -26,16 +26,9 @@ module tl_adapter_tlul import tl_pkg::*; #(
   localparam int unsigned BurstLenWidth = $clog2(MaxBurstLen);
 
   // Check if parameters are well formed
-  if (host.NumCachedHosts != 0) $fatal(1, "host.NumCachedHosts != 0");
-  if (device.NumHosts != 1) $fatal(1, "device.NumHosts != 1");
-  if (device.NumCachedHosts != 0) $fatal(1, "device.NumCachedHosts != 0");
-  if (device.SourceIdWidth < host.SourceIdWidth + $clog2(device.NumHosts) + BurstLenWidth)
-    $fatal(1, "tl_adapter_tlul does not have enough source ids");
-  if (host.MaxSize > HostMaxSize) $fatal(1, "MaxSize does not match");
   if (host.DataWidth != DataWidth || device.DataWidth != DataWidth) $fatal(1, "DataWidth does not match");
   if (host.SizeWidth != SizeWidth || device.SizeWidth != SizeWidth) $fatal(1, "SizeWidth does not match");
   if (host.SourceWidth != HostSourceWidth || device.SourceWidth != DeviceSourceWidth) $fatal(1, "SourceWidth does not match");
-  if (!device.FifoReply) $fatal(1, "device must reply in FIFO order");
   if (BurstLenWidth == 0) $fatal(1, "MaxBurstLen is 1 already");
 
   /////////////////////

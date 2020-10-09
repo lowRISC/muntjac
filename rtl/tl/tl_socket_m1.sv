@@ -42,10 +42,6 @@ module tl_socket_m1 import tl_pkg::*; #(
       if (host[i].SinkWidth < SinkWidth) $fatal(1, "SinkWidth mismatch");
       if (host[i].DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
       if (host[i].SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-      if (host[i].MaxSize > MaxSize) $fatal(1, "MaxSize mismatch");
-      if (i < NumCachedLinks && host[i].MaxSize < MaxSize) $fatal(1, "MaxSize mismatch");
-      if (host[i].SourceIdWidth != SourceIdWidth) $fatal(1, "SourceIdWidth mismatch");
-      if (host[i].NumHosts != 1) $fatal(1, "We current does not support non-1 NumLinks");
     end
   end
 
@@ -53,10 +49,6 @@ module tl_socket_m1 import tl_pkg::*; #(
   if (device.SinkWidth > SinkWidth) $fatal(1, "SinkWidth mismatch");
   if (device.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
   if (device.SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-  if (device.MaxSize < MaxSize) $fatal(1, "MaxSize mismatch");
-  if (NumCachedLinks != 0 && device.MaxSize > MaxSize) $fatal(1, "MaxSize mismatch");
-  if (device.SourceIdWidth != SourceIdWidth) $fatal(1, "SourceIdWidth mismatch");
-  if (device.NumHosts != NumLinks) $fatal(1, "NumLinks mismatch");
 
   /////////////////////
   // Unused channels //
