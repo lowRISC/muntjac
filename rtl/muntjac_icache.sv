@@ -7,7 +7,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned VirtAddrLen = 39,
     parameter int unsigned PhysAddrLen = 56,
     parameter int unsigned SourceWidth = 1,
-    parameter int unsigned SinkWidth   = 1
+    parameter int unsigned SinkWidth   = 1,
+
+    parameter int unsigned SourceBase  = 0,
+    parameter int unsigned PtwSourceBase = 0
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -523,7 +526,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   assign mem_ptw.a_opcode = Get;
   assign mem_ptw.a_param = 0;
   assign mem_ptw.a_size = 1;
-  assign mem_ptw.a_source = 0;
+  assign mem_ptw.a_source = PtwSourceBase;
   assign mem_ptw.a_mask = '1;
   assign mem_ptw.a_corrupt = 1'b0;
   assign mem_ptw.a_data = 'x;
@@ -726,7 +729,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
-  assign mem.a_source = 0;
+  assign mem.a_source = SourceBase;
   assign mem.a_corrupt = 1'b0;
   assign mem.a_data = 'x;
   wire mem_req_ready   = mem.a_ready;

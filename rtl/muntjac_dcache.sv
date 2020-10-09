@@ -6,7 +6,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned VirtAddrLen = 39,
     parameter int unsigned PhysAddrLen = 56,
     parameter int unsigned SourceWidth = 1,
-    parameter int unsigned SinkWidth   = 1
+    parameter int unsigned SinkWidth   = 1,
+
+    parameter int unsigned SourceBase  = 0,
+    parameter int unsigned PtwSourceBase = 0
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -617,7 +620,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-7:0] wb_probe_req_address;
   logic                   wb_probe_req_dirty;
   logic [2:0]             wb_probe_req_param;
-  logic [SourceWidth-1:0] wb_probe_req_source;
 
   logic                   wb_rel_req_valid;
   logic [WaysWidth-1:0]   wb_rel_req_way;
@@ -631,7 +633,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-7:0] wb_req_address;
   logic                   wb_req_dirty;
   logic [2:0]             wb_req_param;
-  logic [SourceWidth-1:0] wb_req_source;
 
   // Multiplex write-back requests.
   // As the invoker needs to hold access lock already, this is merely a simple multiplex, without
@@ -643,7 +644,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     wb_req_address = 'x;
     wb_req_dirty = 1'bx;
     wb_req_param = 'x;
-    wb_req_source = 'x;
 
     unique case (1'b1)
       wb_flush_req_valid: begin
@@ -653,7 +653,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         wb_req_address = wb_flush_req_address;
         wb_req_dirty = wb_flush_req_dirty;
         wb_req_param = wb_flush_req_param;
-        wb_req_source = 0;
       end
       wb_probe_req_valid: begin
         wb_req_valid = 1'b1;
@@ -662,7 +661,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         wb_req_address = wb_probe_req_address;
         wb_req_dirty = wb_probe_req_dirty;
         wb_req_param = wb_probe_req_param;
-        wb_req_source = wb_probe_req_source;
       end
       wb_rel_req_valid: begin
         wb_req_valid = 1'b1;
@@ -671,7 +669,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         wb_req_address = wb_rel_req_address;
         wb_req_dirty = wb_rel_req_dirty;
         wb_req_param = wb_rel_req_param;
-        wb_req_source = 0;
       end
       default:;
     endcase
@@ -682,7 +679,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [2:0]             wb_index_q, wb_index_d;
   tl_c_op_e               wb_opcode_q, wb_opcode_d;
   logic [2:0]             wb_param_q, wb_param_d;
-  logic [SourceWidth-1:0] wb_source_q, wb_source_d;
   logic [PhysAddrLen-7:0] wb_address_q, wb_address_d;
 
   wire mem_release_ready = mem.c_ready;
@@ -699,14 +695,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     wb_way_d = wb_way_q;
     wb_opcode_d = wb_opcode_q;
     wb_param_d = wb_param_q;
-    wb_source_d = wb_source_q;
     wb_address_d = wb_address_q;
 
     mem.c_valid = wb_progress_q;
     mem.c_opcode = wb_opcode_q;
     mem.c_param = wb_param_q;
     mem.c_size = 6;
-    mem.c_source = wb_source_q;
+    mem.c_source = SourceBase;
     mem.c_address = {wb_address_q, 6'd0};
     mem.c_corrupt = 1'b0;
     mem.c_data = read_data[wb_way_q];
@@ -734,7 +729,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         (wb_req_dirty ? ReleaseData : Release) :
         (wb_req_dirty ? ProbeAckData : ProbeAck);
       wb_param_d = wb_req_param;
-      wb_source_d = wb_req_source;
       wb_address_d = wb_req_address;
 
       // When wb_req_dirty is false, set wb_index to 0 to hint this is the last cycle.
@@ -753,7 +747,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       wb_way_q <= 0;
       wb_opcode_q <= tl_c_op_e'('x);
       wb_param_q <= 'x;
-      wb_source_q <= 'x;
       wb_address_q <= 'x;
     end else begin
       wb_progress_q <= wb_progress_d;
@@ -761,7 +754,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       wb_way_q <= wb_way_d;
       wb_opcode_q <= wb_opcode_d;
       wb_param_q <= wb_param_d;
-      wb_source_q <= wb_source_d;
       wb_address_q <= wb_address_d;
     end
   end
@@ -932,7 +924,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   assign mem_ptw.a_opcode = Get;
   assign mem_ptw.a_param = 0;
   assign mem_ptw.a_size = 1;
-  assign mem_ptw.a_source = 0;
+  assign mem_ptw.a_source = PtwSourceBase;
   assign mem_ptw.a_mask = '1;
   assign mem_ptw.a_corrupt = 1'b0;
   assign mem_ptw.a_data = 'x;
@@ -1040,11 +1032,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-7:0] probe_address_q, probe_address_d;
   logic [2:0] probe_param_q, probe_param_d;
   logic [4:0] probe_lock_q, probe_lock_d;
-  logic [SourceWidth-1:0] probe_source_q, probe_source_d;
 
   wire                   mem_probe_valid   = mem.b_valid;
   wire [PhysAddrLen-1:0] mem_probe_address = mem.b_address;
-  wire [SourceWidth-1:0] mem_probe_source  = mem.b_source;
   wire [2:0]             mem_probe_param   = mem.b_param;
 
   always_comb begin
@@ -1062,12 +1052,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     wb_probe_req_address = 'x;
     wb_probe_req_dirty = 1'bx;
     wb_probe_req_param = 'x;
-    wb_probe_req_source = 'x;
 
     probe_state_d = probe_state_q;
     probe_address_d = probe_address_q;
     probe_param_d = probe_param_q;
-    probe_source_d = probe_source_q;
 
     mem.b_ready = 1'b0;
 
@@ -1084,7 +1072,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         if (mem_probe_valid && probe_lock_q == 0) begin
           probe_address_d = mem_probe_address[PhysAddrLen-1:6];
           probe_param_d = mem_probe_param;
-          probe_source_d = mem_probe_source;
           probe_lock_acq = 1'b1;
 
           probe_state_d = ProbeStateLocking;
@@ -1116,7 +1103,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         wb_probe_req_address = probe_address_q;
         wb_probe_req_dirty = 1'b0;
         wb_probe_req_param = NtoN;
-        wb_probe_req_source = probe_source_q;
 
         if (|hit) begin
           wb_probe_req_dirty = hit_tag.dirty;
@@ -1144,13 +1130,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       probe_state_q <= ProbeStateIdle;
       probe_address_q <= 'x;
       probe_param_q <= 'x;
-      probe_source_q <= 'x;
       probe_lock_q <= 0;
     end else begin
       probe_state_q <= probe_state_d;
       probe_address_q <= probe_address_d;
       probe_param_q <= probe_param_d;
-      probe_source_q <= probe_source_d;
       probe_lock_q <= probe_lock_d;
     end
   end
@@ -1358,7 +1342,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
-  assign mem.a_source = 0;
+  assign mem.a_source = SourceBase;
   assign mem.a_corrupt = 1'b0;
   wire mem_req_ready   = mem.a_ready;
 
