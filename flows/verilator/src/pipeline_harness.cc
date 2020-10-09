@@ -74,16 +74,16 @@ protected:
   //   posedge eval -> get_inputs -> set_outputs -> posedge eval
   virtual void cycle_first_half() {
     dut.eval();
-  }
-
-  virtual void cycle_second_half() {
-    instruction_port.get_inputs(simulation_time());
-    data_port.get_inputs(simulation_time());
-
-    dut.eval();
 
     instruction_port.set_outputs(simulation_time());
     data_port.set_outputs(simulation_time());
+  }
+
+  virtual void cycle_second_half() {
+    dut.eval();
+
+    instruction_port.get_inputs(simulation_time());
+    data_port.get_inputs(simulation_time());
   }
 
 private:

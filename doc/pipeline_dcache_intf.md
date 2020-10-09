@@ -4,6 +4,8 @@ This interface allows the pipeline to read and write information to the data cac
 
 Every request **must** receive a response, even if that response is only "the request completed without triggering an exception".
 
+All `valid` signals should remain high for at most one clock cycle per request/response.
+
 ## Pipeline to data cache
 
 | Signal | Type | Description |
@@ -31,7 +33,7 @@ Every request **must** receive a response, even if that response is only "the re
 | `resp_value` | 64 bits | Response data. |
 | `ex_valid` | Boolean | Whether there was an exception when performing the operation. |
 | `ex_exception` | `exception_t` | Information about exception. ([More details](#exception_t)) |
-| `notif_ready` | Boolean | Whether the requested fence operation has completed. |
+| `notif_ready` | Boolean | Whether the requested fence operation has completed. There must be at least one clock cycle between the request being made and this notification being sent. |
 
 ## `mem_op_e`
 Types of memory operation.

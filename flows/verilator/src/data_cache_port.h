@@ -25,6 +25,7 @@ public:
       MemoryPort<uint64_t>(memory, latency),
       dut(dut),
       page_table_walker(memory) {
+    delayed_notif_ready = 0;
     clear_all_reservations();
   }
 
@@ -126,7 +127,10 @@ protected:
 
     // Also respond immediately to SFENCE signals (and clear the response when
     // the signal is deasserted again).
-    dut.dcache_notif_ready = dut.dcache_notif_valid;
+    // Update: an immediate response is too fast. Add a 1 cycle delay.
+    //dut.dcache_notif_ready = dut.dcache_notif_valid;
+    dut.dcache_notif_ready = delayed_notif_ready;
+    delayed_notif_ready = dut.dcache_notif_valid;
 
     if (dut.dcache_notif_valid)
       clear_all_reservations();
@@ -257,6 +261,10 @@ private:
 
   DUT& dut;
   PageTableWalkerSv39 page_table_walker;
+
+  // The current pipeline does not check this signal until the cycle after it
+  // requests a flush. Add an artificial delay.
+  bool delayed_notif_ready;
 };
 
 #endif  // DATA_CACHE_PORT_H
