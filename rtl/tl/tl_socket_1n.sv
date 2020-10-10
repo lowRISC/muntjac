@@ -151,27 +151,6 @@ module tl_socket_1n import tl_pkg::*; #(
   assign host.b_corrupt = prb.corrupt;
   assign host.b_data    = prb.data;
 
-  // Determine the boundary of a message.
-  logic                     prb_last;
-  logic [BurstLenWidth-1:0] prb_len_q;
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      prb_len_q <= 0;
-    end else begin
-      if (prb_valid && prb_ready) begin
-        if (prb_len_q == 0) begin
-          if (prb.opcode < 4)
-            prb_len_q <= burst_len(prb.size);
-        end else begin
-          prb_len_q <= prb_len_q - 1;
-        end
-      end
-    end
-  end
-
-  assign prb_last = prb_len_q == 0 ? (prb.size <= NonBurstSize || prb.opcode >= 4) : prb_len_q == 1;
-
   // Signals for arbitration
   logic [NumLinks-1:0] prb_arb_grant;
   logic                prb_locked;
@@ -185,7 +164,7 @@ module tl_socket_1n import tl_pkg::*; #(
     .grant   (prb_arb_grant)
   );
 
-  // Perform arbitration, and make sure that until we encounter prb_last we keep the connection stable.
+  // Perform arbitration, and make sure that we keep the connection stable until handshake.
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       prb_locked <= 1'b0;
@@ -193,7 +172,7 @@ module tl_socket_1n import tl_pkg::*; #(
     end
     else begin
       if (prb_locked) begin
-        if (prb_valid && prb_ready && prb_last) begin
+        if (prb_valid && prb_ready) begin
           prb_locked <= 1'b0;
         end
       end

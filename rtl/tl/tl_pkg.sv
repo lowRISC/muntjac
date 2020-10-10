@@ -12,11 +12,13 @@ typedef enum logic [2:0] {
 } tl_a_op_e;
 
 typedef enum logic [2:0] {
+  // We does not support A messages being forwarded to B.
   ProbeBlock     = 3'h6,
   ProbePerm      = 3'h7
 } tl_b_op_e;
 
 typedef enum logic [2:0] {
+  // We does not support C messages to be forwarded to D.
   ProbeAck     = 3'h4,
   ProbeAckData = 3'h5,
   Release      = 3'h6,
