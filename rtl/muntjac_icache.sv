@@ -116,7 +116,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic flush_lock_acq_pending_q, flush_lock_acq_pending_d;
   lock_holder_e lock_holder_q, lock_holder_d;
 
-  wire refill_locking = lock_holder_d == LockHolderRefill;
+  wire refill_locked  = lock_holder_q == LockHolderRefill;
   wire access_locking = lock_holder_d == LockHolderAccess;
   wire flush_locking  = lock_holder_d == LockHolderFlush;
 
@@ -402,6 +402,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
 
+  logic mem_grant_last;
+
   assign mem.e_valid = 1'b0;
   assign mem.e_sink = 'x;
 
@@ -417,6 +419,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     refill_lock_move = 1'b0;
     mem_grant_ready = 1'b0;
 
+    mem_grant_last = 1'b0;
+
     refill_index_d = refill_index_q;
     refill_state_d = refill_state_q;
 
@@ -425,32 +429,27 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         if (mem_grant_valid) begin
           refill_index_d = mem_grant_opcode == AccessAckData ? 0 : 7;
 
-          if (mem_grant_denied) begin
-            // Consume this request instantly
-            mem_grant_ready = 1'b1;
-            refill_state_d = RefillStateIdle;
-          end else begin
-            refill_lock_acq = 1'b1;
-            refill_state_d = RefillStateProgress;
-          end
+          refill_lock_acq = 1'b1;
+          refill_state_d = RefillStateProgress;
         end
       end
       RefillStateProgress: begin
-        mem_grant_ready = refill_locking;
+        mem_grant_ready = refill_locked;
         refill_write_way = refill_req_way;
         refill_write_addr = {refill_req_address[SetsWidth-1:0], refill_index_q};
 
-        refill_write_req_data = mem_grant_valid && mem_grant_opcode == AccessAckData;
+        refill_write_req_data = mem_grant_valid && mem_grant_opcode == AccessAckData && !mem_grant_denied;
         refill_write_data = mem_grant_data;
 
         // Update the metadata. This should only be done once, we can do it in either time.
-        refill_write_req_tag = mem_grant_valid && &refill_index_q;
+        refill_write_req_tag = mem_grant_valid && &refill_index_q && !mem_grant_denied;
         refill_write_tag.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
         refill_write_tag.valid = 1'b1;
 
         if (mem_grant_valid && mem_grant_ready) begin
           refill_index_d = refill_index_q + 1;
           if (&refill_index_q) begin
+            mem_grant_last = 1'b1;
             refill_state_d = RefillStateComplete;
           end
         end
@@ -838,17 +837,14 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
           req_sent_d = 1'b1;
         end
 
-        if (mem_grant_valid && mem_grant_ready) begin
+        if (mem_grant_last) begin
           if (mem_grant_denied) begin
             ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
             state_d = StateException;
+          end else begin
+            // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
+            state_d = StateReplay;
           end
-        end
-
-        // XXX: This state transition could happen a cycle earlier.
-        if (refill_lock_move) begin
-          // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
-          state_d = StateReplay;
         end
       end
 
