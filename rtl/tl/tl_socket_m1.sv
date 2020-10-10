@@ -417,9 +417,9 @@ module tl_socket_m1 import tl_pkg::*; #(
   if (NumCachedLinks != 0) begin: ack_arb
 
     // Signals before multiplexing/arbitration
-    logic [SinkWidth-1:0][NumCachedLinks-1:0] ack_sink_mult;
-    logic                [NumCachedLinks-1:0] ack_valid_mult;
-    logic                [NumCachedLinks-1:0] ack_ready_mult;
+    logic [NumCachedLinks-1:0][SinkWidth-1:0] ack_sink_mult;
+    logic [NumCachedLinks-1:0]                ack_valid_mult;
+    logic [NumCachedLinks-1:0]                ack_ready_mult;
 
     for (genvar i = 0; i < NumCachedLinks; i++) begin
       assign ack_sink_mult[i] = host[i].e_sink;
