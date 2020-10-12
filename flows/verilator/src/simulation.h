@@ -71,7 +71,6 @@ public:
 
       if (trace_on) {
         trace.dump((uint64_t)(10*cycle));
-        trace.flush();
       }
 
       cycle += 0.5;
@@ -80,7 +79,6 @@ public:
 
       if (trace_on) {
         trace.dump((uint64_t)(10*cycle));
-        trace.flush();
       }
 
       if (get_program_counter() != pc) {
@@ -91,8 +89,10 @@ public:
       cycle += 0.5;
     }
 
-    if (trace_on)
-  		trace.close();
+    if (trace_on) {
+      trace.flush();
+      trace.close();
+    }
 
     if (cycle >= timeout) {
       MUNTJAC_ERROR << "Simulation timed out after " << timeout << " cycles" << endl;
