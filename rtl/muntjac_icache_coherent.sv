@@ -9,8 +9,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned SourceWidth = 1,
     parameter int unsigned SinkWidth   = 1,
 
-    parameter int unsigned SourceBase  = 0,
-    parameter int unsigned PtwSourceBase = 0
+    parameter bit [SourceWidth-1:0] SourceBase  = 0,
+    parameter bit [SourceWidth-1:0] PtwSourceBase = 0
 ) (
     input  logic clk_i,
     input  logic rst_ni,

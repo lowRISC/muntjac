@@ -176,7 +176,7 @@ module tl_socket_1n import tl_pkg::*; #(
           prb_locked <= 1'b0;
         end
       end
-      else if (prb_arb_grant) begin
+      else if (|prb_arb_grant) begin
         prb_locked   <= 1'b1;
         prb_selected <= prb_arb_grant;
       end
@@ -332,7 +332,7 @@ module tl_socket_1n import tl_pkg::*; #(
           gnt_locked <= 1'b0;
         end
       end
-      else if (gnt_arb_grant) begin
+      else if (|gnt_arb_grant) begin
         gnt_locked   <= 1'b1;
         gnt_selected <= gnt_arb_grant;
       end

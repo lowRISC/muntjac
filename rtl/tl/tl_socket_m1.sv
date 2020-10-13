@@ -179,7 +179,7 @@ module tl_socket_m1 import tl_pkg::*; #(
           req_locked <= 1'b0;
         end
       end
-      else if (req_arb_grant) begin
+      else if (|req_arb_grant) begin
         req_locked   <= 1'b1;
         req_selected <= req_arb_grant;
       end
@@ -339,7 +339,7 @@ module tl_socket_m1 import tl_pkg::*; #(
             rel_locked <= 1'b0;
           end
         end
-        else if (rel_arb_grant) begin
+        else if (|rel_arb_grant) begin
           rel_locked   <= 1'b1;
           rel_selected <= rel_arb_grant;
         end
@@ -463,7 +463,7 @@ module tl_socket_m1 import tl_pkg::*; #(
             ack_locked <= 1'b0;
           end
         end
-        else if (ack_arb_grant) begin
+        else if (|ack_arb_grant) begin
           ack_locked   <= 1'b1;
           ack_selected <= ack_arb_grant;
         end
