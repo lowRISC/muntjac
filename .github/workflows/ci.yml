@@ -62,7 +62,7 @@ jobs:
           if-no-files-found: error
 
   riscv-tests-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs: build-pipeline
 
     steps:
@@ -170,7 +170,7 @@ jobs:
           if-no-files-found: error
 
   riscv-tests-core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     needs: build-core
 
     steps:
