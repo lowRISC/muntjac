@@ -18,7 +18,11 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install Verilator
-        run: sudo apt-get install verilator
+        run: |
+          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
+          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
+          sudo apt-get update
+          sudo apt-get install verilator-4.040
 
       - name: Install Python dependencies
         run: pip3 install setuptools wheel
@@ -36,7 +40,11 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install Verilator
-        run: sudo apt-get install verilator
+        run: |
+          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
+          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
+          sudo apt-get update
+          sudo apt-get install verilator-4.040
 
       - name: Install Python dependencies
         run: pip3 install setuptools wheel
@@ -140,7 +148,11 @@ jobs:
       - uses: actions/checkout@v2
 
       - name: Install Verilator
-        run: sudo apt-get install verilator
+        run: |
+          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
+          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
+          sudo apt-get update
+          sudo apt-get install verilator-4.040
 
       - name: Install Python dependencies
         run: pip3 install setuptools wheel
