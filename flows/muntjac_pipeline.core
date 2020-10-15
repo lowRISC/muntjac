@@ -11,8 +11,6 @@ filesets:
       - lowrisc:prim_generic:ram_2p
     files:
       - ../rtl/muntjac_pkg.sv
-      - ../rtl/icache/icache_intf.sv
-      - ../rtl/dcache/dcache_intf.sv
       - ../rtl/muntjac_alu.sv
       - ../rtl/muntjac_pipeline.sv
       - ../rtl/muntjac_cs_registers.sv

@@ -1,10 +1,11 @@
 module muntjac_backend import muntjac_pkg::*; (
     // Clock and reset
-    input  logic            clk_i,
-    input  logic            rst_ni,
+    input  logic          clk_i,
+    input  logic          rst_ni,
 
     // LSU interface
-    dcache_intf.user dcache,
+    output dcache_h2d_t   dcache_h2d_o,
+    input  dcache_d2h_t   dcache_d2h_i,
 
     // Interface with frontend
     output logic [63:0]   satp_o,
@@ -776,26 +777,26 @@ module muntjac_backend import muntjac_pkg::*; (
     //
 
     priv_lvl_e data_prv;
-    assign dcache.req_valid    = ex_issue && de_ex_decoded.op_type == OP_MEM;
-    assign dcache.req_op       = de_ex_decoded.mem_op;
-    assign dcache.req_amo      = de_ex_decoded.exception.tval[31:25];
-    assign dcache.req_address  = sum;
-    assign dcache.req_size     = de_ex_decoded.size;
-    assign dcache.req_unsigned = de_ex_decoded.zeroext;
-    assign dcache.req_value    = ex_rs2;
-    assign dcache.req_prv      = data_prv[0];
-    assign dcache.req_sum      = status_o.sum;
-    assign dcache.req_mxr      = status_o.mxr;
-    assign dcache.req_atp      = {data_prv == PRIV_LVL_M ? 4'd0 : satp_o[63:60], satp_o[59:0]};
-    assign mem_valid = dcache.resp_valid;
-    assign mem_data  = dcache.resp_value;
-    assign mem_trap_valid = dcache.ex_valid;
-    assign mem_trap  = dcache.ex_exception;
-    assign mem_notif_ready = dcache.notif_ready;
-    assign mem_ready = dcache.req_ready;
+    assign dcache_h2d_o.req_valid    = ex_issue && de_ex_decoded.op_type == OP_MEM;
+    assign dcache_h2d_o.req_op       = de_ex_decoded.mem_op;
+    assign dcache_h2d_o.req_amo      = de_ex_decoded.exception.tval[31:25];
+    assign dcache_h2d_o.req_address  = sum;
+    assign dcache_h2d_o.req_size     = de_ex_decoded.size;
+    assign dcache_h2d_o.req_unsigned = de_ex_decoded.zeroext;
+    assign dcache_h2d_o.req_value    = ex_rs2;
+    assign dcache_h2d_o.req_prv      = data_prv[0];
+    assign dcache_h2d_o.req_sum      = status_o.sum;
+    assign dcache_h2d_o.req_mxr      = status_o.mxr;
+    assign dcache_h2d_o.req_atp      = {data_prv == PRIV_LVL_M ? 4'd0 : satp_o[63:60], satp_o[59:0]};
+    assign mem_valid = dcache_d2h_i.resp_valid;
+    assign mem_data  = dcache_d2h_i.resp_value;
+    assign mem_trap_valid = dcache_d2h_i.ex_valid;
+    assign mem_trap  = dcache_d2h_i.ex_exception;
+    assign mem_notif_ready = dcache_d2h_i.notif_ready;
+    assign mem_ready = dcache_d2h_i.req_ready;
 
-    assign dcache.notif_valid = sys_state_q == SYS_ST_IDLE && (sys_state_d == SYS_ST_SFENCE_VMA || sys_state_d == SYS_ST_SATP_CHANGED);
-    assign dcache.notif_reason = sys_state_d == SYS_ST_SFENCE_VMA;
+    assign dcache_h2d_o.notif_valid = sys_state_q == SYS_ST_IDLE && (sys_state_d == SYS_ST_SFENCE_VMA || sys_state_d == SYS_ST_SATP_CHANGED);
+    assign dcache_h2d_o.notif_reason = sys_state_d == SYS_ST_SFENCE_VMA;
 
     //
     // Register file instantiation

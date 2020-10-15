@@ -16,7 +16,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     input  logic rst_ni,
 
     // Interface to CPU
-    icache_intf.provider cache,
+    input  icache_h2d_t cache_h2d_i,
+    output icache_d2h_t cache_d2h_o,
 
     // Channel for D$
     tl_channel.host mem,
@@ -46,12 +47,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   // CPU Facing signals //
   ////////////////////////
 
-  wire             req_valid    = cache.req_valid;
-  wire [63:0]      req_address  = cache.req_pc;
-  wire if_reason_e req_reason   = cache.req_reason;
-  wire             req_prv      = cache.req_prv;
-  wire             req_sum      = cache.req_sum;
-  wire [63:0]      req_atp      = cache.req_atp;
+  wire             req_valid    = cache_h2d_i.req_valid;
+  wire [63:0]      req_address  = cache_h2d_i.req_pc;
+  wire if_reason_e req_reason   = cache_h2d_i.req_reason;
+  wire             req_prv      = cache_h2d_i.req_prv;
+  wire             req_sum      = cache_h2d_i.req_sum;
+  wire [63:0]      req_atp      = cache_h2d_i.req_atp;
 
   logic flush_valid;
   logic flush_ready;
@@ -61,10 +62,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic        ex_valid;
   exc_cause_e  resp_ex_code;
 
-  assign cache.resp_valid     = resp_valid || ex_valid;
-  assign cache.resp_instr     = resp_value;
-  assign cache.resp_exception = ex_valid;
-  assign cache.resp_ex_code   = resp_ex_code;
+  assign cache_d2h_o.resp_valid     = resp_valid || ex_valid;
+  assign cache_d2h_o.resp_instr     = resp_value;
+  assign cache_d2h_o.resp_exception = ex_valid;
+  assign cache_d2h_o.resp_ex_code   = resp_ex_code;
 
   //////////////////////////////////
   // MEM Channel D Demultiplexing //

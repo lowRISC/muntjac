@@ -3,7 +3,8 @@ module muntjac_frontend import muntjac_pkg::*; #(
     input  logic           clk_i,
     input  logic           rst_ni,
 
-    icache_intf.user       icache,
+    output icache_h2d_t    icache_h2d_o,
+    input  icache_d2h_t    icache_d2h_i,
 
     input  logic [63:0]    satp_i,
     input  priv_lvl_e      prv_i,
@@ -199,22 +200,22 @@ module muntjac_frontend import muntjac_pkg::*; #(
   // I$ Access //
   ///////////////
 
-  assign icache.req_pc = pc_next;
-  assign icache.req_reason = reason_next;
-  assign icache.req_valid = align_ready;
-  assign icache.req_sum = redirect_valid_q && align_ready ? redirect_sum_q : sum_latch;
-  assign icache.req_atp = redirect_valid_q && align_ready ? redirect_atp_q : atp_latch;
-  assign icache.req_prv = redirect_valid_q && align_ready ? redirect_prv_q : prv_latch;
+  assign icache_h2d_o.req_pc = pc_next;
+  assign icache_h2d_o.req_reason = reason_next;
+  assign icache_h2d_o.req_valid = align_ready;
+  assign icache_h2d_o.req_sum = redirect_valid_q && align_ready ? redirect_sum_q : sum_latch;
+  assign icache_h2d_o.req_atp = redirect_valid_q && align_ready ? redirect_atp_q : atp_latch;
+  assign icache_h2d_o.req_prv = redirect_valid_q && align_ready ? redirect_prv_q : prv_latch;
 
   logic resp_latched;
   logic [31:0] resp_instr_latched;
   logic resp_exception_latched;
   exc_cause_e resp_ex_code_latched;
 
-  wire align_valid = resp_latched ? 1'b1 : icache.resp_valid;
-  wire [31:0] align_instr = resp_latched ? resp_instr_latched : icache.resp_instr;
-  wire align_exception = resp_latched ? resp_exception_latched : icache.resp_exception;
-  wire exc_cause_e align_ex_code = resp_latched ? resp_ex_code_latched : icache.resp_ex_code;
+  wire align_valid = resp_latched ? 1'b1 : icache_d2h_i.resp_valid;
+  wire [31:0] align_instr = resp_latched ? resp_instr_latched : icache_d2h_i.resp_instr;
+  wire align_exception = resp_latched ? resp_exception_latched : icache_d2h_i.resp_exception;
+  wire exc_cause_e align_ex_code = resp_latched ? resp_ex_code_latched : icache_d2h_i.resp_ex_code;
   wire [63:0] align_pc = pc;
   wire if_reason_e align_reason = reason;
   wire [1:0] align_strb = pc[1] ? 2'b10 : (predict_taken && btb_partial ? 2'b01 : 2'b11);
@@ -227,12 +228,12 @@ module muntjac_frontend import muntjac_pkg::*; #(
       resp_ex_code_latched <= exc_cause_e'('x);
     end
     else begin
-      if (!align_ready && icache.resp_valid) begin
+      if (!align_ready && icache_d2h_i.resp_valid) begin
         assert (!resp_latched);
         resp_latched <= 1'b1;
-        resp_instr_latched <= icache.resp_instr;
-        resp_exception_latched <= icache.resp_exception;
-        resp_ex_code_latched <= icache.resp_ex_code;
+        resp_instr_latched <= icache_d2h_i.resp_instr;
+        resp_exception_latched <= icache_d2h_i.resp_exception;
+        resp_ex_code_latched <= icache_d2h_i.resp_ex_code;
       end
 
       if (align_ready) begin

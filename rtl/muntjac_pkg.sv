@@ -514,4 +514,72 @@ typedef struct packed {
   exception_t exception;
 } decoded_instr_t;
 
+/////////////////////
+// Cache interface //
+/////////////////////
+
+typedef struct packed {
+  logic            req_valid;
+  logic [63:0]     req_pc;
+  if_reason_e      req_reason;
+  // The following values are for address translation. Because they usually are fed directly from
+  // CSR register file, when they are changed, pipeline should be flushed. This includes:
+  // * Change MSTATUS's SUM bit via CSR read/write
+  // * Change privilege level, i.e. trap, interrupt and eret
+  // * Change address translation, i.e. change SATP and SFENCE.VMA
+  logic            req_prv;
+  logic            req_sum;
+  logic [63:0]     req_atp;
+} icache_h2d_t;
+
+typedef struct packed {
+  logic            resp_valid;
+  logic [31:0]     resp_instr;
+  // This tells whether exception happens during instruction fetch.
+  logic            resp_exception;
+  exc_cause_e      resp_ex_code;
+
+  // A note on flow control: currently there are no flow control signals. The cache is expected
+  // only to process one request at a time for now, and the output must be immediately consumed
+  // as valid is high for single cycle per request.
+} icache_d2h_t;
+
+typedef struct packed {
+  logic            req_valid;
+  logic [63:0]     req_address;
+  // Value to be stored or to be used in AMO operation.
+  logic [63:0]     req_value;
+  // Type of memory operation: LOAD, STORE, LR, SC, AMO
+  mem_op_e         req_op;
+  // Size of access. This must only be 2'b10 and 2'b11 when req_op is LR, SC or AMO.
+  logic [1:0]      req_size;
+  // Whether the load should be unsigned. Relevant only when req_op is LOAD.
+  logic            req_unsigned;
+  // When req_op is MEM_AMO, this dictate the type and ordering requirement of the AMO op.
+  // This specifies the ordering requirement for LR and SC operation.
+  logic [6:0]      req_amo;
+  // Address translation related properties.
+  logic            req_prv;
+  logic            req_sum;
+  logic            req_mxr;
+  logic [63:0]     req_atp;
+
+  // Notification on SFENCE.VMA
+  logic            notif_valid;
+  // 1'b0 -> SATP changed, 1'b1 -> SFENCE.VMA
+  logic            notif_reason;
+} dcache_h2d_t;
+
+typedef struct packed {
+  logic            req_ready;
+
+  logic            resp_valid;
+  logic [63:0]     resp_value;
+
+  logic            ex_valid;
+  exception_t      ex_exception;
+
+  logic            notif_ready;
+} dcache_d2h_t;
+
 endpackage

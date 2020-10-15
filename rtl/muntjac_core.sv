@@ -28,14 +28,18 @@ module muntjac_core import muntjac_pkg::*; #(
 
   localparam [SourceWidth-1:0] SourceMask = 0;
 
-  icache_intf icache();
-  dcache_intf dcache();
+  icache_h2d_t icache_h2d;
+  icache_d2h_t icache_d2h;
+  dcache_h2d_t dcache_h2d;
+  dcache_d2h_t dcache_d2h;
 
   muntjac_pipeline pipeline (
       .clk_i,
       .rst_ni,
-      .icache (icache),
-      .dcache (dcache),
+      .icache_h2d_o (icache_h2d),
+      .icache_d2h_i (icache_d2h),
+      .dcache_h2d_o (dcache_h2d),
+      .dcache_d2h_i (dcache_d2h),
       .irq_software_m_i,
       .irq_timer_m_i,
       .irq_external_m_i,
@@ -71,7 +75,12 @@ module muntjac_core import muntjac_pkg::*; #(
     .SourceBase (IcacheSourceBase),
     .PtwSourceBase (IptwSourceBase)
   ) icache_inst (
-      clk_i, rst_ni, icache, ch[1], ch[3]
+    .clk_i,
+    .rst_ni,
+    .cache_h2d_i (icache_h2d),
+    .cache_d2h_o (icache_d2h),
+    .mem (ch[1]),
+    .mem_ptw (ch[3])
   );
 
   muntjac_dcache #(
@@ -79,7 +88,12 @@ module muntjac_core import muntjac_pkg::*; #(
     .SourceBase (DcacheSourceBase),
     .PtwSourceBase (DptwSourceBase)
   ) dcache_inst (
-      clk_i, rst_ni, dcache, ch[0], ch[2]
+    .clk_i,
+    .rst_ni,
+    .cache_h2d_i (dcache_h2d),
+    .cache_d2h_o (dcache_d2h),
+    .mem (ch[0]),
+    .mem_ptw (ch[2])
   );
 
 endmodule

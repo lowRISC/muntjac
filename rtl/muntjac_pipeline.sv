@@ -5,8 +5,10 @@ module muntjac_pipeline import muntjac_pkg::*; #(
     input  logic            rst_ni,
 
     // Memory interfaces
-    icache_intf.user icache,
-    dcache_intf.user dcache,
+    output icache_h2d_t icache_h2d_o,
+    input  icache_d2h_t icache_d2h_i,
+    output dcache_h2d_t dcache_h2d_o,
+    input  dcache_d2h_t dcache_d2h_i,
 
     input  logic irq_software_m_i,
     input  logic irq_timer_m_i,
@@ -33,7 +35,8 @@ module muntjac_pipeline import muntjac_pkg::*; #(
   muntjac_frontend frontend (
       .clk_i,
       .rst_ni,
-      .icache,
+      .icache_h2d_o,
+      .icache_d2h_i,
       .satp_i            (satp),
       .prv_i             (prv),
       .status_i          (status),
@@ -49,7 +52,8 @@ module muntjac_pipeline import muntjac_pkg::*; #(
   muntjac_backend backend (
       .clk_i,
       .rst_ni,
-      .dcache,
+      .dcache_h2d_o,
+      .dcache_d2h_i,
       .satp_o            (satp),
       .prv_o             (prv),
       .status_o          (status),

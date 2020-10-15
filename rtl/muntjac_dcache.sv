@@ -15,7 +15,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     input  logic rst_ni,
 
     // Interface to CPU
-    dcache_intf.provider cache,
+    input  dcache_h2d_t cache_h2d_i,
+    output dcache_d2h_t cache_d2h_o,
 
     // Channel for D$
     tl_channel.host mem,
@@ -185,40 +186,40 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   // CPU Facing signals //
   ////////////////////////
 
-  wire            req_valid    = cache.req_valid;
-  wire [63:0]     req_address  = cache.req_address;
-  wire [63:0]     req_value    = cache.req_value;
-  wire mem_op_e   req_op       = cache.req_op;
-  wire [1:0]      req_size     = cache.req_size;
-  wire            req_unsigned = cache.req_unsigned;
-  wire [6:0]      req_amo      = cache.req_amo;
-  wire            req_prv      = cache.req_prv;
-  wire            req_sum      = cache.req_sum;
-  wire            req_mxr      = cache.req_mxr;
-  wire [63:0]     req_atp      = cache.req_atp;
+  wire            req_valid    = cache_h2d_i.req_valid;
+  wire [63:0]     req_address  = cache_h2d_i.req_address;
+  wire [63:0]     req_value    = cache_h2d_i.req_value;
+  wire mem_op_e   req_op       = cache_h2d_i.req_op;
+  wire [1:0]      req_size     = cache_h2d_i.req_size;
+  wire            req_unsigned = cache_h2d_i.req_unsigned;
+  wire [6:0]      req_amo      = cache_h2d_i.req_amo;
+  wire            req_prv      = cache_h2d_i.req_prv;
+  wire            req_sum      = cache_h2d_i.req_sum;
+  wire            req_mxr      = cache_h2d_i.req_mxr;
+  wire [63:0]     req_atp      = cache_h2d_i.req_atp;
 
   logic flush_valid;
   logic flush_ready;
 
-  assign flush_valid = cache.notif_valid;
-  assign cache.notif_ready = flush_ready;
+  assign flush_valid = cache_h2d_i.notif_valid;
+  assign cache_d2h_o.notif_ready = flush_ready;
 
   logic        resp_valid;
   logic [63:0] resp_value;
   logic        ex_valid;
   exception_t  ex_exception;
 
-  assign cache.ex_valid = ex_valid;
-  assign cache.ex_exception = ex_exception;
+  assign cache_d2h_o.ex_valid = ex_valid;
+  assign cache_d2h_o.ex_exception = ex_exception;
 
   // Register responses
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      cache.resp_valid <= 1'b0;
-      cache.resp_value <= 'x;
+      cache_d2h_o.resp_valid <= 1'b0;
+      cache_d2h_o.resp_value <= 'x;
     end else begin
-      cache.resp_valid <= resp_valid;
-      cache.resp_value <= resp_value;
+      cache_d2h_o.resp_valid <= resp_valid;
+      cache_d2h_o.resp_value <= resp_value;
     end
   end
 
@@ -1341,7 +1342,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   wire mem_req_ready   = mem.a_ready;
 
   always_comb begin
-    cache.req_ready = 1'b0;
+    cache_d2h_o.req_ready = 1'b0;
     resp_valid = 1'b0;
     resp_value = 'x;
     ex_valid = 1'b0;
@@ -1398,7 +1399,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     unique case (state_q)
       StateIdle: begin
-        cache.req_ready = 1'b1;
+        cache_d2h_o.req_ready = 1'b1;
       end
 
       StateFetch: begin
@@ -1426,14 +1427,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           state_d = StateException;
           ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
         end else if (reservation_failed_q) begin
-          cache.req_ready = 1'b1;
+          cache_d2h_o.req_ready = 1'b1;
           resp_valid = 1'b1;
           resp_value = 1;
           state_d = StateIdle;
         end else if (|hit && (hit_tag.writable || op_q == MEM_LOAD)) begin
           // Cache valid with required permission.
 
-          cache.req_ready = 1'b1;
+          cache_d2h_o.req_ready = 1'b1;
           resp_valid = 1'b1;
           resp_value = op_q[0] ? hit_data_aligned : 0;
           state_d = StateIdle;
@@ -1445,7 +1446,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             access_write_req_tag = 1'b1;
           end
         end else if (op_q == MEM_SC) begin
-          cache.req_ready = 1'b1;
+          cache_d2h_o.req_ready = 1'b1;
           resp_valid = 1'b1;
           resp_value = 1;
           state_d = StateIdle;
@@ -1546,7 +1547,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
           end
           else begin
-            cache.req_ready = 1'b1;
+            cache_d2h_o.req_ready = 1'b1;
             resp_valid = 1'b1;
             resp_value = align_load(
                 .value (mem_grant_data),

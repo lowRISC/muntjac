@@ -6,7 +6,7 @@
 // level module (#1185). This wrapper unpacks these `interface`s for access from
 // a test harness.
 
-module pipeline_wrapper #(
+module pipeline_wrapper import muntjac_pkg::*; #(
 ) (
 
     // Clock and reset
@@ -58,15 +58,19 @@ module pipeline_wrapper #(
 
 );
 
-  icache_intf icache();
-  dcache_intf dcache();
+  icache_h2d_t icache_h2d;
+  icache_d2h_t icache_d2h;
+  dcache_h2d_t dcache_h2d;
+  dcache_d2h_t dcache_d2h;
 
   muntjac_pipeline #(
   ) pipeline (
       .clk_i (clk_i),
       .rst_ni (rst_ni),
-      .icache (icache),
-      .dcache (dcache),
+      .icache_h2d_o (icache_h2d),
+      .icache_d2h_i (icache_d2h),
+      .dcache_h2d_o (dcache_h2d),
+      .dcache_d2h_i (dcache_d2h),
       .irq_software_m_i,
       .irq_timer_m_i,
       .irq_external_m_i,
@@ -76,37 +80,37 @@ module pipeline_wrapper #(
   );
 
   // Instruction cache interface
-  assign icache_req_valid = icache.req_valid;
-  assign icache_req_pc = icache.req_pc;
-  assign icache_req_reason = icache.req_reason;
-  assign icache_req_prv = icache.req_prv;
-  assign icache_req_sum = icache.req_sum;
-  assign icache_req_atp = icache.req_atp;
-  assign icache.resp_valid = icache_resp_valid;
-  assign icache.resp_instr = icache_resp_instr;
-  assign icache.resp_exception = icache_resp_exception;
-  assign icache.resp_ex_code = icache_resp_ex_code;
+  assign icache_req_valid = icache_h2d.req_valid;
+  assign icache_req_pc = icache_h2d.req_pc;
+  assign icache_req_reason = icache_h2d.req_reason;
+  assign icache_req_prv = icache_h2d.req_prv;
+  assign icache_req_sum = icache_h2d.req_sum;
+  assign icache_req_atp = icache_h2d.req_atp;
+  assign icache_d2h.resp_valid = icache_resp_valid;
+  assign icache_d2h.resp_instr = icache_resp_instr;
+  assign icache_d2h.resp_exception = icache_resp_exception;
+  assign icache_d2h.resp_ex_code = icache_resp_ex_code;
 
   // Data cache interface
-  assign dcache_req_valid = dcache.req_valid;
-  assign dcache.req_ready = dcache_req_ready;
-  assign dcache_req_address = dcache.req_address;
-  assign dcache_req_value = dcache.req_value;
-  assign dcache_req_op = dcache.req_op;
-  assign dcache_req_size = dcache.req_size;
-  assign dcache_req_unsigned = dcache.req_unsigned;
-  assign dcache_req_amo = dcache.req_amo;
-  assign dcache_req_prv = dcache.req_prv;
-  assign dcache_req_sum = dcache.req_sum;
-  assign dcache_req_mxr = dcache.req_mxr;
-  assign dcache_req_atp = dcache.req_atp;
-  assign dcache.resp_valid = dcache_resp_valid;
-  assign dcache.resp_value = dcache_resp_value;
-  assign dcache.ex_valid = dcache_ex_valid;
-  assign dcache.ex_exception = dcache_ex_exception;
-  assign dcache_notif_valid = dcache.notif_valid;
-  assign dcache_notif_reason = dcache.notif_reason;
-  assign dcache.notif_ready = dcache_notif_ready;
+  assign dcache_d2h.req_ready = dcache_req_ready;
+  assign dcache_req_valid = dcache_h2d.req_valid;
+  assign dcache_req_address = dcache_h2d.req_address;
+  assign dcache_req_value = dcache_h2d.req_value;
+  assign dcache_req_op = dcache_h2d.req_op;
+  assign dcache_req_size = dcache_h2d.req_size;
+  assign dcache_req_unsigned = dcache_h2d.req_unsigned;
+  assign dcache_req_amo = dcache_h2d.req_amo;
+  assign dcache_req_prv = dcache_h2d.req_prv;
+  assign dcache_req_sum = dcache_h2d.req_sum;
+  assign dcache_req_mxr = dcache_h2d.req_mxr;
+  assign dcache_req_atp = dcache_h2d.req_atp;
+  assign dcache_d2h.resp_valid = dcache_resp_valid;
+  assign dcache_d2h.resp_value = dcache_resp_value;
+  assign dcache_d2h.ex_valid = dcache_ex_valid;
+  assign dcache_d2h.ex_exception = dcache_ex_exception;
+  assign dcache_d2h.notif_ready = dcache_notif_ready;
+  assign dcache_notif_valid = dcache_h2d.notif_valid;
+  assign dcache_notif_reason = dcache_h2d.notif_reason;
 
   // Set the pipeline's program counter during reset.
   function write_reset_pc;
