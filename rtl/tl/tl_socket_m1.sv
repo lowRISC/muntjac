@@ -1,4 +1,4 @@
-module tl_socket_m1 import tl_pkg::*; #(
+module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
   parameter  int unsigned SourceWidth   = 1,
   parameter  int unsigned SinkWidth     = 1,
   parameter  int unsigned AddrWidth     = 56,
@@ -30,21 +30,6 @@ module tl_socket_m1 import tl_pkg::*; #(
   tl_channel.host   device
 );
 
-  import prim_util_pkg::*;
-
-  localparam int unsigned DataWidthInBytes = DataWidth / 8;
-  localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
-  localparam int unsigned MaxBurstLen = 2 ** (MaxSize - NonBurstSize);
-  localparam int unsigned BurstLenWidth = vbits(MaxBurstLen);
-
-  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [SizeWidth-1:0] size);
-    if (size <= NonBurstSize) begin
-      return 0;
-    end else begin
-      return (1 << (size - NonBurstSize)) - 1;
-    end
-  endfunction
-
   for (genvar i = 0; i < NumLinks; i++) begin
     initial begin
       if (host[i].SourceWidth != SourceWidth) $fatal(1, "SourceWidth mismatch");
@@ -58,6 +43,39 @@ module tl_socket_m1 import tl_pkg::*; #(
   if (device.SinkWidth > SinkWidth) $fatal(1, "SinkWidth mismatch");
   if (device.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
   if (device.SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
+
+  logic device_req_last;
+  logic device_rel_last;
+
+  tl_burst_tracker #(
+    .DataWidth (DataWidth),
+    .SizeWidth (SizeWidth),
+    .MaxSize (MaxSize)
+  ) device_burst_tracker (
+    .clk_i,
+    .rst_ni,
+    .link (device),
+    .req_len_o (),
+    .prb_len_o (),
+    .rel_len_o (),
+    .gnt_len_o (),
+    .req_idx_o (),
+    .prb_idx_o (),
+    .rel_idx_o (),
+    .gnt_idx_o (),
+    .req_left_o (),
+    .prb_left_o (),
+    .rel_left_o (),
+    .gnt_left_o (),
+    .req_first_o (),
+    .prb_first_o (),
+    .rel_first_o (),
+    .gnt_first_o (),
+    .req_last_o (device_req_last),
+    .prb_last_o (),
+    .rel_last_o (device_rel_last),
+    .gnt_last_o ()
+  );
 
   /////////////////////
   // Unused channels //
@@ -133,27 +151,6 @@ module tl_socket_m1 import tl_pkg::*; #(
   assign device.a_corrupt = req.corrupt;
   assign device.a_data    = req.data;
 
-  // Determine the boundary of a message.
-  logic                     req_last;
-  logic [BurstLenWidth-1:0] req_len_q;
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      req_len_q <= 0;
-    end else begin
-      if (req_valid && req_ready) begin
-        if (req_len_q == 0) begin
-          if (req.opcode < 4)
-            req_len_q <= burst_len(req.size);
-        end else begin
-          req_len_q <= req_len_q - 1;
-        end
-      end
-    end
-  end
-
-  assign req_last = req_len_q == 0 ? (req.size <= NonBurstSize || req.opcode >= 4) : req_len_q == 1;
-
   // Signals for arbitration
   logic [NumLinks-1:0] req_arb_grant;
   logic                req_locked;
@@ -167,7 +164,7 @@ module tl_socket_m1 import tl_pkg::*; #(
     .grant   (req_arb_grant)
   );
 
-  // Perform arbitration, and make sure that until we encounter req_last we keep the connection stable.
+  // Perform arbitration, and make sure that until we encounter device_req_last we keep the connection stable.
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       req_locked <= 1'b0;
@@ -175,7 +172,7 @@ module tl_socket_m1 import tl_pkg::*; #(
     end
     else begin
       if (req_locked) begin
-        if (req_valid && req_ready && req_last) begin
+        if (req_valid && req_ready && device_req_last) begin
           req_locked <= 1'b0;
         end
       end
@@ -293,27 +290,6 @@ module tl_socket_m1 import tl_pkg::*; #(
     assign device.c_corrupt = rel.corrupt;
     assign device.c_data    = rel.data;
 
-    // Determine the boundary of a message.
-    logic                     rel_last;
-    logic [BurstLenWidth-1:0] rel_len_q;
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        rel_len_q <= 0;
-      end else begin
-        if (rel_valid && rel_ready) begin
-          if (rel_len_q == 0) begin
-            if (rel.opcode[0])
-              rel_len_q <= burst_len(rel.size);
-          end else begin
-            rel_len_q <= rel_len_q - 1;
-          end
-        end
-      end
-    end
-
-    assign rel_last = rel_len_q == 0 ? (rel.size <= NonBurstSize || !rel.opcode[0]) : rel_len_q == 1;
-
     // Signals for arbitration
     logic [NumCachedLinks-1:0] rel_arb_grant;
     logic                      rel_locked;
@@ -327,7 +303,7 @@ module tl_socket_m1 import tl_pkg::*; #(
       .grant   (rel_arb_grant)
     );
 
-    // Perform arbitration, and make sure that until we encounter rel_last we keep the connection stable.
+    // Perform arbitration, and make sure that until we encounter device_rel_last we keep the connection stable.
     always_ff @(posedge clk_i or negedge rst_ni) begin
       if (!rst_ni) begin
         rel_locked <= 1'b0;
@@ -335,7 +311,7 @@ module tl_socket_m1 import tl_pkg::*; #(
       end
       else begin
         if (rel_locked) begin
-          if (rel_valid && rel_ready && rel_last) begin
+          if (rel_valid && rel_ready && device_rel_last) begin
             rel_locked <= 1'b0;
           end
         end

@@ -1,4 +1,4 @@
-module tl_socket_1n import tl_pkg::*; #(
+module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   parameter  int unsigned SourceWidth   = 1,
   parameter  int unsigned SinkWidth     = 1,
   parameter  int unsigned AddrWidth     = 56,
@@ -36,21 +36,6 @@ module tl_socket_1n import tl_pkg::*; #(
   tl_channel.host   device[NumLinks]
 );
 
-  import prim_util_pkg::*;
-
-  localparam int unsigned DataWidthInBytes = DataWidth / 8;
-  localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
-  localparam int unsigned MaxBurstLen = 2 ** (MaxSize - NonBurstSize);
-  localparam int unsigned BurstLenWidth = vbits(MaxBurstLen);
-
-  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [SizeWidth-1:0] size);
-    if (size <= NonBurstSize) begin
-      return 0;
-    end else begin
-      return (1 << (size - NonBurstSize)) - 1;
-    end
-  endfunction
-
   if (host.SourceWidth != SourceWidth) $fatal(1, "SourceWidth mismatch");
   if (host.SinkWidth > SinkWidth) $fatal(1, "SinkWidth mismatch");
   if (host.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
@@ -64,6 +49,39 @@ module tl_socket_1n import tl_pkg::*; #(
       if (device[i].SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
     end
   end
+
+  logic host_prb_last;
+  logic host_gnt_last;
+
+  tl_burst_tracker #(
+    .DataWidth (DataWidth),
+    .SizeWidth (SizeWidth),
+    .MaxSize (MaxSize)
+  ) host_burst_tracker (
+    .clk_i,
+    .rst_ni,
+    .link (host),
+    .req_len_o (),
+    .prb_len_o (),
+    .rel_len_o (),
+    .gnt_len_o (),
+    .req_idx_o (),
+    .prb_idx_o (),
+    .rel_idx_o (),
+    .gnt_idx_o (),
+    .req_left_o (),
+    .prb_left_o (),
+    .rel_left_o (),
+    .gnt_left_o (),
+    .req_first_o (),
+    .prb_first_o (),
+    .rel_first_o (),
+    .gnt_first_o (),
+    .req_last_o (),
+    .prb_last_o (host_prb_last),
+    .rel_last_o (),
+    .gnt_last_o (host_gnt_last)
+  );
 
   ///////////////////////////////////
   // Request channel demultiplexer //
@@ -172,7 +190,7 @@ module tl_socket_1n import tl_pkg::*; #(
     end
     else begin
       if (prb_locked) begin
-        if (prb_valid && prb_ready) begin
+        if (prb_valid && prb_ready && host_prb_last) begin
           prb_locked <= 1'b0;
         end
       end
@@ -286,27 +304,6 @@ module tl_socket_1n import tl_pkg::*; #(
   assign host.d_corrupt = gnt.corrupt;
   assign host.d_data    = gnt.data;
 
-  // Determine the boundary of a message.
-  logic                     gnt_last;
-  logic [BurstLenWidth-1:0] gnt_len_q;
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      gnt_len_q <= 0;
-    end else begin
-      if (gnt_valid && gnt_ready) begin
-        if (gnt_len_q == 0) begin
-          if (gnt.opcode[0])
-            gnt_len_q <= burst_len(gnt.size);
-        end else begin
-          gnt_len_q <= gnt_len_q - 1;
-        end
-      end
-    end
-  end
-
-  assign gnt_last = gnt_len_q == 0 ? (gnt.size <= NonBurstSize || !gnt.opcode[0]) : gnt_len_q == 1;
-
   // Signals for arbitration
   logic [NumLinks-1:0] gnt_arb_grant;
   logic                gnt_locked;
@@ -320,7 +317,7 @@ module tl_socket_1n import tl_pkg::*; #(
     .grant   (gnt_arb_grant)
   );
 
-  // Perform arbitration, and make sure that until we encounter gnt_last we keep the connection stable.
+  // Perform arbitration, and make sure that until we encounter host_gnt_last we keep the connection stable.
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       gnt_locked <= 1'b0;
@@ -328,7 +325,7 @@ module tl_socket_1n import tl_pkg::*; #(
     end
     else begin
       if (gnt_locked) begin
-        if (gnt_valid && gnt_ready && gnt_last) begin
+        if (gnt_valid && gnt_ready && host_gnt_last) begin
           gnt_locked <= 1'b0;
         end
       end
