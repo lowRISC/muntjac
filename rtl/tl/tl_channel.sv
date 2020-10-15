@@ -158,4 +158,53 @@ interface tl_channel #(
     input  e_sink
   );
 
+  modport tap (
+    input  a_ready,
+    input  a_valid,
+    input  a_opcode,
+    input  a_param,
+    input  a_size,
+    input  a_source,
+    input  a_address,
+    input  a_mask,
+    input  a_corrupt,
+    input  a_data,
+
+    input  b_ready,
+    input  b_valid,
+    input  b_opcode,
+    input  b_param,
+    input  b_size,
+    input  b_source,
+    input  b_address,
+    input  b_mask,
+    input  b_corrupt,
+    input  b_data,
+
+    input  c_ready,
+    input  c_valid,
+    input  c_opcode,
+    input  c_param,
+    input  c_size,
+    input  c_source,
+    input  c_address,
+    input  c_corrupt,
+    input  c_data,
+
+    input  d_ready,
+    input  d_valid,
+    input  d_opcode,
+    input  d_param,
+    input  d_size,
+    input  d_source,
+    input  d_sink,
+    input  d_denied,
+    input  d_corrupt,
+    input  d_data,
+
+    input  e_ready,
+    input  e_valid,
+    input  e_sink
+  );
+
 endinterface

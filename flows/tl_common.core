@@ -7,9 +7,12 @@ description: "TL common building blocks"
 
 filesets:
   files_rtl:
+    depend:
+      - lowrisc:prim:util
     files:
       - ../rtl/tl/tl_pkg.sv
       - ../rtl/tl/tl_channel.sv
+      - ../rtl/tl/tl_burst_tracker.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
