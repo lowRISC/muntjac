@@ -12,8 +12,6 @@ filesets:
       - lowrisc:prim_generic:ram_2p
       - lowrisc:prim:util
       - lowrisc:tl:common
-      - lowrisc:tl:adapter_bram
-      - lowrisc:tl:adapter_tlul
       - lowrisc:tl:socket_m1
     files:
       - ../rtl/muntjac_core.sv
@@ -21,8 +19,6 @@ filesets:
       - ../rtl/muntjac_tlb.sv
       - ../rtl/muntjac_dcache.sv
       - ../rtl/muntjac_icache.sv
-      - ../rtl/tl/tl_broadcast.sv
-      - ../rtl/tl/tl_adapter_tluh.sv
     file_type: systemVerilogSource
 
   files_lint_verilator:

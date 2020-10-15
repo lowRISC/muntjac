@@ -1,0 +1,116 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:muntjac:core_tb:0.1"
+description: "Test of Muntjac Core"
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:tl:socket_1n
+      - lowrisc:tl:adapter_bram
+      - lowrisc:tl:adapter_tlul
+      - lowrisc:tl:broadcast
+      - lowrisc:muntjac:core
+
+  files_verilator:
+    files:
+      - verilator/rtl/core_wrapper.sv
+    file_type: systemVerilogSource
+
+  files_verilator_harness:
+    files:
+      - verilator/src/binary_parser.h: {is_include_file: true}
+      - verilator/src/data_block.h: {is_include_file: true}
+      - verilator/src/exceptions.h: {is_include_file: true}
+      - verilator/src/logs.h: {is_include_file: true}
+      - verilator/src/main_memory.h: {is_include_file: true}
+      - verilator/src/memory_port.h: {is_include_file: true}
+      - verilator/src/simulation.h: {is_include_file: true}
+      - verilator/src/types.h: {is_include_file: true}
+      - verilator/src/virtual_addressing.h: {is_include_file: true}
+      - verilator/src/binary_parser.cc
+      - verilator/src/data_block.cc
+      - verilator/src/exceptions.cc
+      - verilator/src/main_memory.cc
+      - verilator/src/memory_port.cc
+      - verilator/src/core_harness.cc
+    file_type: cppSource
+
+  files_lint_verilator:
+    files:
+      - verilator/lint_waiver.vlt: {file_type: vlt}
+
+  files_lint_verible:
+    files:
+#      - lint/verible_waiver.vbw: {file_type: veribleLintWaiver}
+
+parameters:
+  RVFI:
+    datatype: bool
+    paramtype: vlogdefine
+
+  SYNTHESIS:
+    datatype: bool
+    paramtype: vlogdefine
+
+  FPGA_XILINX:
+    datatype: bool
+    description: Identifies Xilinx FPGA targets to set DSP pragmas for performance counters.
+    default: false
+    paramtype: vlogdefine
+
+
+targets:
+  default: &default_target
+    filesets:
+      - tool_verilator ? (files_lint_verilator)
+      - tool_veriblelint ? (files_lint_verible)
+      - files_rtl
+      - tool_verilator ? (files_verilator)
+    toplevel: core_wrapper
+    parameters:
+      - tool_vivado ? (FPGA_XILINX=true)
+  lint:
+    <<: *default_target
+    parameters:
+      - SYNTHESIS=true
+      - RVFI=true
+    default_tool: verilator
+    tools:
+      verilator:
+        mode: lint-only
+        verilator_options:
+          - "-Wall"
+          # RAM primitives wider than 64bit (required for ECC) fail to build in
+          # Verilator without increasing the unroll count (see Verilator#1266)
+          - "--unroll-count 72"
+  format:
+    filesets:
+      - files_rtl
+    parameters:
+      - SYNTHESIS=true
+      - RVFI=true
+    default_tool: veribleformat
+    toplevel: muntjac_pipeline
+    tools:
+      veribleformat:
+        verible_format_args:
+          - "--inplace"
+  sim:
+    filesets:
+      - files_rtl
+      - files_verilator
+      - files_verilator_harness
+    default_tool: verilator
+    toplevel: core_wrapper
+    tools:
+      verilator:
+        mode: cc
+        verilator_options:
+          - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
+          - "-o muntjac_core"
+          - "--trace --trace-structs"
+          - "-O3"  # Verilator optimisation
+          - "-CFLAGS -O3"  # compiler optimisation
