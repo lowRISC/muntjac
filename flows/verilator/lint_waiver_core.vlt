@@ -11,6 +11,9 @@
 
 `verilator_config
 
+// Individual signals of the bundle should be treated independently.
+split_var -module "muntjac_dcache" -var "cache_d2h_o"
+
 // The core_wrapper is only included for Verilator compatibility. It is non-
 // synthesisable and includes some "unsafe" behaviour which helps with
 // debugging.
