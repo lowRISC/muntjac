@@ -84,6 +84,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   //////////////////////////////
 
   logic refill_lock_acq;
+  // Unlike {refill, access, flush}_lock_acq, probe_lock_acq is not set pulse signal; logic must
+  // maintain it if it still wants lock.
   logic probe_lock_acq;
   // probe_lock_rel is not defined because probe always transfer the lock to write-back module.
   logic release_lock_rel;
@@ -109,7 +111,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   } lock_holder_e;
 
   logic refill_lock_acq_pending_q, refill_lock_acq_pending_d;
-  logic probe_lock_acq_pending_q, probe_lock_acq_pending_d;
   logic access_lock_acq_pending_q, access_lock_acq_pending_d;
   logic flush_lock_acq_pending_q, flush_lock_acq_pending_d;
   lock_holder_e lock_holder_q, lock_holder_d;
@@ -123,7 +124,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   always_comb begin
     lock_holder_d = lock_holder_q;
     refill_lock_acq_pending_d = refill_lock_acq_pending_q || refill_lock_acq;
-    probe_lock_acq_pending_d = probe_lock_acq_pending_q || probe_lock_acq;
     access_lock_acq_pending_d = access_lock_acq_pending_q || access_lock_acq;
     flush_lock_acq_pending_d = flush_lock_acq_pending_q || flush_lock_acq;
 
@@ -147,9 +147,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
           refill_lock_acq_pending_d = 1'b0;
         end
         // This blocks other agents, so make it more important than the rest.
-        probe_lock_acq_pending_d: begin
+        probe_lock_acq: begin
           lock_holder_d = LockHolderProbe;
-          probe_lock_acq_pending_d = 1'b0;
         end
         // This should have no priority difference from access as they are mutually exclusive.
         flush_lock_acq_pending_d: begin
@@ -168,13 +167,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       refill_lock_acq_pending_q <= 1'b0;
-      probe_lock_acq_pending_q <= 1'b0;
       access_lock_acq_pending_q <= 1'b0;
       flush_lock_acq_pending_q <= 1'b0;
       lock_holder_q <= LockHolderFlush;
     end else begin
       refill_lock_acq_pending_q <= refill_lock_acq_pending_d;
-      probe_lock_acq_pending_q <= probe_lock_acq_pending_d;
       access_lock_acq_pending_q <= access_lock_acq_pending_d;
       flush_lock_acq_pending_q <= flush_lock_acq_pending_d;
       lock_holder_q <= lock_holder_d;
@@ -750,9 +747,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   // Probe Logic //
   /////////////////
 
-  typedef enum logic [1:0] {
+  typedef enum logic {
     ProbeStateIdle,
-    ProbeStateLocking,
     ProbeStateCheck
   } probe_state_e;
 
@@ -789,26 +785,13 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     unique case (probe_state_q)
       // Waiting for a probe request to reach us.
       ProbeStateIdle: begin
-        mem.b_ready = 1'b1;
+        probe_lock_acq = mem_probe_valid;
 
         if (mem_probe_valid) begin
+          mem.b_ready = 1'b1;
           probe_address_d = mem_probe_address[PhysAddrLen-1:6];
           probe_param_d = mem_probe_param;
-          probe_lock_acq = 1'b1;
 
-          probe_state_d = ProbeStateLocking;
-        end
-
-        if (probe_locking) begin
-          // Does the tag read necessary for performing invalidation
-          probe_read_req_tag = 1'b1;
-          probe_read_index = probe_address_d;
-
-          probe_state_d = ProbeStateCheck;
-        end
-      end
-      ProbeStateLocking: begin
-        if (probe_locking) begin
           // Does the tag read necessary for performing invalidation
           probe_read_req_tag = 1'b1;
           probe_read_index = probe_address_d;
