@@ -13,6 +13,7 @@ filesets:
       - ../rtl/tl/tl_pkg.sv
       - ../rtl/tl/tl_channel.sv
       - ../rtl/tl/tl_burst_tracker.sv
+      - ../rtl/tl/tl_source_shifter.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

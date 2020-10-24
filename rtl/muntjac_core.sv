@@ -1,7 +1,5 @@
 module muntjac_core import muntjac_pkg::*; #(
-  parameter int unsigned SourceWidth = 4,
-
-  parameter bit [SourceWidth-1:0] SourceBase = 0
+  parameter int unsigned SourceWidth = 4
 ) (
     // Clock and reset
     input  logic            clk_i,
@@ -21,10 +19,10 @@ module muntjac_core import muntjac_pkg::*; #(
     output logic [63:0] dbg_pc_o
 );
 
-  localparam [SourceWidth-1:0] DcacheSourceBase = SourceBase | 0;
-  localparam [SourceWidth-1:0] IcacheSourceBase = SourceBase | 1;
-  localparam [SourceWidth-1:0] DptwSourceBase = SourceBase | 2;
-  localparam [SourceWidth-1:0] IptwSourceBase = SourceBase | 3;
+  localparam [SourceWidth-1:0] DcacheSourceBase = 0;
+  localparam [SourceWidth-1:0] IcacheSourceBase = 1;
+  localparam [SourceWidth-1:0] DptwSourceBase = 2;
+  localparam [SourceWidth-1:0] IptwSourceBase = 3;
 
   localparam [SourceWidth-1:0] SourceMask = 0;
 
