@@ -1,4 +1,9 @@
-module tl_broadcast import tl_pkg::*; #(
+// The raw TileLink module without any register slice added.
+//
+// In general do not use this because this is not TileLink compliant as this
+// guarantees host channel A remains stable after a valid, which does not hold
+// in TileLink.
+module tl_broadcast_raw import tl_pkg::*; #(
   parameter AddrWidth = 56,
   parameter DataWidth = 64,
   parameter SizeWidth = 3,
@@ -519,20 +524,20 @@ module tl_broadcast import tl_pkg::*; #(
         device_req_mult[1].mask = host_req_mask;
         device_req_mult[1].data = host_req_data;
         host.a_ready = device_req_ready_mult[1];
-        if (device_req_valid_mult[1] && device_req_ready_mult[1] && host_req_last) begin
+        if (device_req_ready_mult[1] && host_req_valid && host_req_last) begin
           state_d = opcode_q == AcquireBlock ? StateWait : StateIdle;
         end
       end
 
       StateGrant: begin
         host.a_ready = host_req_valid && host_req_last ? host_gnt_ready_mult[1] : 1'b1;
-        host_gnt_valid_mult[1] = host_req_last;
+        host_gnt_valid_mult[1] = host_req_valid && host_req_last;
         host_gnt_mult[1].opcode = Grant;
         host_gnt_mult[1].param = xact_type_q;
         host_gnt_mult[1].source = source_q;
         host_gnt_mult[1].size = host_req_size;
         host_gnt_mult[1].denied = 1'b0;
-        if (host_gnt_ready_mult[1] && host_req_last) begin
+        if (host_gnt_ready_mult[1] && host_req_valid && host_req_last) begin
           grant_done_d = 1'b1;
           state_d = StateWait;
         end
@@ -540,13 +545,13 @@ module tl_broadcast import tl_pkg::*; #(
 
       StateDeny: begin
         host.a_ready = host_req_valid && host_req_last ? host_gnt_ready_mult[1] : 1'b1;
-        host_gnt_valid_mult[1] = host_req_last;
+        host_gnt_valid_mult[1] = host_req_valid && host_req_last;
         host_gnt_mult[1].opcode = opcode_q == PutFullData ? AccessAck : Grant;
         host_gnt_mult[1].param = toN;
         host_gnt_mult[1].source = source_q;
         host_gnt_mult[1].size = host_req_size;
         host_gnt_mult[1].denied = 1'b1;
-        if (host_gnt_ready_mult[1] && host_req_last) begin
+        if (host_gnt_ready_mult[1] && host_req_valid && host_req_last) begin
           grant_done_d = 1'b1;
           state_d = StateWait;
         end
@@ -799,5 +804,82 @@ module tl_broadcast import tl_pkg::*; #(
   // Acknowledgement channel is always available.
   assign ack_complete = host.e_valid;
   assign host.e_ready = 1'b1;
+
+endmodule
+
+module tl_broadcast import tl_pkg::*; #(
+  parameter AddrWidth = 56,
+  parameter DataWidth = 64,
+  parameter SizeWidth = 3,
+  parameter SourceWidth = 1,
+  parameter SinkWidth = 1,
+
+  // Address property table.
+  // This table is used to determine if a given address range is cacheable or writable.
+  // 2'b00 -> Normal
+  // 2'b01 -> Readonly (e.g. ROM)
+  // 2'b10 -> I/O
+  // When ranges overlap, range that is specified with larger index takes priority.
+  // If no ranges match, the property is assumed to be normal.
+  parameter int unsigned NumAddressRange = 1,
+  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressBase = '0,
+  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressMask = '0,
+  parameter bit [NumAddressRange-1:0][1:0]           AddressProperty = '0,
+
+  // Source ID table for cacheable hosts.
+  // These IDs are used for sending out Probe messages.
+  // Ranges must not overlap.
+  parameter NumCachedHosts = 1,
+  parameter logic [NumCachedHosts-1:0][SourceWidth-1:0] SourceBase = '0,
+  parameter logic [NumCachedHosts-1:0][SourceWidth-1:0] SourceMask = '0
+) (
+  input  logic clk_i,
+  input  logic rst_ni,
+
+  tl_channel.device host,
+  tl_channel.host   device
+);
+
+  tl_channel #(
+    .AddrWidth (AddrWidth),
+    .DataWidth (DataWidth),
+    .SizeWidth (SizeWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth)
+  ) host_reg_ch ();
+
+  tl_regslice #(
+    .AddrWidth (AddrWidth),
+    .DataWidth (DataWidth),
+    .SizeWidth (SizeWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .RequestMode (1)
+  ) host_reg (
+    .clk_i,
+    .rst_ni,
+    .host,
+    .device (host_reg_ch)
+  );
+
+  tl_broadcast_raw #(
+    .AddrWidth (AddrWidth),
+    .DataWidth (DataWidth),
+    .SizeWidth (SizeWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .NumAddressRange (NumAddressRange),
+    .AddressBase (AddressBase),
+    .AddressMask (AddressMask),
+    .AddressProperty (AddressProperty),
+    .NumCachedHosts (NumCachedHosts),
+    .SourceBase (SourceBase),
+    .SourceMask (SourceMask)
+  ) inst (
+    .clk_i,
+    .rst_ni,
+    .host (host_reg_ch),
+    .device
+  );
 
 endmodule

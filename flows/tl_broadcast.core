@@ -9,6 +9,7 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
+      - lowrisc:tl:regslice
     files:
       - ../rtl/tl/tl_broadcast.sv
     file_type: systemVerilogSource
