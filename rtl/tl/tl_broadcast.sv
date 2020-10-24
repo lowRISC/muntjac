@@ -204,7 +204,7 @@ module tl_broadcast_raw import tl_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(ReqOrigins)) device_req_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (!device_req_locked),
+    .enable  (device_req_valid && device_req_ready && !device_req_locked),
     .request (device_req_valid_mult),
     .grant   (device_req_arb_grant)
   );
@@ -216,32 +216,32 @@ module tl_broadcast_raw import tl_pkg::*; #(
       device_req_selected <= '0;
     end
     else begin
-      if (device_req_locked) begin
-        if (device_req_valid && device_req_ready && device_req_last) begin
+      if (device_req_valid && device_req_ready) begin
+        if (!device_req_locked) begin
+          device_req_locked   <= 1'b1;
+          device_req_selected <= device_req_arb_grant;
+        end
+        if (device_req_last) begin
           device_req_locked <= 1'b0;
         end
-      end
-      else if (|device_req_arb_grant) begin
-        device_req_locked   <= 1'b1;
-        device_req_selected <= device_req_arb_grant;
       end
     end
   end
 
+  wire [ReqOrigins-1:0] device_req_select = device_req_locked ? device_req_selected : device_req_arb_grant;
+
   for (genvar i = 0; i < ReqOrigins; i++) begin
-    assign device_req_ready_mult[i] = device_req_locked && device_req_selected[i] && device_req_ready;
+    assign device_req_ready_mult[i] = device_req_select[i] && device_req_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
     device_req = req_t'('x);
     device_req_valid = 1'b0;
-    if (device_req_locked) begin
-      for (int i = ReqOrigins - 1; i >= 0; i--) begin
-        if (device_req_selected[i]) begin
-          device_req = device_req_mult[i];
-          device_req_valid = device_req_valid_mult[i];
-        end
+    for (int i = ReqOrigins - 1; i >= 0; i--) begin
+      if (device_req_select[i]) begin
+        device_req = device_req_mult[i];
+        device_req_valid = device_req_valid_mult[i];
       end
     end
   end
@@ -291,13 +291,13 @@ module tl_broadcast_raw import tl_pkg::*; #(
 
   // Signals for arbitration
   logic [GntOrigins-1:0] host_gnt_arb_grant;
-  logic                host_gnt_locked;
+  logic                  host_gnt_locked;
   logic [GntOrigins-1:0] host_gnt_selected;
 
   openip_round_robin_arbiter #(.WIDTH(GntOrigins)) host_gnt_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (!host_gnt_locked),
+    .enable  (host_gnt_valid && host_gnt_ready && !host_gnt_locked),
     .request (host_gnt_valid_mult),
     .grant   (host_gnt_arb_grant)
   );
@@ -309,32 +309,32 @@ module tl_broadcast_raw import tl_pkg::*; #(
       host_gnt_selected <= '0;
     end
     else begin
-      if (host_gnt_locked) begin
-        if (host_gnt_valid && host_gnt_ready && host_gnt_last) begin
+      if (host_gnt_valid && host_gnt_ready) begin
+        if (!host_gnt_locked) begin
+          host_gnt_locked   <= 1'b1;
+          host_gnt_selected <= host_gnt_arb_grant;
+        end
+        if (host_gnt_last) begin
           host_gnt_locked <= 1'b0;
         end
-      end
-      else if (|host_gnt_arb_grant) begin
-        host_gnt_locked   <= 1'b1;
-        host_gnt_selected <= host_gnt_arb_grant;
       end
     end
   end
 
+  wire [GntOrigins-1:0] host_gnt_select = host_gnt_locked ? host_gnt_selected : host_gnt_arb_grant;
+
   for (genvar i = 0; i < GntOrigins; i++) begin
-    assign host_gnt_ready_mult[i] = host_gnt_locked && host_gnt_selected[i] && host_gnt_ready;
+    assign host_gnt_ready_mult[i] = host_gnt_select[i] && host_gnt_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
     host_gnt = gnt_t'('x);
     host_gnt_valid = 1'b0;
-    if (host_gnt_locked) begin
-      for (int i = GntOrigins - 1; i >= 0; i--) begin
-        if (host_gnt_selected[i]) begin
-          host_gnt = host_gnt_mult[i];
-          host_gnt_valid = host_gnt_valid_mult[i];
-        end
+    for (int i = GntOrigins - 1; i >= 0; i--) begin
+      if (host_gnt_select[i]) begin
+        host_gnt = host_gnt_mult[i];
+        host_gnt_valid = host_gnt_valid_mult[i];
       end
     end
   end

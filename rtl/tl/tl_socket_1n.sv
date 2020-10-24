@@ -177,7 +177,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) prb_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (!prb_locked),
+    .enable  (prb_valid && prb_ready && !prb_locked),
     .request (prb_valid_mult),
     .grant   (prb_arb_grant)
   );
@@ -189,32 +189,32 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
       prb_selected <= '0;
     end
     else begin
-      if (prb_locked) begin
-        if (prb_valid && prb_ready && host_prb_last) begin
+      if (prb_valid && prb_ready) begin
+        if (!prb_locked) begin
+          prb_locked   <= 1'b1;
+          prb_selected <= prb_arb_grant;
+        end
+        if (host_prb_last) begin
           prb_locked <= 1'b0;
         end
-      end
-      else if (|prb_arb_grant) begin
-        prb_locked   <= 1'b1;
-        prb_selected <= prb_arb_grant;
       end
     end
   end
 
+  wire [NumLinks-1:0] prb_select = prb_locked ? prb_selected : prb_arb_grant;
+
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign prb_ready_mult[i] = prb_locked && prb_selected[i] && prb_ready;
+    assign prb_ready_mult[i] = prb_select[i] && prb_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
     prb = prb_t'('x);
     prb_valid = 1'b0;
-    if (prb_locked) begin
-      for (int i = NumLinks - 1; i >= 0; i--) begin
-        if (prb_selected[i]) begin
-          prb = prb_mult[i];
-          prb_valid = prb_valid_mult[i];
-        end
+    for (int i = NumLinks - 1; i >= 0; i--) begin
+      if (prb_select[i]) begin
+        prb = prb_mult[i];
+        prb_valid = prb_valid_mult[i];
       end
     end
   end
@@ -312,7 +312,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) gnt_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (!gnt_locked),
+    .enable  (gnt_valid && gnt_ready && !gnt_locked),
     .request (gnt_valid_mult),
     .grant   (gnt_arb_grant)
   );
@@ -324,32 +324,32 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
       gnt_selected <= '0;
     end
     else begin
-      if (gnt_locked) begin
-        if (gnt_valid && gnt_ready && host_gnt_last) begin
+      if (gnt_valid && gnt_ready) begin
+        if (!gnt_locked) begin
+          gnt_locked   <= 1'b1;
+          gnt_selected <= gnt_arb_grant;
+        end
+        if (host_gnt_last) begin
           gnt_locked <= 1'b0;
         end
-      end
-      else if (|gnt_arb_grant) begin
-        gnt_locked   <= 1'b1;
-        gnt_selected <= gnt_arb_grant;
       end
     end
   end
 
+  wire [NumLinks-1:0] gnt_select = gnt_locked ? gnt_selected : gnt_arb_grant;
+
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign gnt_ready_mult[i] = gnt_locked && gnt_selected[i] && gnt_ready;
+    assign gnt_ready_mult[i] = gnt_select[i] && gnt_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
     gnt = gnt_t'('x);
     gnt_valid = 1'b0;
-    if (gnt_locked) begin
-      for (int i = NumLinks - 1; i >= 0; i--) begin
-        if (gnt_selected[i]) begin
-          gnt = gnt_mult[i];
-          gnt_valid = gnt_valid_mult[i];
-        end
+    for (int i = NumLinks - 1; i >= 0; i--) begin
+      if (gnt_select[i]) begin
+        gnt = gnt_mult[i];
+        gnt_valid = gnt_valid_mult[i];
       end
     end
   end

@@ -159,7 +159,7 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) req_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (!req_locked),
+    .enable  (req_valid && req_ready && !req_locked),
     .request (req_valid_mult),
     .grant   (req_arb_grant)
   );
@@ -171,32 +171,32 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
       req_selected <= '0;
     end
     else begin
-      if (req_locked) begin
-        if (req_valid && req_ready && device_req_last) begin
+      if (req_valid && req_ready) begin
+        if (!req_locked) begin
+          req_locked   <= 1'b1;
+          req_selected <= req_arb_grant;
+        end
+        if (device_req_last) begin
           req_locked <= 1'b0;
         end
-      end
-      else if (|req_arb_grant) begin
-        req_locked   <= 1'b1;
-        req_selected <= req_arb_grant;
       end
     end
   end
 
+  wire [NumLinks-1:0] req_select = req_locked ? req_selected : req_arb_grant;
+
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign req_ready_mult[i] = req_locked && req_selected[i] && req_ready;
+    assign req_ready_mult[i] = req_select[i] && req_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
     req = req_t'('x);
     req_valid = 1'b0;
-    if (req_locked) begin
-      for (int i = NumLinks - 1; i >= 0; i--) begin
-        if (req_selected[i]) begin
-          req = req_mult[i];
-          req_valid = req_valid_mult[i];
-        end
+    for (int i = NumLinks - 1; i >= 0; i--) begin
+      if (req_select[i]) begin
+        req = req_mult[i];
+        req_valid = req_valid_mult[i];
       end
     end
   end
@@ -298,7 +298,7 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
     openip_round_robin_arbiter #(.WIDTH(NumCachedLinks)) rel_arb (
       .clk     (clk_i),
       .rstn    (rst_ni),
-      .enable  (!rel_locked),
+      .enable  (rel_valid && rel_ready && !rel_locked),
       .request (rel_valid_mult),
       .grant   (rel_arb_grant)
     );
@@ -310,32 +310,32 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
         rel_selected <= '0;
       end
       else begin
-        if (rel_locked) begin
-          if (rel_valid && rel_ready && device_rel_last) begin
+        if (rel_valid && rel_ready) begin
+          if (!rel_locked) begin
+            rel_locked   <= 1'b1;
+            rel_selected <= rel_arb_grant;
+          end
+          if (device_rel_last) begin
             rel_locked <= 1'b0;
           end
-        end
-        else if (|rel_arb_grant) begin
-          rel_locked   <= 1'b1;
-          rel_selected <= rel_arb_grant;
         end
       end
     end
 
+    wire [NumCachedLinks-1:0] rel_select = rel_locked ? rel_selected : rel_arb_grant;
+
     for (genvar i = 0; i < NumCachedLinks; i++) begin
-      assign rel_ready_mult[i] = rel_locked && rel_selected[i] && rel_ready;
+      assign rel_ready_mult[i] = rel_select[i] && rel_ready;
     end
 
     // Do the post-arbitration multiplexing
     always_comb begin
       rel = rel_t'('x);
       rel_valid = 1'b0;
-      if (rel_locked) begin
-        for (int i = NumCachedLinks - 1; i >= 0; i--) begin
-          if (rel_selected[i]) begin
-            rel = rel_mult[i];
-            rel_valid = rel_valid_mult[i];
-          end
+      for (int i = NumCachedLinks - 1; i >= 0; i--) begin
+        if (rel_select[i]) begin
+          rel = rel_mult[i];
+          rel_valid = rel_valid_mult[i];
         end
       end
     end
@@ -416,50 +416,27 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
 
     // Signals for arbitration
     logic [NumCachedLinks-1:0] ack_arb_grant;
-    logic                      ack_locked;
-    logic [NumCachedLinks-1:0] ack_selected;
 
     openip_round_robin_arbiter #(.WIDTH(NumCachedLinks)) ack_arb (
       .clk     (clk_i),
       .rstn    (rst_ni),
-      .enable  (!ack_locked),
+      .enable  (ack_valid && ack_ready),
       .request (ack_valid_mult),
       .grant   (ack_arb_grant)
     );
 
-    // Perform arbitration, and make sure that we keep the connection stable until handshake.
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        ack_locked <= 1'b0;
-        ack_selected <= '0;
-      end
-      else begin
-        if (ack_locked) begin
-          if (ack_valid && ack_ready) begin
-            ack_locked <= 1'b0;
-          end
-        end
-        else if (|ack_arb_grant) begin
-          ack_locked   <= 1'b1;
-          ack_selected <= ack_arb_grant;
-        end
-      end
-    end
-
     for (genvar i = 0; i < NumCachedLinks; i++) begin
-      assign ack_ready_mult[i] = ack_locked && ack_selected[i] && ack_ready;
+      assign ack_ready_mult[i] = ack_arb_grant[i] && ack_ready;
     end
 
     // Do the post-arbitration multiplexing
     always_comb begin
       ack_sink = 'x;
       ack_valid = 1'b0;
-      if (ack_locked) begin
-        for (int i = NumCachedLinks - 1; i >= 0; i--) begin
-          if (ack_selected[i]) begin
-            ack_sink = ack_sink_mult[i];
-            ack_valid = ack_valid_mult[i];
-          end
+      for (int i = NumCachedLinks - 1; i >= 0; i--) begin
+        if (ack_arb_grant[i]) begin
+          ack_sink = ack_sink_mult[i];
+          ack_valid = ack_valid_mult[i];
         end
       end
     end
