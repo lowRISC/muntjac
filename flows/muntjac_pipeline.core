@@ -23,6 +23,7 @@ filesets:
       - ../rtl/muntjac_frontend.sv
       - ../rtl/muntjac_reg_file_fpga.sv
       - ../rtl/muntjac_mul.sv
+      - ../rtl/muntjac_mul_fast.sv
       - ../rtl/muntjac_div.sv
     file_type: systemVerilogSource
 
