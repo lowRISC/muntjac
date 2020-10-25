@@ -40,10 +40,10 @@ module muntjac_mul import muntjac_pkg::*; (
   logic op_word_q, op_word_d;
 
   // Multadd
-  logic [36:0] accum, accum_d;
+  logic [34:0] accum, accum_d;
   logic [16:0] mac_op_a;
   logic [16:0] mac_op_b;
-  logic [36:0] mac_prod;
+  logic [34:0] mac_prod;
 
   // Output signals
   logic o_valid_d;
@@ -104,7 +104,7 @@ module muntjac_mul import muntjac_pkg::*; (
         unique case ({a_idx_q, b_idx_q})
           {2'd0, 2'd0}: begin
             o_value_d[15:0] = mac_prod[15:0];
-            accum_d = signed'(mac_prod[36:16]);
+            accum_d = signed'(mac_prod[34:16]);
             a_idx_d = 1;
             b_idx_d = 0;
           end
@@ -120,7 +120,7 @@ module muntjac_mul import muntjac_pkg::*; (
               accum_d = 'x;
               state_d = StateIdle;
             end else begin
-              accum_d = signed'(mac_prod[36:16]);
+              accum_d = signed'(mac_prod[34:16]);
               a_idx_d = 0;
               b_idx_d = 2;
             end
@@ -136,7 +136,7 @@ module muntjac_mul import muntjac_pkg::*; (
           end
           {2'd2, 2'd0}: begin
             o_value_d[47:32] = mac_prod[15:0];
-            accum_d = signed'(mac_prod[36:16]);
+            accum_d = signed'(mac_prod[34:16]);
             a_idx_d = 3;
             b_idx_d = 0;
           end
@@ -160,7 +160,7 @@ module muntjac_mul import muntjac_pkg::*; (
               accum_d = 'x;
               state_d = StateIdle;
             end else begin
-              accum_d = signed'(mac_prod[36:16]);
+              accum_d = signed'(mac_prod[34:16]);
               a_idx_d = 1;
               b_idx_d = 3;
             end
@@ -176,7 +176,7 @@ module muntjac_mul import muntjac_pkg::*; (
           end
           {2'd3, 2'd1}: begin
             o_value_d[15:0] = mac_prod[15:0];
-            accum_d = signed'(mac_prod[36:16]);
+            accum_d = signed'(mac_prod[34:16]);
             a_idx_d = 3;
             b_idx_d = 2;
           end
@@ -187,7 +187,7 @@ module muntjac_mul import muntjac_pkg::*; (
           end
           {2'd2, 2'd3}: begin
             o_value_d[31:16] = mac_prod[15:0];
-            accum_d = signed'(mac_prod[36:16]);
+            accum_d = signed'(mac_prod[34:16]);
             a_idx_d = 3;
             b_idx_d = 3;
           end
