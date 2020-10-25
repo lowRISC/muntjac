@@ -745,7 +745,7 @@ module muntjac_backend import muntjac_pkg::*; (
   wire word = de_ex_decoded.size[0] == 1'b0;
 
   // Multiplier
-  mul_unit mul (
+  muntjac_mul mul (
     .clk_i,
     .rst_ni,
     .operand_a_i  (ex_rs1),
@@ -759,7 +759,7 @@ module muntjac_backend import muntjac_pkg::*; (
   );
 
   // Divider
-  div_unit div (
+  muntjac_div div (
     .clk_i,
     .rst_ni,
     .operand_a_i  (ex_rs1),

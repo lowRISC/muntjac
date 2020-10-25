@@ -22,7 +22,8 @@ filesets:
       - ../rtl/muntjac_ras.sv
       - ../rtl/muntjac_frontend.sv
       - ../rtl/muntjac_reg_file_fpga.sv
-      - ../rtl/mul.sv
+      - ../rtl/muntjac_mul.sv
+      - ../rtl/muntjac_div.sv
     file_type: systemVerilogSource
 
   files_lint_verilator:
