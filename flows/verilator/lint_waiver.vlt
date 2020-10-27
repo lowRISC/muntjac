@@ -16,11 +16,6 @@
 // debugging.
 lint_off -file "*/rtl/pipeline_wrapper.sv"
 
-// Temporary files, due to be rewritten.
-lint_off -file "*/rtl/mul.sv"
-lint_off -file "*/rtl/icache/icache_intf.sv"
-lint_off -file "*/rtl/dcache/dcache_intf.sv"
-
 // Multiple closely-related modules have been intentionally grouped together in
 // a single file.
 lint_off -rule DECLFILENAME -file "*/rtl/muntjac_alu.sv" -match "Filename 'muntjac_alu' does not match MODULE name: 'muntjac_comparator'"
@@ -80,3 +75,8 @@ lint_off -rule WIDTH -file "*/rtl/muntjac_alu.sv" -match "Operator ASSIGN expect
 // There are workarounds, e.g. slice/extend the enum members to make them the
 // correct size, but this has limited tool support and hurts code readability.
 lint_off -rule WIDTH -file "*/rtl/muntjac_cs_registers.sv" -match "*requires * bit index, not 5 bits."
+
+// Sign extension frequently needed in mul/div units. Use implicit extension for code clarity.
+lint_off -rule WIDTH -file "*/rtl/muntjac_div.sv"
+lint_off -rule WIDTH -file "*/rtl/muntjac_mul.sv"
+lint_off -rule WIDTH -file "*/rtl/muntjac_mul_fast.sv"

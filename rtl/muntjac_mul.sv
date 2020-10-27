@@ -53,16 +53,16 @@ module muntjac_mul import muntjac_pkg::*; (
   assign req_ready_o = state_q == StateIdle;
   always_comb begin
     unique case (a_idx_q)
-      0: mac_op_a = a_q[15:0];
-      1: mac_op_a = a_q[31:16];
-      2: mac_op_a = a_q[47:32];
+      0: mac_op_a = {1'b0, a_q[15:0]};
+      1: mac_op_a = {1'b0, a_q[31:16]};
+      2: mac_op_a = {1'b0, a_q[47:32]};
       3: mac_op_a = a_q[64:48];
       default: mac_op_a = 'x;
     endcase
     unique case (b_idx_q)
-      0: mac_op_b = b_q[15:0];
-      1: mac_op_b = b_q[31:16];
-      2: mac_op_b = b_q[47:32];
+      0: mac_op_b = {1'b0, b_q[15:0]};
+      1: mac_op_b = {1'b0, b_q[31:16]};
+      2: mac_op_b = {1'b0, b_q[47:32]};
       3: mac_op_b = b_q[64:48];
       default: mac_op_b = 'x;
     endcase
@@ -193,7 +193,7 @@ module muntjac_mul import muntjac_pkg::*; (
           end
 
           {2'd3, 2'd3}: begin
-            o_value_d[63:32] = mac_prod;
+            o_value_d[63:32] = mac_prod[31:0];
             o_valid_d = 1'b1;
             accum_d = 'x;
             state_d = StateIdle;
