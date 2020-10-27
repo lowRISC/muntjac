@@ -14,9 +14,10 @@ module muntjac_div import muntjac_pkg::*; (
   output logic        resp_valid_o
 );
 
-  typedef enum logic {
+  typedef enum logic [1:0] {
     StateIdle,
-    StateProgress
+    StateProgress,
+    StateOutput
   } state_e;
 
   state_e state_q = StateIdle, state_d;
@@ -90,13 +91,11 @@ module muntjac_div import muntjac_pkg::*; (
   always_comb begin
     state_d = state_q;
 
-    // Shifters
-    iter_d = iter_q;
-    quo_d = {quo_q, 1'b0};
-    rem_d = {rem_q, a_q[0]};
-    a_d = a_q[63:1];
-
     // Keep those values constant
+    iter_d = iter_q;
+    quo_d = quo_q;
+    rem_d = rem_q;
+    a_d = a_q;
     b_d = b_q;
     quo_neg_d = quo_neg_q;
     rem_neg_d = rem_neg_q;
@@ -126,6 +125,9 @@ module muntjac_div import muntjac_pkg::*; (
       end
       StateProgress: begin
         iter_d = iter_q - 1;
+        quo_d = {quo_q[62:0], 1'b0};
+        rem_d = {rem_q[62:0], a_q[0]};
+        a_d = {1'b0, a_q[63:1]};
 
         if (rem_d >= b_q) begin
           rem_d = rem_d - b_q;
@@ -133,18 +135,22 @@ module muntjac_div import muntjac_pkg::*; (
         end
 
         if (iter_q == 0) begin
-          state_d = StateIdle;
-          o_valid_d = 1'b1;
-          if (use_rem_q) begin
-            o_value_d = rem_neg_q ? -rem_d : rem_d;
-          end else begin
-            o_value_d = quo_neg_q ? -quo_d : quo_d;
-          end
-          if (word_q) begin
-            o_value_d = signed'(o_value_d[31:0]);
-          end
+          state_d = StateOutput;
         end
       end
+      StateOutput: begin
+        state_d = StateIdle;
+        o_valid_d = 1'b1;
+        if (use_rem_q) begin
+          o_value_d = rem_neg_q ? -rem_q : rem_q;
+        end else begin
+          o_value_d = quo_neg_q ? -quo_q : quo_q;
+        end
+        if (word_q) begin
+          o_value_d = signed'(o_value_d[31:0]);
+        end
+      end
+      default:;
     endcase
   end
 
