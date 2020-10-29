@@ -650,13 +650,13 @@ module tl_broadcast_raw import tl_pkg::*; #(
   // Release channel handling //
   //////////////////////////////
 
-  wire                   ack_valid   = host.c_valid;
-  wire tl_c_op_e         ack_opcode  = host.c_opcode;
-  wire [SizeWidth-1:0]   ack_size    = host.c_size;
-  wire [SourceWidth-1:0] ack_source  = host.c_source;
-  wire [AddrWidth-1:0]   ack_address = host.c_address;
-  wire                   ack_corrupt = host.c_corrupt;
-  wire [DataWidth-1:0]   ack_data    = host.c_data;
+  wire                   rel_valid   = host.c_valid;
+  wire tl_c_op_e         rel_opcode  = host.c_opcode;
+  wire [SizeWidth-1:0]   rel_size    = host.c_size;
+  wire [SourceWidth-1:0] rel_source  = host.c_source;
+  wire [AddrWidth-1:0]   rel_address = host.c_address;
+  wire                   rel_corrupt = host.c_corrupt;
+  wire [DataWidth-1:0]   rel_data    = host.c_data;
 
   // The release channel is relatively easy because it does not have complex ordering requirements
   // with other channels.
@@ -678,19 +678,19 @@ module tl_broadcast_raw import tl_pkg::*; #(
     device_req_valid_mult[0] = 1'b0;
     device_req_mult[0].opcode = PutFullData;
     device_req_mult[0].param = 0;
-    device_req_mult[0].size = ack_size;
+    device_req_mult[0].size = rel_size;
     device_req_mult[0].source = 'x;
-    device_req_mult[0].address = ack_address;
-    device_req_mult[0].mask = '1; // TODO: Make sure ack_size >= NonBurstSize
-    device_req_mult[0].corrupt = ack_corrupt;
-    device_req_mult[0].data = ack_data;
+    device_req_mult[0].address = rel_address;
+    device_req_mult[0].mask = '1; // FIXME: Make sure rel_size >= NonBurstSize
+    device_req_mult[0].corrupt = rel_corrupt;
+    device_req_mult[0].data = rel_data;
 
     // ReleaseAck message in response to a Release.
     host_gnt_valid_mult[0] = 1'b0;
     host_gnt_mult[0].opcode = ReleaseAck;
     host_gnt_mult[0].param = 0;
-    host_gnt_mult[0].size = ack_size;
-    host_gnt_mult[0].source = ack_source;
+    host_gnt_mult[0].size = rel_size;
+    host_gnt_mult[0].source = rel_source;
     host_gnt_mult[0].sink = 'x;
     host_gnt_mult[0].denied = 1'b0;
     host_gnt_mult[0].corrupt = 1'b0;
@@ -700,15 +700,15 @@ module tl_broadcast_raw import tl_pkg::*; #(
 
     probe_ack_complete = 1'b0;
 
-    if (ack_valid) begin
-      unique case (ack_opcode)
+    if (rel_valid) begin
+      unique case (rel_opcode)
         ProbeAck: begin
           // Drop
           host.c_ready = 1'b1;
           probe_ack_complete = 1'b1;
         end
         ProbeAckData: begin
-          device_req_valid_mult[0] = ack_valid;
+          device_req_valid_mult[0] = rel_valid;
           device_req_mult[0].source = {source_q, XACT_PROBE_ACK_DATA};
           host.c_ready = device_req_ready_mult[0];
         end
@@ -718,8 +718,8 @@ module tl_broadcast_raw import tl_pkg::*; #(
           host.c_ready = host_gnt_ready_mult[0];
         end
         ReleaseData: begin
-          device_req_valid_mult[0] = ack_valid;
-          device_req_mult[0].source = {ack_source, XACT_RELEASE_DATA};
+          device_req_valid_mult[0] = rel_valid;
+          device_req_mult[0].source = {rel_source, XACT_RELEASE_DATA};
           host.c_ready = device_req_ready_mult[0];
         end
       endcase
