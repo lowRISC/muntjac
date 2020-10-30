@@ -495,9 +495,12 @@ module tl_broadcast_raw import tl_pkg::*; #(
             end
           endcase
 
-          if (!req_allowed) begin
+          if (req_address_property != 0) begin
             probe_valid = 1'b0;
-            state_d = StateDeny;
+            state_d = host_req_opcode == AcquirePerm ? StateGrant : StateReq;
+            if (!req_allowed) begin
+              state_d = StateDeny;
+            end
           end
         end
       end
