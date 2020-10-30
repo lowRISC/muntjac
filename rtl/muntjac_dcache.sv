@@ -1508,7 +1508,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
               end
             endcase
           end else begin
-            // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
+            // Re-acquire lock that refiller released.
+            // FIXME: Maybe should let refiller give lock back to us like I$.
             state_d = StateReplay;
             access_lock_acq = 1'b1;
           end

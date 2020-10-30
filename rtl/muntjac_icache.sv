@@ -841,7 +841,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         if (mem_grant_last) begin
           if (mem_grant_denied) begin
             ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
-            state_d = StateException;
+            state_d = StateExceptionLocked;
           end else begin
             // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
             state_d = StateReplay;
