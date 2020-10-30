@@ -236,6 +236,10 @@ module tl_socket_m1 import tl_pkg::*; import prim_util_pkg::*; #(
 
     assign device.b_ready = |prb_ready_mult;
 
+  end else begin
+
+    assign device.b_ready = 1'b1;
+
   end
 
   /////////////////////////////////
