@@ -2,7 +2,7 @@
 
 This interface allows the pipeline to fetch instructions from the instruction cache.
 
-There are no flow control signals. The cache is expected to process only one request at a time, and the output must be consumed immediately.
+There are no flow control signals. The cache is expected to process only one request at a time, and the output must be consumed immediately. The cache may not respond on the same clock cycle as the request arrived.
 
 All `valid` signals should remain high for at most one clock cycle per request/response.
 

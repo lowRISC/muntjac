@@ -2,7 +2,7 @@
 
 This interface allows the pipeline to read and write information to the data cache.
 
-Every request **must** receive a response, even if that response is only "the request completed without triggering an exception".
+Every request **must** receive a response, even if that response is only "the request completed without triggering an exception". The cache may not respond on the same clock cycle as the request arrived.
 
 All `valid` signals should remain high for at most one clock cycle per request/response.
 

@@ -46,9 +46,11 @@ muntjac_pipeline [simulator arguments] <executable> [program arguments]
 
 | Simulator argument | Description |
 | --- | --- |
-| `-memory-latency=X` | Set main memory latency to X cycles |
-| `-timeout=X` | Force end of simulation after X cycles |
-| `-v` | Display additional information as simulation proceeds |
+| `--help` | Display usage information. |
+| `--memory-latency=X` | Set main memory latency to X cycles. |
+| `--timeout=X` | Force end of simulation after X cycles. |
+| `--trace=X` | Dump VCD output to file X. |
+| `-v[v]` | Display additional information as simulation proceeds. More `v`s gives more output. |
 
 ## Vivado
 
