@@ -36,7 +36,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     input  logic [63:0] hart_id_i,
 
     // Debug connections
-    output logic [63:0]    dbg_pc_o
+    output instr_trace_t  dbg_o
 );
 
   // Number of bits required to recover a legal full 64-bit address.
@@ -451,6 +451,10 @@ module muntjac_backend import muntjac_pkg::*; #(
   logic [63:0] er_epc;
   assign csr_select = csr_num_e'(de_ex_decoded.exception.tval[31:20]);
 
+`ifdef TRACE_ENABLE
+  logic [63:0] csr_wdata;
+`endif
+
   logic wfi_valid;
   logic mem_notif_ready;
 
@@ -595,10 +599,12 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex1_select_q;
   logic [63:0] ex1_alu_data_q;
   logic [LogicSextAddrLen-1:0] ex1_pc_q;
+  instr_trace_t ex1_trace_q;
 
   func_unit_e ex2_select_q;
   logic [63:0] ex2_alu_data_q;
   logic [LogicSextAddrLen-1:0] ex2_pc_q;
+  instr_trace_t ex2_trace_q;
 
   always_comb begin
     unique case (ex1_select_q)
@@ -631,6 +637,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex1_select_d;
   logic [63:0] ex1_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex1_pc_d;
+  instr_trace_t ex1_trace_d;
   logic ex1_use_frd_d;
   logic [4:0] ex1_rd_d;
   logic [63:0] ex_expected_pc_d;
@@ -643,6 +650,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     ex1_select_d = ex1_select_q;
     ex1_alu_data_d = ex1_alu_data_q;
     ex1_pc_d = ex1_pc_q;
+    ex1_trace_d = ex1_trace_q;
     ex1_use_frd_d = ex1_use_frd_q;
     ex1_rd_d = ex1_rd_q;
     ex_expected_pc_d = ex_expected_pc_q;
@@ -677,6 +685,7 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
+        ex1_trace_d = de_ex_decoded.trace;
         ex1_use_frd_d = de_ex_decoded.use_frd;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
@@ -722,6 +731,7 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
+        ex1_trace_d = de_ex_decoded.trace;
         ex1_use_frd_d = 1'b0;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
@@ -733,6 +743,18 @@ module muntjac_backend import muntjac_pkg::*; #(
       end
       default:;
     endcase
+
+`ifdef TRACE_ENABLE
+    // These expressions match the inputs to the CSRs below.
+    // Don't allow flags to be deasserted until the instruction is replaced.
+    if (!ex1_trace_d.csr_written) begin
+      ex1_trace_d.csr_written = sys_issue &&
+                                de_ex_decoded.sys_op == SYS_CSR &&
+                                de_ex_decoded.csr_op != CSR_OP_READ;
+      ex1_trace_d.csr = csr_select;
+    end
+    ex1_trace_d.csr_data = csr_wdata;
+`endif
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -743,6 +765,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_rd_q <= '0;
       ex1_alu_data_q <= 'x;
       ex1_pc_q <= 'x;
+      ex1_trace_q.pc <= 'x;
       ex_expected_pc_q <= '0;
       ex_branch_type_q <= BRANCH_NONE;
       ex1_compressed_q <= 1'b0;
@@ -752,6 +775,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_select_q <= ex1_select_d;
       ex1_alu_data_q <= ex1_alu_data_d;
       ex1_pc_q <= ex1_pc_d;
+      ex1_trace_q <= ex1_trace_d;
       ex1_use_frd_q <= ex1_use_frd_d;
       ex1_rd_q <= ex1_rd_d;
       ex_expected_pc_q <= ex_expected_pc_d;
@@ -793,6 +817,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex2_select_d;
   logic [63:0] ex2_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex2_pc_d;
+  instr_trace_t ex2_trace_d;
   logic ex2_use_frd_d;
   logic [4:0] ex2_rd_d;
 
@@ -801,6 +826,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     ex2_select_d = ex2_select_q;
     ex2_alu_data_d = ex2_alu_data_q;
     ex2_pc_d = ex2_pc_q;
+    ex2_trace_d = ex2_trace_q;
     ex2_use_frd_d = ex2_use_frd_q;
     ex2_rd_d = ex2_rd_q;
 
@@ -836,6 +862,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_pending_d = 1'b1;
       ex2_select_d = ex1_select_q;
       ex2_pc_d = ex1_pc_q;
+      ex2_trace_d = ex1_trace_q;
       ex2_use_frd_d = ex1_use_frd_q;
       ex2_rd_d = ex1_rd_q;
       ex2_alu_data_d = 'x;
@@ -847,6 +874,14 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex2_alu_data_d = ex1_data;
       end
     end
+
+`ifdef TRACE_ENABLE
+    // Debug signals.
+    // These expressions match the inputs to the register file below.
+    ex2_trace_d.gpr_written = ex2_pending_d && ex2_data_valid;
+    ex2_trace_d.gpr = ex2_rd_d;
+    ex2_trace_d.gpr_data = ex2_data;
+`endif
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -855,6 +890,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= FU_ALU;
       ex2_alu_data_q <= 'x;
       ex2_pc_q <= 'x;
+      ex2_trace_q.pc <= 'x;
       ex2_use_frd_q <= 1'b0;
       ex2_rd_q <= '0;
     end
@@ -863,6 +899,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= ex2_select_d;
       ex2_alu_data_q <= ex2_alu_data_d;
       ex2_pc_q <= ex2_pc_d;
+      ex2_trace_q <= ex2_trace_d;
       ex2_use_frd_q <= ex2_use_frd_d;
       ex2_rd_q <= ex2_rd_d;
     end
@@ -983,6 +1020,9 @@ module muntjac_backend import muntjac_pkg::*; #(
     .csr_op_i (de_ex_decoded.csr_op),
     .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == SYS_CSR),
     .csr_rdata_o (csr_read),
+`ifdef TRACE_ENABLE
+    .csr_wdata_o(csr_wdata),
+`endif
     .irq_software_m_i (irq_software_m_i),
     .irq_timer_m_i (irq_timer_m_i),
     .irq_external_m_i (irq_external_m_i),
@@ -1047,6 +1087,6 @@ module muntjac_backend import muntjac_pkg::*; #(
   end
 
   // Debug connections
-  assign dbg_pc_o = 64'(signed'(ex2_pc_q));
+  assign dbg_o = ex2_trace_q;
 
 endmodule

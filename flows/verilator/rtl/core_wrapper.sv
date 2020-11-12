@@ -31,6 +31,16 @@ module core_wrapper import muntjac_pkg::*; #(
     input  logic [63:0]     hart_id_i,
 
     // Debug connections
+`ifdef TRACE_ENABLE
+    output logic [31:0]     dbg_instr_word_o,
+    output priv_lvl_e       dbg_mode_o,
+    output logic            dbg_gpr_written_o,
+    output logic [4:0]      dbg_gpr_o,
+    output logic [63:0]     dbg_gpr_data_o,
+    output logic            dbg_csr_written_o,
+    output csr_num_e        dbg_csr_o,
+    output logic [63:0]     dbg_csr_data_o,
+`endif
     output logic [63:0]     dbg_pc_o
 
 );
@@ -139,6 +149,8 @@ module core_wrapper import muntjac_pkg::*; #(
     .device (mem)
   );
 
+  instr_trace_t dbg_o;
+  
   muntjac_core #(
     .SinkWidth (2)
   ) core (
@@ -150,8 +162,21 @@ module core_wrapper import muntjac_pkg::*; #(
     .irq_external_m_i,
     .irq_external_s_i,
     .hart_id_i,
-    .dbg_pc_o
+    .dbg_o
   );
+
+  // Debug connections
+  assign dbg_pc_o = dbg_o.pc;
+`ifdef TRACE_ENABLE
+  assign dbg_instr_word_o = dbg_o.instr_word;
+  assign dbg_mode_o = dbg_o.mode;
+  assign dbg_gpr_written_o = dbg_o.gpr_written;
+  assign dbg_gpr_o = dbg_o.gpr;
+  assign dbg_gpr_data_o = dbg_o.gpr_data;
+  assign dbg_csr_written_o = dbg_o.csr_written;
+  assign dbg_csr_o = dbg_o.csr;
+  assign dbg_csr_data_o = dbg_o.csr_data;
+`endif
 
   // Set the pipeline's program counter during reset.
   function write_reset_pc;

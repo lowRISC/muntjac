@@ -23,7 +23,7 @@ module muntjac_core import muntjac_pkg::*; #(
     input  logic [63:0] hart_id_i,
 
     // Debug connections
-    output logic [63:0] dbg_pc_o
+    output instr_trace_t dbg_o
 );
 
   localparam [SourceWidth-1:0] DcacheSourceBase = 0;
@@ -53,7 +53,7 @@ module muntjac_core import muntjac_pkg::*; #(
       .irq_external_m_i,
       .irq_external_s_i,
       .hart_id_i,
-      .dbg_pc_o
+      .dbg_o
   );
 
   tl_channel #(

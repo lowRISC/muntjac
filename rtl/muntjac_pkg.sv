@@ -483,6 +483,30 @@ typedef enum logic [1:0] {
   SizeExtSigned
 } size_ext_e;
 
+// Debug information used to track the core's progress.
+typedef struct packed {
+  // PC of this instruction.
+  logic [63:0] pc;
+
+`ifdef TRACE_ENABLE
+  // Instruction word.
+  logic [31:0] instr_word;
+
+  // Privilege level.
+  priv_lvl_e   mode;
+
+  // Register update.
+  logic        gpr_written;
+  logic [4:0]  gpr;
+  logic [63:0] gpr_data;
+
+  // CSR update.
+  logic        csr_written;
+  csr_num_e    csr;
+  logic [63:0] csr_data;
+`endif
+} instr_trace_t;
+
 typedef struct packed {
   logic [4:0]  rs1;
   logic [4:0]  rs2;
@@ -542,6 +566,9 @@ typedef struct packed {
 
   // PC of this decoded instruction.
   logic [63:0] pc;
+
+  // Debug information used for tracing.
+  instr_trace_t trace;
 
   // Indicate the reason that this is fetched
   if_reason_e if_reason;

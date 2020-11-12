@@ -32,10 +32,10 @@ fusesoc --cores-root=.. run --target=lint --tool=verilator lowrisc:muntjac:pipel
 
 ### Build simulator
 ```
-fusesoc --cores-root=.. run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline:0.1
+fusesoc --cores-root=.. run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline_tb:0.1
 ```
 
-Once built, the simulator will be available at `./build/lowrisc_muntjac_pipeline_0.1/sim-verilator/muntjac_pipeline`.
+Once built, the simulator will be available at `./build/lowrisc_muntjac_pipeline_tb_0.1/sim-verilator/muntjac_pipeline`.
 
 ### Run tests
 RISC-V binaries can be executed using:
@@ -46,6 +46,7 @@ muntjac_pipeline [simulator arguments] <executable> [program arguments]
 
 | Simulator argument | Description |
 | --- | --- |
+| `--csv=X` | Output CSV (comma separated value) data to file X, describing instructions executed and state modified. Used mainly for riscv-dv. |
 | `--help` | Display usage information. |
 | `--memory-latency=X` | Set main memory latency to X cycles. |
 | `--timeout=X` | Force end of simulation after X cycles. |

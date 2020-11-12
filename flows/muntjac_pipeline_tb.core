@@ -49,6 +49,11 @@ filesets:
 #      - lint/verible_waiver.vbw: {file_type: veribleLintWaiver}
 
 parameters:
+  TRACE_ENABLE:
+    datatype: bool
+    description: Enable extra debug outputs from the core.
+    paramtype: vlogdefine
+
   RVFI:
     datatype: bool
     paramtype: vlogdefine
@@ -105,6 +110,8 @@ targets:
       - files_rtl
       - files_verilator
       - files_verilator_harness
+    parameters:
+      - TRACE_ENABLE=true
     default_tool: verilator
     toplevel: pipeline_wrapper
     tools:

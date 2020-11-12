@@ -6,6 +6,8 @@
 #define SIMULATION_H
 
 #include <iomanip>
+#include <iostream>
+#include <fstream>
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
@@ -13,6 +15,7 @@
 #include "logs.h"
 #include "main_memory.h"
 
+using std::ofstream;
 using std::string;
 
 template<class DUT>
@@ -23,6 +26,7 @@ public:
     this->name = name;
     main_memory_latency = 10;
     timeout = 1000000;
+    csv_on = false;
     trace_on = false;
     cycle = 0.0;
     exit_code = 0;
@@ -38,6 +42,7 @@ protected:
   virtual void set_reset(int value) = 0;
   virtual void set_entry_point(MemoryAddress pc) = 0;
   virtual MemoryAddress get_program_counter() = 0;
+  virtual instr_trace_t get_trace_info() = 0;
   virtual void init() = 0;
   virtual void cycle_first_half() = 0;
   virtual void cycle_second_half() = 0;
@@ -62,6 +67,15 @@ public:
     	trace.open(trace_file.c_str());
     }
 
+    ofstream csv;
+    if (csv_on) {
+      csv.open(csv_file);
+
+      // This is a subset of the required fields for riscv-dv. The remaining
+      // ones are added in with a separate script which can decode instructions.
+      csv << "pc,gpr,csr,binary,mode\n";
+    }
+
     init();
     reset();
 
@@ -77,13 +91,16 @@ public:
       set_clock(0);
       cycle_second_half();
 
-      if (trace_on) {
-        trace.dump((uint64_t)(10*cycle));
-      }
-
       if (get_program_counter() != pc) {
         pc = get_program_counter();
         MUNTJAC_LOG(1) << "PC: 0x" << std::hex << pc << std::dec << endl;
+
+        if (csv_on)
+          csv_output_line(csv);
+      }
+
+      if (trace_on) {
+        trace.dump((uint64_t)(10*cycle));
       }
 
       cycle += 0.5;
@@ -92,6 +109,11 @@ public:
     if (trace_on) {
       trace.flush();
       trace.close();
+    }
+
+    if (csv_on) {
+      csv.flush();
+      csv.close();
     }
 
     if (cycle >= timeout) {
@@ -160,6 +182,11 @@ private:
         trace_file = value;
         trace_on = true;
       }
+      else if (arg_string.rfind("--csv", 0) == 0) {
+        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
+        csv_file = value;
+        csv_on = true;
+      }
       else if (arg_string == "-v")
         log_level = 1;
       else if (arg_string == "-vv")
@@ -184,12 +211,32 @@ private:
     binary_position = arg;
   }
 
+  void csv_output_line(ofstream& file) {
+    instr_trace_t trace = get_trace_info();
+
+    // This is a subset of the required fields for riscv-dv. The remaining
+    // ones are added in with a separate script which can decode instructions.
+    // The register indices will also need to be translated to names.
+    file << std::hex;
+
+    file << trace.pc << ",";
+    if (trace.gpr_written)
+      file << trace.gpr << ":" << trace.gpr_data;
+    file << ",";
+    if (trace.csr_written)
+      file << trace.csr << ":" << trace.csr_data;
+    file << ",";
+    file << trace.instr_word << ",";
+    file << trace.mode << "\n";
+  }
+
   void print_help() {
     cout << "Muntjac simulator." << endl;
     cout << endl;
     cout << "Usage: " << name << " [simulator args] <program> [program args]" << endl;
     cout << endl;
     cout << "Simulator arguments:" << endl;
+    cout << "  --csv=X\t\tDump a CSV trace to file X (mainly for riscv-dv)" << endl;
     cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
     cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
     cout << "  --trace=X\t\tDump VCD output to file X" << endl;
@@ -223,6 +270,10 @@ private:
   // Generate VCD/FST trace file?
   bool trace_on;
   string trace_file;
+
+  // Generate CSV trace file?
+  bool csv_on;
+  string csv_file;
 
 // Simulation state.
 

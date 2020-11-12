@@ -159,6 +159,22 @@ protected:
   }
   virtual MemoryAddress get_program_counter() {return dut.dbg_pc_o;}
 
+  virtual instr_trace_t get_trace_info() {
+    // The RTL must be compiled with TRACE_ENABLE to enable all of these.
+    instr_trace_t trace;
+    trace.pc = dut.dbg_pc_o;
+    trace.instr_word = dut.dbg_instr_word_o;
+    trace.mode = dut.dbg_mode_o;
+    trace.gpr_written = dut.dbg_gpr_written_o;
+    trace.gpr = dut.dbg_gpr_o;
+    trace.gpr_data = dut.dbg_gpr_data_o;
+    trace.csr_written = dut.dbg_csr_written_o;
+    trace.csr = dut.dbg_csr_o;
+    trace.csr_data = dut.dbg_csr_data_o;
+
+    return trace;
+  }
+
   virtual void init() {
     dut.clk_i = 1;
     dut.rst_ni = 1;

@@ -32,6 +32,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     input                      csr_op_en_i,
     output logic [63:0]        csr_rdata_o,
 
+`ifdef TRACE_ENABLE
+    output logic [63:0]        csr_wdata_o,
+`endif
+
     // Interrupts
     input  logic               irq_software_m_i,
     input  logic               irq_timer_m_i,
@@ -411,6 +415,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   /////////////////
 
   logic [63:0] csr_wdata_int;
+
+`ifdef TRACE_ENABLE
+  assign csr_wdata_o = csr_wdata_int;
+`endif
 
   // Perform CSR operation
   always_comb begin

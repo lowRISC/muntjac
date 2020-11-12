@@ -53,4 +53,26 @@ typedef enum {
   EXC_CAUSE_NONE               = 100
 } exc_cause_e;
 
+// Debug information used to track the core's progress.
+typedef struct packed {
+  // PC of this instruction.
+  uint64_t  pc;
+
+  // Instruction word.
+  uint32_t  instr_word;
+
+  // Privilege level.
+  int       mode;
+
+  // Register update.
+  bool      gpr_written;
+  int       gpr;
+  uint64_t  gpr_data;
+
+  // CSR update.
+  bool      csr_written;
+  int       csr;
+  uint64_t  csr_data;
+} instr_trace_t;
+
 #endif  // TYPES_H
