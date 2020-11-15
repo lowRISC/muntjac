@@ -35,7 +35,7 @@ module muntjac_btb import muntjac_pkg::*; #(
   logic [IndexWidth-1:0] b_addr;
   btb_entry_t            b_data;
 
-  prim_generic_ram_2p #(
+  prim_generic_ram_simple_2p #(
     .Width           ($bits(btb_entry_t)),
     .Depth           (2 ** IndexWidth),
     .DataBitsPerMask ($bits(btb_entry_t))
@@ -44,18 +44,13 @@ module muntjac_btb import muntjac_pkg::*; #(
     .clk_b_i   (clk_i),
 
     .a_req_i   (a_req),
-    .a_write_i (1'b0),
     .a_addr_i  (a_addr),
-    .a_wdata_i ('0),
-    .a_wmask_i ('0),
     .a_rdata_o (a_data),
 
     .b_req_i   (b_req),
-    .b_write_i (1'b1),
     .b_addr_i  (b_addr),
     .b_wdata_i (b_data),
-    .b_wmask_i ('1),
-    .b_rdata_o ()
+    .b_wmask_i ('1)
   );
 
   /////////////////

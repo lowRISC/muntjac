@@ -9,7 +9,7 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:muntjac:pipeline
-      - lowrisc:prim_generic:ram_2p
+      - lowrisc:prim_generic:ram_simple_2p
       - lowrisc:prim:util
       - lowrisc:tl:common
       - lowrisc:tl:socket_m1

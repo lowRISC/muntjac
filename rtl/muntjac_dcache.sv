@@ -484,9 +484,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic [63:0] write_strb_expanded;
   always_comb begin
-      for (int i = 0; i < 8; i++) begin
-          write_strb_expanded[i * 8 +: 8] = write_strb[i] ? 8'hff : 8'h00;
-      end
+    for (int i = 0; i < 8; i++) begin
+      write_strb_expanded[i * 8 +: 8] = write_strb[i] ? 8'hff : 8'h00;
+    end
   end
 
   // When a read/write to the same address happens in the same cycle, they may cause conflict.
@@ -551,7 +551,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     end
     assign read_data[i] = data_bypassed;
 
-    prim_generic_ram_2p #(
+    prim_generic_ram_simple_2p #(
         .Width           ($bits(tag_t)),
         .Depth           (2 ** SetsWidth),
         .DataBitsPerMask ($bits(tag_t))
@@ -560,21 +560,16 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         .clk_b_i   (clk_i),
 
         .a_req_i   (read_req_tag),
-        .a_write_i (1'b0),
         .a_addr_i  (read_addr[SetsWidth+3-1:3]),
-        .a_wdata_i ('0),
-        .a_wmask_i ('0),
         .a_rdata_o (tag_raw),
 
         .b_req_i   (write_req_tag && write_ways[i]),
-        .b_write_i (1'b1),
         .b_addr_i  (write_addr[SetsWidth+3-1:3]),
         .b_wdata_i (write_tag),
-        .b_wmask_i ('1),
-        .b_rdata_o ()
+        .b_wmask_i ('1)
     );
 
-    prim_generic_ram_2p #(
+    prim_generic_ram_simple_2p #(
         .Width           (64),
         .Depth           (2 ** (SetsWidth + 3)),
         .DataBitsPerMask (8)
@@ -583,18 +578,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         .clk_b_i   (clk_i),
 
         .a_req_i   (read_req_data),
-        .a_write_i (1'b0),
         .a_addr_i  (read_addr[SetsWidth+3-1:0]),
-        .a_wdata_i ('0),
-        .a_wmask_i ('0),
         .a_rdata_o (data_raw),
 
         .b_req_i   (write_req_data && write_ways[i]),
-        .b_write_i (1'b1),
         .b_addr_i  (write_addr),
         .b_wdata_i (write_data),
-        .b_wmask_i (write_strb_expanded),
-        .b_rdata_o ()
+        .b_wmask_i (write_strb_expanded)
     );
   end
 

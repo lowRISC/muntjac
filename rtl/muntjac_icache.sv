@@ -118,6 +118,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   lock_holder_e lock_holder_q, lock_holder_d;
 
   wire refill_locked  = lock_holder_q == LockHolderRefill;
+  wire access_locked  = lock_holder_q == LockHolderAccess;
   wire access_locking = lock_holder_d == LockHolderAccess;
   wire flush_locking  = lock_holder_d == LockHolderFlush;
 
@@ -337,7 +338,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     assign read_tag[i] = tag_bypass_valid ? tag_bypass : tag_raw;
     assign read_data[i] = data_bypass_valid ? data_bypass : data_raw;
 
-    prim_generic_ram_2p #(
+    prim_generic_ram_simple_2p #(
         .Width           ($bits(tag_t)),
         .Depth           (2 ** SetsWidth),
         .DataBitsPerMask ($bits(tag_t))
@@ -346,21 +347,16 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         .clk_b_i   (clk_i),
 
         .a_req_i   (read_req_tag),
-        .a_write_i (1'b0),
         .a_addr_i  (read_addr[SetsWidth+3-1:3]),
-        .a_wdata_i ('0),
-        .a_wmask_i ('0),
         .a_rdata_o (tag_raw),
 
         .b_req_i   (write_req_tag && write_ways[i]),
-        .b_write_i (1'b1),
         .b_addr_i  (write_addr[SetsWidth+3-1:3]),
         .b_wdata_i (write_tag),
-        .b_wmask_i ('1),
-        .b_rdata_o ()
+        .b_wmask_i ('1)
     );
 
-    prim_generic_ram_2p #(
+    prim_generic_ram_simple_2p #(
         .Width           (64),
         .Depth           (2 ** (SetsWidth + 3)),
         .DataBitsPerMask (8)
@@ -369,18 +365,13 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         .clk_b_i   (clk_i),
 
         .a_req_i   (read_req_data),
-        .a_write_i (1'b0),
         .a_addr_i  (read_addr[SetsWidth+3-1:0]),
-        .a_wdata_i ('0),
-        .a_wmask_i ('0),
         .a_rdata_o (data_raw),
 
         .b_req_i   (write_req_data && write_ways[i]),
-        .b_write_i (1'b1),
         .b_addr_i  (write_addr),
         .b_wdata_i (write_data),
-        .b_wmask_i ('1),
-        .b_rdata_o ()
+        .b_wmask_i ('1)
     );
   end
 
@@ -700,7 +691,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
-    StateExceptionLocked,
     StateException,
     StateFlush
   } state_e;
@@ -841,7 +831,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         if (mem_grant_last) begin
           if (mem_grant_denied) begin
             ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
-            state_d = StateExceptionLocked;
+            state_d = StateException;
           end else begin
             // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
             state_d = StateReplay;
@@ -849,14 +839,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
 
-      StateExceptionLocked: begin
-        if (lock_holder_q == LockHolderAccess) begin
-          access_lock_rel = 1'b1;
-          state_d = StateException;
-        end
-      end
-
       StateException: begin
+        // Release access lock if it is currently acquired
+        access_lock_rel = access_locked;
+
         ex_valid = 1'b1;
         resp_ex_code = ex_code_q;
         state_d = StateIdle;
@@ -894,12 +880,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       if (req_atp[63] && !canonical_virtual) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
       end
     end
