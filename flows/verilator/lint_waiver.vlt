@@ -26,6 +26,8 @@ lint_off -rule DECLFILENAME -file "*/rtl/muntjac_reg_file_fpga.sv" -match "Filen
 
 // Invalid message as a signal declaration does not live within the same scope as
 // the instantiation of the module.
+lint_off -rule VARHIDDEN -file "*/rtl/prim_generic_ram_1p.sv" -match "*'mem'*"
+lint_off -rule VARHIDDEN -file "*/rtl/prim_generic_ram_simple_2p.sv" -match "*'mem'*"
 lint_off -rule VARHIDDEN -file "*/rtl/prim_generic_ram_2p.sv" -match "*'mem'*"
 
 // The program counter is always aligned to a 2-byte boundary, leaving the
