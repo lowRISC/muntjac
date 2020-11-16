@@ -117,7 +117,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire refill_locked  = lock_holder_q == LockHolderRefill;
   wire probe_locking  = lock_holder_d == LockHolderProbe;
-  wire access_locked  = lock_holder_q == LockHolderAccess;
   wire access_locking = lock_holder_d == LockHolderAccess;
   wire flush_locking  = lock_holder_d == LockHolderFlush;
 
@@ -908,6 +907,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
+    StateExceptionLocked,
     StateException,
     StateFlush
   } state_e;
@@ -1048,7 +1048,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         if (mem_grant_last) begin
           if (mem_grant_denied) begin
             ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
-            state_d = StateException;
+            state_d = StateExceptionLocked;
           end else begin
             // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
             state_d = StateReplay;
@@ -1056,10 +1056,14 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
 
-      StateException: begin
-        // Release access lock if it is currently acquired
-        access_lock_rel = access_locked;
+      StateExceptionLocked: begin
+        if (lock_holder_q == LockHolderAccess) begin
+          access_lock_rel = 1'b1;
+          state_d = StateException;
+        end
+      end
 
+      StateException: begin
         ex_valid = 1'b1;
         resp_ex_code = ex_code_q;
         state_d = StateIdle;
@@ -1097,12 +1101,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       if (req_atp[63] && !canonical_virtual) begin
-        state_d = StateException;
+        state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        state_d = StateException;
+        state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
       end
     end
