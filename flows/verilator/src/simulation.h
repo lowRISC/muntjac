@@ -217,16 +217,16 @@ private:
     // This is a subset of the required fields for riscv-dv. The remaining
     // ones are added in with a separate script which can decode instructions.
     // The register indices will also need to be translated to names.
-    file << std::hex;
+    file << std::hex << std::setfill('0');
 
-    file << trace.pc << ",";
-    if (trace.gpr_written)
-      file << trace.gpr << ":" << trace.gpr_data;
+    file << std::setw(16) << trace.pc << ",";
+    if (trace.gpr_written && trace.gpr != 0)
+      file << trace.gpr << ":" << std::setw(16) << trace.gpr_data;
     file << ",";
     if (trace.csr_written)
-      file << trace.csr << ":" << trace.csr_data;
+      file << trace.csr << ":" << std::setw(16) << trace.csr_data;
     file << ",";
-    file << trace.instr_word << ",";
+    file << std::setw(8) << trace.instr_word << ",";
     file << trace.mode << "\n";
   }
 

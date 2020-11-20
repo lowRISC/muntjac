@@ -484,6 +484,8 @@ typedef enum logic [1:0] {
 } size_ext_e;
 
 // Debug information used to track the core's progress.
+// TODO: Consider expanding this to meet the full RVFI specification.
+//       https://github.com/SymbioticEDA/riscv-formal/blob/master/docs/rvfi.md
 typedef struct packed {
   // PC of this instruction.
   logic [63:0] pc;

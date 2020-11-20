@@ -878,8 +878,11 @@ module muntjac_backend import muntjac_pkg::*; #(
 `ifdef TRACE_ENABLE
     // Debug signals.
     // These expressions match the inputs to the register file below.
-    ex2_trace_d.gpr_written = ex2_pending_d && ex2_data_valid;
-    ex2_trace_d.gpr = ex2_rd_d;
+    // Don't allow flags to be deasserted until the instruction is replaced.
+    //if (!ex2_trace_d.gpr_written) begin
+      ex2_trace_d.gpr_written = ex2_pending_d && ex2_data_valid;
+      ex2_trace_d.gpr = ex2_rd_d;
+    //end
     ex2_trace_d.gpr_data = ex2_data;
 `endif
   end
