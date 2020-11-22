@@ -13,7 +13,8 @@ riscv-dv. The output is already a CSV, but some changes need to be made:
  * Add empty padding column
 
 Note that the instruction string (and derivative fields) are not necessary for
-equivalence checking, and so are only generated
+equivalence checking, and so are only generated with best effort (i.e. the
+format may not be standard, or the instruction may not be decoded successfully).
 """
 
 import argparse
@@ -301,8 +302,6 @@ def translate_gpr(text):
     """Convert text of the form "reg_index:value" to "reg_name:value"."""
     if text == "":
         return text
-
-    # When writing to x0, do we output an empty string, or output a write to x0?
 
     parts = text.split(":")
     reg_index = int(parts[0], 16)

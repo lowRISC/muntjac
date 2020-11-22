@@ -743,6 +743,13 @@ module muntjac_backend import muntjac_pkg::*; #(
       end
       default:;
     endcase
+  end
+
+  always_comb begin
+    if (ex_issue || sys_issue)
+      ex1_trace_d = de_ex_decoded.trace;
+    else
+      ex1_trace_d = ex1_trace_q;
 
 `ifdef TRACE_ENABLE
     // These expressions match the inputs to the CSRs below.
@@ -765,7 +772,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_rd_q <= '0;
       ex1_alu_data_q <= 'x;
       ex1_pc_q <= 'x;
-      ex1_trace_q.pc <= 'x;
+      ex1_trace_q <= 'x;
       ex_expected_pc_q <= '0;
       ex_branch_type_q <= BRANCH_NONE;
       ex1_compressed_q <= 1'b0;
@@ -874,17 +881,6 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex2_alu_data_d = ex1_data;
       end
     end
-
-`ifdef TRACE_ENABLE
-    // Debug signals.
-    // These expressions match the inputs to the register file below.
-    // Don't allow flags to be deasserted until the instruction is replaced.
-    //if (!ex2_trace_d.gpr_written) begin
-      ex2_trace_d.gpr_written = ex2_pending_d && ex2_data_valid;
-      ex2_trace_d.gpr = ex2_rd_d;
-    //end
-    ex2_trace_d.gpr_data = ex2_data;
-`endif
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -893,7 +889,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= FU_ALU;
       ex2_alu_data_q <= 'x;
       ex2_pc_q <= 'x;
-      ex2_trace_q.pc <= 'x;
+      ex2_trace_q <= 'x;
       ex2_use_frd_q <= 1'b0;
       ex2_rd_q <= '0;
     end
@@ -1090,6 +1086,16 @@ module muntjac_backend import muntjac_pkg::*; #(
   end
 
   // Debug connections
-  assign dbg_o = ex2_trace_q;
+  always_comb begin
+    if (ex2_pending_q && ex2_data_valid) begin
+      dbg_o = ex2_trace_q;
+
+`ifdef TRACE_ENABLE
+      dbg_o.gpr_written = 1;
+      dbg_o.gpr = ex2_rd_q;
+      dbg_o.gpr_data = ex2_data;
+`endif
+    end
+  end
 
 endmodule

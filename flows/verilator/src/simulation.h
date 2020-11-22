@@ -87,10 +87,6 @@ public:
         trace.dump((uint64_t)(10*cycle));
       }
 
-      cycle += 0.5;
-      set_clock(0);
-      cycle_second_half();
-
       if (get_program_counter() != pc) {
         pc = get_program_counter();
         MUNTJAC_LOG(1) << "PC: 0x" << std::hex << pc << std::dec << endl;
@@ -98,6 +94,10 @@ public:
         if (csv_on)
           csv_output_line(csv);
       }
+
+      cycle += 0.5;
+      set_clock(0);
+      cycle_second_half();
 
       if (trace_on) {
         trace.dump((uint64_t)(10*cycle));
