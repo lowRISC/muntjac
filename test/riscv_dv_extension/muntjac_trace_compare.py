@@ -6,15 +6,31 @@ import argparse
 import csv
 
 def compare_row(line, correct, test):
+    # riscv-dv's Spike log parser discards everything after an `ecall`. If we've
+    # reached this point without failing, the traces are considered equivalent.
+    if correct["instr"] == "ecall":
+        exit(0)
+    
     for field in ["pc", "gpr", "csr", "binary", "mode"]:
         if correct[field] != test[field]:
+            # Exceptions.
+            # OVPsim doesn't output a register update if the value didn't change.
+            if field == "gpr" and correct[field] == "":
+                continue
+            # Spike doesn't output any CSR updates.
+            if field == "csr" and correct[field] == "":
+                continue
+            # Spike doesn't output a mode when no state is updated.
+            if field == "mode" and correct[field] == "":
+                continue
+
             print("Divergence on line", line, ": expected", field,
                   correct[field], "but got", test[field])
-            print("Instruction is", correct["instr_str"])
+            print("Instruction is", correct["pc"], correct["instr_str"])
             exit(1)
 
 def main():
-    parser = argparse.ArgumentParser("RISCV-DV trace comparison script")
+    parser = argparse.ArgumentParser(description="RISCV-DV trace comparison script")
     parser.add_argument("--ref", type=str, required=True,
                         help="Reference trace file with assumed-correct behaviour.")
     parser.add_argument("--muntjac", type=str, required=True,

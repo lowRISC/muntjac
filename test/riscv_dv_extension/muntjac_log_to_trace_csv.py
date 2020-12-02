@@ -365,7 +365,7 @@ def translate_row(row):
     return new_row
 
 def main():
-    parser = argparse.ArgumentParser("RISCV-DV trace translation script")
+    parser = argparse.ArgumentParser(description="RISCV-DV trace translation script")
     parser.add_argument("--log", type=str, required=True,
                         help="Log file produced using `muntjac --csv`")
     parser.add_argument("--csv", type=str, required=True,
