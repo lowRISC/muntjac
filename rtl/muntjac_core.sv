@@ -1,5 +1,6 @@
 module muntjac_core import muntjac_pkg::*; #(
-  parameter int unsigned SourceWidth = 4
+  parameter int unsigned SourceWidth = 4,
+  parameter int unsigned SinkWidth = 1
 ) (
     // Clock and reset
     input  logic            clk_i,
@@ -47,13 +48,15 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   tl_channel #(
-    .AddrWidth(56),
-    .DataWidth(64),
-    .SourceWidth(SourceWidth)
+    .AddrWidth (56),
+    .DataWidth (64),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth)
   ) ch[4] ();
 
   tl_socket_m1 #(
-    .SourceWidth(SourceWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
     .NumLinks (4),
     .NumCachedLinks (1),
 
@@ -70,6 +73,7 @@ module muntjac_core import muntjac_pkg::*; #(
 
   muntjac_icache #(
     .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
     .SourceBase (IcacheSourceBase),
     .PtwSourceBase (IptwSourceBase)
   ) icache_inst (
@@ -83,6 +87,7 @@ module muntjac_core import muntjac_pkg::*; #(
 
   muntjac_dcache #(
     .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
     .SourceBase (DcacheSourceBase),
     .PtwSourceBase (DptwSourceBase)
   ) dcache_inst (

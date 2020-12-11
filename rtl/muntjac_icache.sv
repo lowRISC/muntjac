@@ -383,8 +383,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic [2:0] refill_index_q, refill_index_d;
 
-  wire [SinkWidth-1:0] mem_grant_sink = mem.d_sink;
-
   typedef enum logic [1:0] {
     RefillStateIdle,
     RefillStateProgress,
