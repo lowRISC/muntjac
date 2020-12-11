@@ -1085,6 +1085,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
           if (probe_param_q == tl_pkg::toB) begin
             probe_write_tag = hit_tag;
+            probe_write_tag.dirty = 1'b0;
             probe_write_tag.writable = 1'b0;
           end else begin
             probe_write_tag.valid = 1'b0;
