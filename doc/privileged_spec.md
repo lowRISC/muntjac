@@ -1,5 +1,5 @@
 # Muntjac privileged specification
-Much of the RISC-V Privileged Specification (version 1.11) is optional. This page details the parts implemented by Muntjac.
+Much of the [RISC-V privileged specification](https://github.com/riscv/riscv-isa-manual/releases/download/Ratified-IMFDQC-and-Priv-v1.11/riscv-privileged-20190608.pdf) (version 1.11) is optional. This page details the parts implemented by Muntjac.
 
 ## Control and status registers
 | Name | Description |
