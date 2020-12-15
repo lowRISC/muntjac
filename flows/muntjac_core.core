@@ -11,6 +11,7 @@ filesets:
       - lowrisc:muntjac:pipeline
       - lowrisc:prim_generic:ram_simple_2p
       - lowrisc:prim:util
+      - lowrisc:prim:fifo_sync
       - lowrisc:tl:common
       - lowrisc:tl:socket_m1
     files:

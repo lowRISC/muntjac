@@ -227,17 +227,70 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   // MEM Channel D Demultiplexing //
   //////////////////////////////////
 
-  wire [63:0]    mem_grant_data   = mem.d_data;
-  wire tl_d_op_e mem_grant_opcode = mem.d_opcode;
-  wire [2:0]     mem_grant_param  = mem.d_param;
-  wire           mem_grant_denied = mem.d_denied;
+  // Refilling needs to take a lock, but it may be blocked by the writeback. This violates
+  // TileLink's rule that D takes priority to C channel. To ensure deadlock freedom, we
+  // can simply insert a FIFO for D channel (as we can only have 1 D-channel message pending).
 
-  wire mem_grant_valid_refill  = mem.d_valid && mem.d_opcode inside {Grant, GrantData};
-  wire mem_grant_valid_rel_ack = mem.d_valid && mem.d_opcode == ReleaseAck;
-  wire mem_grant_valid_access  = mem.d_valid && mem.d_opcode inside {AccessAck, AccessAckData};
+  typedef struct packed {
+    tl_d_op_e               opcode;
+    logic [2:0]             param;
+    logic [2:0]             size;
+    logic [SourceWidth-1:0] source;
+    logic [SinkWidth-1:0]   sink;
+    logic                   denied;
+    logic                   corrupt;
+    logic [63:0]            data;
+  } gnt_t;
+
+  logic mem_grant_valid;
+  logic mem_grant_ready;
+  gnt_t gnt_r;
+  gnt_t gnt_w;
+
+  assign gnt_w = gnt_t'{
+    mem.d_opcode,
+    mem.d_param,
+    mem.d_size,
+    mem.d_source,
+    mem.d_sink,
+    mem.d_denied,
+    mem.d_corrupt,
+    mem.d_data
+  };
+
+  // Use bit instead of logic here because fifo has an assertion that requires data to be known.
+  bit [$bits(gnt_t)-1:0] gnt_w_two_state;
+  assign gnt_w_two_state = gnt_w;
+
+  prim_fifo_sync #(
+    .Width ($bits(gnt_t)),
+    .Pass  (1'b1),
+    .Depth (8)
+  ) gnt_fifo (
+    .clk_i,
+    .rst_ni,
+    .clr_i  (1'b0),
+    .wvalid (mem.d_valid),
+    .wready (mem.d_ready),
+    .wdata  (gnt_w_two_state),
+    .rvalid (mem_grant_valid),
+    .rready (mem_grant_ready),
+    .rdata  (gnt_r),
+    .depth  ()
+  );
+
+  wire [63:0]          mem_grant_data   = gnt_r.data;
+  wire tl_d_op_e       mem_grant_opcode = gnt_r.opcode;
+  wire [2:0]           mem_grant_param  = gnt_r.param;
+  wire [SinkWidth-1:0] mem_grant_sink   = gnt_r.sink;
+  wire                 mem_grant_denied = gnt_r.denied;
+
+  wire mem_grant_valid_refill  = mem_grant_valid && gnt_r.opcode inside {Grant, GrantData};
+  wire mem_grant_valid_rel_ack = mem_grant_valid && gnt_r.opcode == ReleaseAck;
+  wire mem_grant_valid_access  = mem_grant_valid && gnt_r.opcode inside {AccessAck, AccessAckData};
 
   logic mem_grant_ready_refill;
-  assign mem.d_ready = mem_grant_valid_refill ? mem_grant_ready_refill : 1'b1;
+  assign mem_grant_ready = mem_grant_valid_refill ? mem_grant_ready_refill : 1'b1;
 
   //////////////////////////////
   // Cache access arbitration //
@@ -755,7 +808,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [SinkWidth-1:0] ack_sink_q, ack_sink_d;
   logic                 ack_pending_q, ack_pending_d;
 
-  wire [SinkWidth-1:0] mem_grant_sink = mem.d_sink;
   wire                 mem_ack_ready  = mem.e_ready;
 
   typedef enum logic [1:0] {
