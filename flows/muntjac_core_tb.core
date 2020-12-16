@@ -11,7 +11,7 @@ filesets:
       - lowrisc:tl:socket_1n
       - lowrisc:tl:adapter_bram
       - lowrisc:tl:adapter_tlul
-      - lowrisc:tl:broadcast
+      - lowrisc:muntjac:llc
       - lowrisc:muntjac:core
 
   files_verilator:

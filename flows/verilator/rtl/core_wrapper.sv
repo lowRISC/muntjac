@@ -120,10 +120,11 @@ module core_wrapper import muntjac_pkg::*; #(
     .SourceWidth(4)
   ) ch_aggregate();
 
-  tl_broadcast #(
+  muntjac_llc #(
     .AddrWidth(56),
     .DataWidth(64),
     .SourceWidth(4),
+    .SinkWidth (2),
     .NumAddressRange (1),
     .AddressBase ({56'h80010000}),
     .AddressMask ({56'h      3f}),
@@ -131,14 +132,16 @@ module core_wrapper import muntjac_pkg::*; #(
     .NumCachedHosts(1),
     .SourceBase({4'd0}),
     .SourceMask({4'd0})
-  ) broadcaster (
+  ) llc (
     .clk_i,
     .rst_ni,
     .host (ch_aggregate),
     .device (mem)
   );
 
-  muntjac_core core (
+  muntjac_core #(
+    .SinkWidth (2)
+  ) core (
     .clk_i (clk_i),
     .rst_ni (rst_ni),
     .mem (ch_aggregate),
