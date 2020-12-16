@@ -1,0 +1,41 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:muntjac:llc:0.1"
+description: "TileLink last-level cache for muntjac"
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:prim_generic:ram_1p
+      - lowrisc:tl:common
+      - lowrisc:tl:regslice
+      - garyguo.net:openip:round_robin_arbiter
+    files:
+      - ../rtl/muntjac_llc.sv
+    file_type: systemVerilogSource
+
+  files_verilator_waiver:
+    depend:
+      # common waivers
+      - lowrisc:lint:common
+
+  files_ascentlint_waiver:
+    depend:
+      # common waivers
+      - lowrisc:lint:common
+
+  files_veriblelint_waiver:
+    depend:
+      # common waivers
+      - lowrisc:lint:common
+      - lowrisc:lint:comportable
+
+targets:
+  default:
+    filesets:
+      - tool_verilator ? (files_verilator_waiver)
+      - tool_ascentlint ? (files_ascentlint_waiver)
+      - tool_veriblelint ? (files_veriblelint_waiver)
+      - files_rtl
