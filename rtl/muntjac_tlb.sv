@@ -152,7 +152,7 @@ module muntjac_tlb import muntjac_pkg::*; #(
         hit_perm_q <= hit_entry.prot;
       end
 
-      if (flush_req_i) flush_resp_o <= 1'b0;
+      if (flush_req_i) flush_resp_o <= 1'b1;
     end
   end
 
