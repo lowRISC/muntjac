@@ -926,7 +926,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   // Helper signal to detect if req_address is a canonical address
   wire canonical_virtual  = ~|req_address[63:VirtAddrLen-1] | &req_address[63:VirtAddrLen-1];
-  wire canonical_physical = ~|req_address[63:PhysAddrLen-1];
+  wire canonical_physical = ~|req_address[63:PhysAddrLen];
 
   logic [63:0] address_q, address_d;
   logic        atp_mode_q, atp_mode_d;

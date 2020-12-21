@@ -707,7 +707,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   // Helper signal to detect if req_address is a canonical address
   wire canonical_virtual  = ~|req_address[63:VirtAddrLen-1] | &req_address[63:VirtAddrLen-1];
-  wire canonical_physical = ~|req_address[63:PhysAddrLen-1];
+  wire canonical_physical = ~|req_address[63:PhysAddrLen];
 
   logic [63:0] address_q, address_d;
   logic        atp_mode_q, atp_mode_d;
@@ -879,12 +879,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       // If we failed to acquire the lock this cycle, move into replay state.
       if (!access_locking) state_d = StateReplay;
 
-      if (req_reason ==? 4'b1x11) begin
-        access_lock_acq = 1'b0;
-        flush_valid = 1'b1;
-        state_d = StateFlush;
-      end
-
       if (req_atp[63] && !canonical_virtual) begin
         state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
@@ -893,6 +887,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       if (!req_atp[63] && !canonical_physical) begin
         state_d = StateExceptionLocked;
         ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
+      end
+
+      if (req_reason ==? 4'b1x11) begin
+        access_lock_acq = 1'b0;
+        flush_valid = 1'b1;
+        state_d = StateFlush;
       end
     end
   end
