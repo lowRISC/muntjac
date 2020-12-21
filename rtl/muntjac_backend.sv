@@ -276,7 +276,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   // de_ex_decoded.pc must be a legal PC, so it is going to be limited within [LogicSextAddrLen-1:0].
   // We only need one extra bit to loselessly represent the next PC (regardless whether it overflows).
   logic [LogicSextAddrLen:0] npc;
-  assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.tval[1:0] == 2'b11 ? 4 : 2);
+  assign npc = de_ex_decoded.pc[LogicSextAddrLen:0] + (de_ex_decoded.exception.tval[1:0] == 2'b11 ? 4 : 2);
 
   logic exception_issue;
 
