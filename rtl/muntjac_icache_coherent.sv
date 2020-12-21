@@ -593,9 +593,9 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   // Address Translation Logic //
   ///////////////////////////////
 
-  logic [43:0] ppn_pulse;
-  page_prot_t  ppn_perm_pulse;
-  logic        ppn_valid_pulse;
+  logic [PhysAddrLen-13:0] ppn_pulse;
+  page_prot_t              ppn_perm_pulse;
+  logic                    ppn_valid_pulse;
 
   logic                    ptw_req_valid;
   logic [VirtAddrLen-13:0] ptw_req_vpn;
@@ -603,7 +603,9 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-13:0] ptw_resp_ppn;
   page_prot_t              ptw_resp_perm;
 
-  muntjac_tlb tlb (
+  muntjac_tlb #(
+    .PhysAddrLen (PhysAddrLen)
+  ) tlb (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
       .satp_i           (req_atp),
@@ -623,7 +625,9 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       .ptw_resp_perm_i  (ptw_resp_perm)
   );
 
-  muntjac_ptw ptw (
+  muntjac_ptw #(
+    .PhysAddrLen (PhysAddrLen)
+  ) ptw (
       .clk_i             (clk_i),
       .rst_ni            (rst_ni),
       .satp_i            (req_atp),

@@ -1,8 +1,8 @@
 module muntjac_tlb import muntjac_pkg::*; #(
   parameter int unsigned NumEntry = 32,
   parameter int unsigned AsidLen  = 16,
-  localparam int unsigned VirtAddrLen = 39,
-  localparam int unsigned PhysAddrLen = 56
+  parameter int unsigned PhysAddrLen = 56,
+  localparam int unsigned VirtAddrLen = 39
 ) (
     input  logic                    clk_i,
     input  logic                    rst_ni,

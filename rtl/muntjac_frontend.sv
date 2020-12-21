@@ -1,4 +1,9 @@
 module muntjac_frontend import muntjac_pkg::*; #(
+  // Number of bits of physical address supported. This must not exceed 56.
+  parameter PhysAddrLen = 56,
+
+  // Number of bits of virtual address supported. This currently must be 39.
+  parameter VirtAddrLen = 39
 ) (
     input  logic           clk_i,
     input  logic           rst_ni,
@@ -19,6 +24,10 @@ module muntjac_frontend import muntjac_pkg::*; #(
     input  logic           fetch_ready_i,
     output fetched_instr_t fetch_instr_o
 );
+
+  // Number of bits required to recover a legal full 64-bit address.
+  // This requires one extra bit for physical address because we need to perform sign extension.
+  localparam LogicSextAddrLen = PhysAddrLen >= VirtAddrLen ? PhysAddrLen + 1 : VirtAddrLen;
 
   wire [63:0] insn_atp = {prv_i == PRIV_LVL_M ? 4'd0 : satp_i[63:60], satp_i[59:0]};
 
@@ -84,12 +93,12 @@ module muntjac_frontend import muntjac_pkg::*; #(
   logic [63:0] pc;
   if_reason_e reason;
 
-  logic predict_taken;
-  logic [63:0] predict_target;
+  logic                          predict_taken;
+  logic [LogicSextAddrLen-1:0] predict_target;
 
   // Next PC word to fetch if no branch is taken.
-  wire [63:0] npc_word = {pc[63:2], 2'b0} + 4;
-  wire [63:0] pc_next = redirect_valid_q ? {redirect_pc_q[63:1], 1'b0} : (predict_taken ? predict_target : npc_word);
+  wire [LogicSextAddrLen-1:0] npc_word = {pc[LogicSextAddrLen-1:2], 2'b0} + 4;
+  wire [63:0] pc_next = redirect_valid_q ? {redirect_pc_q[63:1], 1'b0} : 64'(signed'((predict_taken ? predict_target : npc_word)));
   wire if_reason_e reason_next = redirect_valid_q ? redirect_reason_q : (predict_taken ? IF_PREDICT : IF_PREFETCH);
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -109,21 +118,24 @@ module muntjac_frontend import muntjac_pkg::*; #(
   // Branch Prediction //
   ///////////////////////
 
+  wire [LogicSextAddrLen-1:0] branch_info_pc = branch_info_i.pc[LogicSextAddrLen-1:0];
+
   // For misaligned 4-byte instruction, since we can only make prediction once the entire 4 bytes are fetched,
   // we need to make sure to increment PC to next word.
-  wire [63:0] train_pc = branch_info_i.pc[1] && !branch_info_i.compressed ? branch_info_i.pc + 4 : branch_info_i.pc;
+  wire [LogicSextAddrLen-1:0] train_pc = branch_info_pc[1] && !branch_info_i.compressed ? branch_info_pc + 4 : branch_info_pc;
 
   // The branch prediction logic will need to predict whether the full word or only part of it will be used.
   // A word is partially used if a misaligned 4-byte instruction or a aligned 2-byte instruction triggers
   // a branch/jump.
-  wire train_partial = branch_info_i.pc[1] ^ branch_info_i.compressed;
+  wire train_partial = branch_info_pc[1] ^ branch_info_i.compressed;
 
-  logic         btb_valid;
-  branch_type_e btb_type;
-  logic         btb_partial;
-  logic [63:0]  btb_target;
+  logic                          btb_valid;
+  branch_type_e                  btb_type;
+  logic                          btb_partial;
+  logic [LogicSextAddrLen-1:0] btb_target;
 
   muntjac_btb #(
+    .AddrLen (LogicSextAddrLen),
     .IndexWidth (6)
   ) btb (
     .clk_i,
@@ -133,9 +145,9 @@ module muntjac_frontend import muntjac_pkg::*; #(
     .train_branch_type_i  (branch_info_i.branch_type),
     .train_pc_i           (train_pc),
     .train_partial_i      (train_partial),
-    .train_npc_i          (redirect_pc_i),
+    .train_npc_i          (redirect_pc_i[LogicSextAddrLen-1:0]),
     .access_valid_i       (align_ready),
-    .access_pc_i          (pc_next),
+    .access_pc_i          (pc_next[LogicSextAddrLen-1:0]),
     .access_hit_o         (btb_valid),
     .access_branch_type_o (btb_type),
     .access_partial_o     (btb_partial),
@@ -145,6 +157,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
   logic bht_taken;
 
   muntjac_bp_bimodal #(
+    .AddrLen (LogicSextAddrLen),
     .IndexWidth (9)
   ) bht (
     .clk_i,
@@ -155,18 +168,20 @@ module muntjac_frontend import muntjac_pkg::*; #(
     .train_taken_i  (branch_info_i.branch_type[0]),
     .train_pc_i     (train_pc),
     .access_valid_i (align_ready),
-    .access_pc_i    (pc_next),
+    .access_pc_i    (pc_next[LogicSextAddrLen-1:0]),
     .access_taken_o (bht_taken)
   );
 
-  logic [63:0] ras_peek_addr;
-  logic        ras_peek_valid;
+  logic [LogicSextAddrLen-1:0] ras_peek_addr;
+  logic                          ras_peek_valid;
 
   // Compute RAS action
   wire ras_push = btb_valid && btb_type inside {BRANCH_CALL, BRANCH_YIELD};
   wire ras_pop  = btb_valid && btb_type inside {BRANCH_RET , BRANCH_YIELD};
 
-  muntjac_ras ras (
+  muntjac_ras #(
+    .AddrLen (LogicSextAddrLen)
+  ) ras (
     .clk_i,
     .rst_ni,
     .peek_valid_o (ras_peek_valid),
@@ -175,7 +190,7 @@ module muntjac_frontend import muntjac_pkg::*; #(
     .pop_i        (branch_info_i.branch_type inside {BRANCH_RET, BRANCH_YIELD}),
     .push_spec_i  (ras_push && align_ready),
     .push_i       (branch_info_i.branch_type inside {BRANCH_CALL, BRANCH_YIELD}),
-    .push_addr_i  (btb_partial ? {pc[63:2], 2'b10} : npc_word),
+    .push_addr_i  (btb_partial ? {pc[LogicSextAddrLen-1:2], 2'b10} : npc_word),
     .revert_i     (redirect_valid_q)
   );
 

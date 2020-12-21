@@ -1,7 +1,6 @@
 module muntjac_ptw import muntjac_pkg::*; #(
-    parameter Dummy = 1,
-    localparam int unsigned VirtAddrLen = 39,
-    localparam int unsigned PhysAddrLen = 56
+  parameter int unsigned PhysAddrLen = 56,
+  localparam int unsigned VirtAddrLen = 39
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -65,7 +64,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
           if (mem_resp_data_i[3:0] == 4'b0001) begin
             // Next-level page table
             req_valid_d = 1'b1;
-            req_addr_d = {mem_resp_data_i[53:10], vpn_q[17:9]};
+            req_addr_d = {mem_resp_data_i[PhysAddrLen-3:10], vpn_q[17:9]};
             state_d = StateAtpL2;
           end
           else begin
@@ -77,7 +76,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
               state_d = StateDone;
             end
             else begin
-              ppn_d = {mem_resp_data_i[53:28], vpn_q[17:0]};
+              ppn_d = {mem_resp_data_i[PhysAddrLen-3:28], vpn_q[17:0]};
               perm_d = mem_resp_data_i[7:0];
               state_d = StateDone;
             end
@@ -91,7 +90,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
           if (mem_resp_data_i[3:0] == 4'b0001) begin
             // Next-level page table
             req_valid_d = 1'b1;
-            req_addr_d = {mem_resp_data_i[53:10], vpn_q[8:0]};
+            req_addr_d = {mem_resp_data_i[PhysAddrLen-3:10], vpn_q[8:0]};
             state_d = StateAtpL1;
           end
           else begin
@@ -103,7 +102,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
               state_d = StateDone;
             end
             else begin
-              ppn_d = {mem_resp_data_i[53:19], vpn_q[8:0]};
+              ppn_d = {mem_resp_data_i[PhysAddrLen-3:19], vpn_q[8:0]};
               perm_d = mem_resp_data_i[7:0];
               state_d = StateDone;
             end
@@ -122,7 +121,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
             state_d = StateDone;
           end
           else begin
-            ppn_d = {mem_resp_data_i[53:10]};
+            ppn_d = {mem_resp_data_i[PhysAddrLen-3:10]};
             perm_d = mem_resp_data_i[7:0];
             state_d = StateDone;
           end
@@ -144,7 +143,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
     if (req_valid_i) begin
       vpn_d = req_vpn_i;
       req_valid_d = 1'b1;
-      req_addr_d = {satp_i[43:0], req_vpn_i[26:18]};
+      req_addr_d = {satp_i[PhysAddrLen-13:0], req_vpn_i[26:18]};
       state_d = StateAtpL3;
     end
   end

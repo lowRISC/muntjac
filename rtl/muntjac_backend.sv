@@ -1,4 +1,10 @@
-module muntjac_backend import muntjac_pkg::*; (
+module muntjac_backend import muntjac_pkg::*; #(
+  // Number of bits of physical address supported. This must not exceed 56.
+  parameter PhysAddrLen = 56,
+
+  // Number of bits of virtual address supported. This currently must be 39.
+  parameter VirtAddrLen = 39
+) (
     // Clock and reset
     input  logic          clk_i,
     input  logic          rst_ni,
@@ -30,6 +36,10 @@ module muntjac_backend import muntjac_pkg::*; (
     // Debug connections
     output logic [63:0]    dbg_pc_o
 );
+
+  // Number of bits required to recover a legal full 64-bit address.
+  // This requires one extra bit for physical address because we need to perform sign extension.
+  localparam LogicSextAddrLen = PhysAddrLen >= VirtAddrLen ? PhysAddrLen + 1 : VirtAddrLen;
 
   typedef enum logic [2:0] {
     ST_NORMAL,
@@ -262,7 +272,10 @@ module muntjac_backend import muntjac_pkg::*; (
   // Core State Machine //
   ////////////////////////
 
-  logic [63:0] npc;
+  // NPC is only going to be used when de_ex_decoded does not trigger an exception, so this means
+  // de_ex_decoded.pc must be a legal PC, so it is going to be limited within [LogicSextAddrLen-1:0].
+  // We only need one extra bit to loselessly represent the next PC (regardless whether it overflows).
+  logic [LogicSextAddrLen:0] npc;
   assign npc = de_ex_decoded.pc + (de_ex_decoded.exception.tval[1:0] == 2'b11 ? 4 : 2);
 
   logic exception_issue;
@@ -382,7 +395,7 @@ module muntjac_backend import muntjac_pkg::*; (
         unique case (de_ex_decoded.sys_op)
           // FIXME: Split the state machine
           SYS_CSR: begin
-            sys_pc_redirect_target = npc;
+            sys_pc_redirect_target = 64'(signed'(npc));
             if (de_ex_decoded.csr_op != CSR_OP_READ) begin
               case (csr_select)
                 CSR_MSTATUS: begin
@@ -405,7 +418,7 @@ module muntjac_backend import muntjac_pkg::*; (
           SYS_FENCE_I: begin
             sys_pc_redirect_valid = 1'b1;
             sys_pc_redirect_reason = IF_FENCE_I;
-            sys_pc_redirect_target = npc;
+            sys_pc_redirect_target = 64'(signed'(npc));
           end
           default:;
         endcase
@@ -416,7 +429,7 @@ module muntjac_backend import muntjac_pkg::*; (
           sys_state_d = SYS_ST_IDLE;
           sys_pc_redirect_valid = 1'b1;
           sys_pc_redirect_reason = IF_SATP_CHANGED;
-          sys_pc_redirect_target = npc;
+          sys_pc_redirect_target = 64'(signed'(npc));
         end
       end
       SYS_ST_SFENCE_VMA: begin
@@ -425,7 +438,7 @@ module muntjac_backend import muntjac_pkg::*; (
           sys_state_d = SYS_ST_IDLE;
           sys_pc_redirect_valid = 1'b1;
           sys_pc_redirect_reason = IF_SFENCE_VMA;
-          sys_pc_redirect_target = npc;
+          sys_pc_redirect_target = 64'(signed'(npc));
         end
       end
       SYS_ST_WFI: begin
@@ -485,11 +498,11 @@ module muntjac_backend import muntjac_pkg::*; (
 
   func_unit_e ex1_select_q;
   logic [63:0] ex1_alu_data_q;
-  logic [63:0] ex1_pc_q;
+  logic [LogicSextAddrLen-1:0] ex1_pc_q;
 
   func_unit_e ex2_select_q;
   logic [63:0] ex2_alu_data_q;
-  logic [63:0] ex2_pc_q;
+  logic [LogicSextAddrLen-1:0] ex2_pc_q;
 
   always_comb begin
     unique case (ex1_select_q)
@@ -521,7 +534,7 @@ module muntjac_backend import muntjac_pkg::*; (
   logic ex1_pending_d;
   func_unit_e ex1_select_d;
   logic [63:0] ex1_alu_data_d;
-  logic [63:0] ex1_pc_d;
+  logic [LogicSextAddrLen-1:0] ex1_pc_d;
   logic [4:0] ex1_rd_d;
   logic [63:0] ex_expected_pc_d;
   branch_type_e ex_branch_type_d;
@@ -561,11 +574,11 @@ module muntjac_backend import muntjac_pkg::*; (
       ex_issue: begin
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
-        ex1_pc_d = de_ex_decoded.pc;
+        ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
 
-        ex_expected_pc_d = npc;
+        ex_expected_pc_d = 64'(signed'(npc));
         ex1_compressed_d = de_ex_decoded.exception.tval[1:0] != 2'b11;
 
         unique case (de_ex_decoded.op_type)
@@ -573,7 +586,7 @@ module muntjac_backend import muntjac_pkg::*; (
             ex1_alu_data_d = alu_result;
           end
           OP_JUMP: begin
-            ex1_alu_data_d = npc;
+            ex1_alu_data_d = 64'(signed'(npc));
             ex_expected_pc_d = {sum[63:1], 1'b0};
             ex_branch_type_d = branch_type_e'({
               1'b1,
@@ -582,8 +595,8 @@ module muntjac_backend import muntjac_pkg::*; (
             });
           end
           OP_BRANCH: begin
-            ex1_alu_data_d = npc;
-            ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : npc;
+            ex1_alu_data_d = 64'(signed'(npc));
+            ex_expected_pc_d = compare_result ? {sum[63:1], 1'b0} : 64'(signed'(npc));
             ex_branch_type_d = branch_type_e'({2'b01, compare_result});
           end
           OP_MEM: begin
@@ -603,11 +616,11 @@ module muntjac_backend import muntjac_pkg::*; (
         // Otherwise equivalent to ex_issue
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
-        ex1_pc_d = de_ex_decoded.pc;
+        ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
 
-        ex_expected_pc_d = npc;
+        ex_expected_pc_d = 64'(signed'(npc));
 
         // All other SYSTEM instructions have no return value
         ex1_alu_data_d = csr_read;
@@ -671,7 +684,7 @@ module muntjac_backend import muntjac_pkg::*; (
   logic ex2_pending_d;
   func_unit_e ex2_select_d;
   logic [63:0] ex2_alu_data_d;
-  logic [63:0] ex2_pc_d;
+  logic [LogicSextAddrLen-1:0] ex2_pc_d;
   logic [4:0] ex2_rd_d;
 
   always_comb begin
@@ -840,7 +853,7 @@ module muntjac_backend import muntjac_pkg::*; (
     .status_o (status_o),
     .ex_valid_i (mem_trap_valid || exception_issue),
     .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
-    .ex_epc_i (mem_trap_valid ? (ex2_select_q == FU_MEM ? ex2_pc_q : ex1_pc_q) : de_ex_decoded.pc),
+    .ex_epc_i (mem_trap_valid ? 64'(signed'(ex2_select_q == FU_MEM ? ex2_pc_q : ex1_pc_q)) : de_ex_decoded.pc),
     .ex_tvec_o (exc_tvec_d),
     .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
     .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
@@ -853,7 +866,7 @@ module muntjac_backend import muntjac_pkg::*; (
     redirect_reason_o = if_reason_e'('x);
     redirect_pc_o = 'x;
     branch_info_o.branch_type = ex_branch_type_q;
-    branch_info_o.pc = ex1_pc_q;
+    branch_info_o.pc = 64'(signed'(ex1_pc_q));
     branch_info_o.compressed = ex1_compressed_q;
 
     if (ex_state_q == ST_INT) begin
@@ -885,11 +898,11 @@ module muntjac_backend import muntjac_pkg::*; (
 
   always_ff @(posedge clk_i) begin
     if (mem_trap_valid || exception_issue) begin
-      $display("%t: trap %x", $time, mem_trap_valid ? ex2_pc_q : de_ex_decoded.pc);
+      $display("%t: trap %x", $time, mem_trap_valid ? 64'(signed'(ex2_pc_q)) : de_ex_decoded.pc);
     end
   end
 
   // Debug connections
-  assign dbg_pc_o = ex2_pc_q;
+  assign dbg_pc_o = 64'(signed'(ex2_pc_q));
 
 endmodule

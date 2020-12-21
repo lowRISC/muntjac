@@ -1,8 +1,13 @@
 module muntjac_cs_registers import muntjac_pkg::*; # (
-    parameter bit RV64D = 0,
-    parameter bit RV64F = 0,
-    parameter AsidLen = 16,
-    parameter PhysLen = 56
+  parameter bit RV64D = 0,
+  parameter bit RV64F = 0,
+  parameter AsidLen = 16,
+
+  // Number of bits of physical address supported. This must not exceed 56.
+  parameter PhysAddrLen = 56,
+
+  // Number of bits of virtual address supported. This currently must be 39.
+  parameter VirtAddrLen = 39
 ) (
     // Clock and reset
     input  logic               clk_i,
@@ -55,6 +60,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     input  logic               instr_ret_i
 );
 
+  // Number of bits required to recover a legal full 64-bit address.
+  // This requires one extra bit for physical address because we need to perform sign extension.
+  localparam LogicSextAddrLen = PhysAddrLen >= VirtAddrLen ? PhysAddrLen + 1 : VirtAddrLen;
+
   // misa
   localparam logic [63:0] MISA_VALUE =
       (1                 <<  0)  // A - Atomic Instructions extension
@@ -80,7 +89,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   // Address Translation
   logic satp_mode_q, satp_mode_d;
   logic [AsidLen-1:0] satp_asid_q, satp_asid_d;
-  logic [PhysLen-12-1:0] satp_ppn_q, satp_ppn_d;
+  logic [PhysAddrLen-12-1:0] satp_ppn_q, satp_ppn_d;
 
   assign status_o = mstatus_q;
   assign priv_mode_o = priv_lvl_q;
@@ -161,17 +170,17 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   // Trap Handling CSRs //
   ////////////////////////
 
-  logic [63:0] mscratch_q, mscratch_d;
-  logic [63:0] mepc_q, mepc_d;
-  exc_cause_e  mcause_q, mcause_d;
-  logic [63:0] mtvec_q, mtvec_d;
-  logic [63:0] mtval_q, mtval_d;
+  logic [63:0]                 mscratch_q, mscratch_d;
+  logic [63:0]                 mepc_q, mepc_d;
+  exc_cause_e                  mcause_q, mcause_d;
+  logic [LogicSextAddrLen-1:0] mtvec_q, mtvec_d;
+  logic [63:0]                 mtval_q, mtval_d;
 
-  logic [63:0] sscratch_q, sscratch_d;
-  logic [63:0] sepc_q, sepc_d;
-  exc_cause_e  scause_q, scause_d;
-  logic [63:0] stvec_q, stvec_d;
-  logic [63:0] stval_q, stval_d;
+  logic [63:0]                 sscratch_q, sscratch_d;
+  logic [63:0]                 sepc_q, sepc_d;
+  exc_cause_e                  scause_q, scause_d;
+  logic [LogicSextAddrLen-1:0] stvec_q, stvec_d;
+  logic [63:0]                 stval_q, stval_d;
 
   ////////////////
   // Other CSRs //
@@ -280,7 +289,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         if (mideleg_q.irq_timer_s   ) csr_rdata_int[CSR_STIX_BIT] = mie_q.irq_timer_s;
         if (mideleg_q.irq_external_s) csr_rdata_int[CSR_SEIX_BIT] = mie_q.irq_external_s;
       end
-      CSR_STVEC: csr_rdata_int = stvec_q;
+      CSR_STVEC: csr_rdata_int = 64'(signed'(stvec_q));
       CSR_SCOUNTEREN: csr_rdata_int = {61'b0, scounteren_q};
 
       CSR_SSCRATCH: csr_rdata_int = sscratch_q;
@@ -338,7 +347,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         csr_rdata_int[CSR_SEIX_BIT] = mie_q.irq_external_s;
         csr_rdata_int[CSR_MEIX_BIT] = mie_q.irq_external_m;
       end
-      CSR_MTVEC: csr_rdata_int = mtvec_q;
+      CSR_MTVEC: csr_rdata_int = 64'(signed'(mtvec_q));
       CSR_MCOUNTEREN: csr_rdata_int = {61'b0, mcounteren_q};
 
       CSR_MSCRATCH: csr_rdata_int = mscratch_q;
@@ -449,7 +458,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       ex_valid_i: begin
         // Delegate to S-mode if we have an exception on S/U mode and delegation is enabled.
         if (priv_lvl_q != PRIV_LVL_M && is_delegated(ex_exception_i.cause)) begin
-          ex_tvec_o = stvec_q;
+          ex_tvec_o = 64'(signed'(stvec_q));
 
           scause_d = ex_exception_i.cause;
           stval_d = ex_exception_i.tval;
@@ -461,7 +470,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
           mstatus_d.spp = priv_lvl_q[0];
         end else begin
           // Exception handling vector
-          ex_tvec_o = mtvec_q;
+          ex_tvec_o = 64'(signed'(mtvec_q));
 
           // Exception info registers
           mcause_d = ex_exception_i.cause;
@@ -523,7 +532,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
               if (mideleg_q.irq_timer_s   ) mie_d.irq_timer_s    = csr_wdata_int[CSR_STIX_BIT];
               if (mideleg_q.irq_external_s) mie_d.irq_external_s = csr_wdata_int[CSR_SEIX_BIT];
             end
-            CSR_STVEC: stvec_d = {csr_wdata_int[63:2], 2'b0};
+            CSR_STVEC: stvec_d = {csr_wdata_int[LogicSextAddrLen-1:2], 2'b0};
             CSR_SCOUNTEREN: scounteren_d = csr_wdata_int[2:0] & 3'b101;
 
             CSR_SSCRATCH: sscratch_d = csr_wdata_int;
@@ -537,8 +546,8 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
             end
             CSR_SATP: begin
               satp_mode_d = csr_wdata_int[63];
-              satp_asid_d = csr_wdata_int[PhysLen-12 +: AsidLen];
-              satp_ppn_d  = csr_wdata_int[0 +: PhysLen-12];
+              satp_asid_d = csr_wdata_int[44 +: AsidLen];
+              satp_ppn_d  = csr_wdata_int[0 +: PhysAddrLen-12];
             end
 
             CSR_MSTATUS: begin
@@ -591,7 +600,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
               mie_d.irq_external_s = csr_wdata_int[CSR_SEIX_BIT];
               mie_d.irq_external_m = csr_wdata_int[CSR_MEIX_BIT];
             end
-            CSR_MTVEC: mtvec_d = {csr_wdata_int[63:2], 2'b0};
+            CSR_MTVEC: mtvec_d = {csr_wdata_int[LogicSextAddrLen-1:2], 2'b0};
             CSR_MCOUNTEREN: mcounteren_d = csr_wdata_int[2:0] & 3'b101;
 
             CSR_MSCRATCH: mscratch_d = csr_wdata_int;

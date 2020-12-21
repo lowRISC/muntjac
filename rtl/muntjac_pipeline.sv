@@ -1,4 +1,6 @@
 module muntjac_pipeline import muntjac_pkg::*; #(
+  // Number of bits of physical address supported. This must not exceed 56.
+  parameter PhysAddrLen = 56
 ) (
     // Clock and reset
     input  logic            clk_i,
@@ -32,7 +34,9 @@ module muntjac_pipeline import muntjac_pkg::*; #(
   logic            fetch_ready;
   fetched_instr_t  fetch_instr;
 
-  muntjac_frontend frontend (
+  muntjac_frontend #(
+    .PhysAddrLen (PhysAddrLen)
+  ) frontend (
       .clk_i,
       .rst_ni,
       .icache_h2d_o,
@@ -49,7 +53,9 @@ module muntjac_pipeline import muntjac_pkg::*; #(
       .fetch_instr_o     (fetch_instr)
   );
 
-  muntjac_backend backend (
+  muntjac_backend #(
+    .PhysAddrLen (PhysAddrLen)
+  ) backend (
       .clk_i,
       .rst_ni,
       .dcache_h2d_o,

@@ -1,4 +1,8 @@
 module muntjac_core import muntjac_pkg::*; #(
+  // Number of bits of physical address supported. This must not exceed 56.
+  // This must match AddrWidth of the TileLink interface.
+  parameter PhysAddrLen = 56,
+
   parameter int unsigned SourceWidth = 4,
   parameter int unsigned SinkWidth = 1
 ) (
@@ -32,7 +36,9 @@ module muntjac_core import muntjac_pkg::*; #(
   dcache_h2d_t dcache_h2d;
   dcache_d2h_t dcache_d2h;
 
-  muntjac_pipeline pipeline (
+  muntjac_pipeline # (
+    .PhysAddrLen (PhysAddrLen)
+  ) pipeline (
       .clk_i,
       .rst_ni,
       .icache_h2d_o (icache_h2d),
@@ -48,13 +54,14 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   tl_channel #(
-    .AddrWidth (56),
+    .AddrWidth (PhysAddrLen),
     .DataWidth (64),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth)
   ) ch[4] ();
 
   tl_socket_m1 #(
+    .AddrWidth (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .NumLinks (4),
@@ -72,6 +79,7 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   muntjac_icache #(
+    .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .SourceBase (IcacheSourceBase),
@@ -86,6 +94,7 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   muntjac_dcache #(
+    .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .SourceBase (DcacheSourceBase),
