@@ -146,11 +146,11 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
 
   // We have two origins of A channel requests to device:
   // 0. Dirty data writeback
-  // 1. Host A channel request
+  // 1. Cache line refill
   // 2. Uncached access
   localparam ReqOrigins = 3;
   localparam ReqIdxWb = 0;
-  localparam ReqIdxReq = 1;
+  localparam ReqIdxRefill = 1;
   localparam ReqIdxUncached = 2;
 
   // Grouped signals before multiplexing/arbitration
@@ -818,10 +818,11 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
   // Refill Logic //
   //////////////////
 
+  logic                 refill_req_valid;
   logic [AddrWidth-7:0] refill_req_address;
-  logic [WaysWidth-1:0]   refill_req_way;
+  logic [WaysWidth-1:0] refill_req_way;
 
-  logic [2:0] refill_index_q, refill_index_d;
+  logic refill_complete;
 
   typedef enum logic [1:0] {
     RefillStateIdle,
@@ -830,6 +831,11 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
+
+  logic                 refill_req_sent_q, refill_req_sent_d;
+  logic [AddrWidth-7:0] refill_address_q, refill_address_d;
+  logic [WaysWidth-1:0] refill_way_q, refill_way_d;
+  logic [2:0]           refill_index_q, refill_index_d;
 
   always_comb begin
     refill_tag_wway = 'x;
@@ -842,27 +848,48 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
     refill_data_addr = 'x;
     refill_data_wdata = 'x;
 
+    refill_lock_acq = !refill_locked && !refill_req_sent_q;
     refill_lock_rel = 1'b0;
     device_gnt_ready_refill = 1'b0;
+    refill_complete = 1'b0;
 
-    refill_index_d = refill_index_q;
     refill_state_d = refill_state_q;
+    refill_req_sent_d = refill_req_sent_q;
+    refill_address_d = refill_address_q;
+    refill_way_d = refill_way_q;
+    refill_index_d = refill_index_q;
+
+    device_req_valid_mult[ReqIdxRefill] = !refill_req_sent_q && refill_locked;
+    device_req_mult[ReqIdxRefill].opcode = Get;
+    device_req_mult[ReqIdxRefill].param = 0;
+    device_req_mult[ReqIdxRefill].size = 6;
+    device_req_mult[ReqIdxRefill].source = SourceRefill;
+    device_req_mult[ReqIdxRefill].address = {refill_address_q, 6'd0};
+    device_req_mult[ReqIdxRefill].mask = '1;
+    device_req_mult[ReqIdxRefill].corrupt = 1'b0;
+
+    if (device_req_ready_mult[ReqIdxRefill]) refill_req_sent_d = 1'b1;
+
+    if (refill_req_valid) begin
+      refill_req_sent_d = 1'b0;
+      refill_address_d = refill_req_address;
+      refill_way_d = refill_req_way;
+      refill_index_d = 0;
+    end
 
     unique case (refill_state_q)
       RefillStateIdle: begin
         if (device_gnt_valid_refill) begin
-          refill_index_d = device_gnt_opcode == AccessAckData ? 0 : 7;
-
           refill_state_d = RefillStateProgress;
         end
       end
       RefillStateProgress: begin
         device_gnt_ready_refill = refill_locked;
-        refill_tag_wway = refill_req_way;
-        refill_tag_addr = {refill_req_address[SetsWidth-1:0], refill_index_q};
+        refill_tag_wway = refill_way_q;
+        refill_tag_addr = {refill_address_q[SetsWidth-1:0], refill_index_q};
 
-        refill_data_way = refill_req_way;
-        refill_data_addr = {refill_req_address[SetsWidth-1:0], refill_index_q};
+        refill_data_way = refill_way_q;
+        refill_data_addr = {refill_address_q[SetsWidth-1:0], refill_index_q};
 
         refill_data_req = device_gnt_valid_refill && device_gnt_opcode == AccessAckData && !device_gnt_denied;
         refill_data_wdata = device_gnt_data;
@@ -870,7 +897,7 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
         // Update the metadata. This should only be done once, we can do it in either time.
         refill_tag_req = device_gnt_valid_refill && &refill_index_q && !device_gnt_denied;
         refill_tag_wdata = tag_t'('x);
-        refill_tag_wdata.tag = refill_req_address[AddrWidth-7:SetsWidth];
+        refill_tag_wdata.tag = refill_address_q[AddrWidth-7:SetsWidth];
         refill_tag_wdata.owned = 1'b0;
         refill_tag_wdata.mask = '0;
         refill_tag_wdata.dirty = 1'b0;
@@ -878,13 +905,13 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
 
         if (device_gnt_valid_refill && device_gnt_ready_refill) begin
           refill_index_d = refill_index_q + 1;
-          if (&refill_index_q) begin
+          if (device_gnt_last) begin
             refill_state_d = RefillStateComplete;
+            refill_complete = 1'b1;
           end
         end
       end
       RefillStateComplete: begin
-        refill_index_d = 0;
         refill_lock_rel = 1'b1;
         refill_state_d = RefillStateIdle;
       end
@@ -893,11 +920,17 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      refill_index_q <= 0;
       refill_state_q <= RefillStateIdle;
+      refill_req_sent_q <= 1'b1;
+      refill_address_q <= 'x;
+      refill_way_q <= 'x;
+      refill_index_q <= 0;
     end else begin
-      refill_index_q <= refill_index_d;
       refill_state_q <= refill_state_d;
+      refill_req_sent_q <= refill_req_sent_d;
+      refill_address_q <= refill_address_d;
+      refill_way_q <= refill_way_d;
+      refill_index_q <= refill_index_d;
     end
   end
 
@@ -1192,7 +1225,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
   logic [AddrWidth-1:0] address_q, address_d;
   logic [SourceWidth-1:0] source_q, source_d;
 
-  logic req_sent_q, req_sent_d;
   logic ack_done_q, ack_done_d;
 
   // Interfacing with probe sequencer
@@ -1221,16 +1253,12 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
     probe_param = 'x;
     probe_address = 'x;
 
-    device_req_valid_mult[ReqIdxReq] = 1'b0;
-    device_req_mult[ReqIdxReq] = req_t'('x);
-
     host_gnt_valid_mult[GntIdxReq] = 1'b0;
     host_gnt_mult[GntIdxReq] = gnt_t'('x);
 
     req_ready_ram = 1'b0;
 
     device_gnt_ready_access = 1'b0;
-    device_gnt_ready_writeback = 1'b0;
 
     access_tag_wdata = tag_t'('x);
     access_tag_write = 1'b0;
@@ -1243,7 +1271,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
     access_data_wmask = 'x;
     access_data_wdata = 'x;
 
-    req_sent_d = req_sent_q;
     ack_done_d = ack_done_q;
 
     state_d = state_q;
@@ -1259,6 +1286,7 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
 
     prb_ack_pending_d = prb_ack_pending_q;
 
+    refill_req_valid = 1'b0;
     refill_req_address = 'x;
     refill_req_way = 'x;
 
@@ -1268,7 +1296,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
 
     access_lock_acq = 1'b0;
     access_lock_rel = 1'b0;
-    refill_lock_acq = 1'b0;
     access_tag_req = 1'b0;
 
     if (host_ack_valid_req) ack_done_d = 1'b1;
@@ -1279,8 +1306,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
         access_lock_acq = req_valid && req_address_property == 0;
 
         if (access_locking) begin
-          req_sent_d = 1'b0;
-
           opcode_d = req_opcode;
           param_d = req_param == NtoB ? toB : toT;
           source_d = req_source;
@@ -1387,6 +1412,9 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
           end else begin
             state_d = StateFill;
             evict_d = evict_q + 1;
+            refill_req_valid = 1'b1;
+            refill_req_address = address_q[AddrWidth-1:6];
+            refill_req_way = hit_way;
           end
         end
 
@@ -1426,32 +1454,19 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
       StateWb: begin
         if (wb_complete) begin
           state_d = StateFill;
+          refill_req_valid = 1'b1;
+          refill_req_address = address_q[AddrWidth-1:6];
+          refill_req_way = way_q;
         end
       end
 
       StateFill: begin
         // Release access lock if held.
         access_lock_rel = access_locked;
-        refill_lock_acq = !refill_locked;
 
-        device_req_valid_mult[ReqIdxReq] = !req_sent_q && refill_locked;
-        device_req_mult[ReqIdxReq].opcode = Get;
-        device_req_mult[ReqIdxReq].param = 0;
-        device_req_mult[ReqIdxReq].size = 6;
-        device_req_mult[ReqIdxReq].source = SourceRefill;
-        device_req_mult[ReqIdxReq].address = {address_q[AddrWidth-1:6], 6'd0};
-        device_req_mult[ReqIdxReq].mask = '1;
-        device_req_mult[ReqIdxReq].corrupt = 1'b0;
-
-        if (device_req_ready_mult[ReqIdxReq]) req_sent_d = 1'b1;
-
-        if (device_gnt_valid_refill && device_gnt_ready_refill && device_gnt_last) begin
+        if (refill_complete) begin
           state_d = StateReplay;
-          req_sent_d = 1'b0;
         end
-
-        refill_req_address = address_q[AddrWidth-1:6];
-        refill_req_way = way_q;
       end
 
       StateGet: begin
@@ -1535,7 +1550,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
       way_q <= 'x;
       post_inv_q <= state_e'('x);
       prb_ack_pending_q <= 'x;
-      req_sent_q <= 1'b0;
       ack_done_q <= 1'b0;
     end
     else begin
@@ -1549,7 +1563,6 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
       way_q <= way_d;
       post_inv_q <= post_inv_d;
       prb_ack_pending_q <= prb_ack_pending_d;
-      req_sent_q <= req_sent_d;
       ack_done_q <= ack_done_d;
     end
   end
