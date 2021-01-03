@@ -56,6 +56,9 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     input  priv_lvl_e          er_prv_i,
     output logic [63:0]        er_epc_o,
 
+    // Floating-point register status tracker
+    input  logic               make_fs_dirty_i,
+
     // Performance counters
     input  logic               instr_ret_i
 );
@@ -453,6 +456,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
     ex_tvec_o = 'x;
     er_epc_o = 'x;
+
+    if (RV64F && make_fs_dirty_i) begin
+      mstatus_d.fs = 2'b11;
+    end
 
     unique case (1'b1)
       ex_valid_i: begin

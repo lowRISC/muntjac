@@ -858,6 +858,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
     .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
     .er_epc_o (er_epc),
+    .make_fs_dirty_i (1'b0),
     .instr_ret_i (ex2_pending_q && ex2_data_valid)
   );
 
