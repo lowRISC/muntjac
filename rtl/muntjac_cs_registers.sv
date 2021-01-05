@@ -510,11 +510,18 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
             // User Trap Handling CSRs not supported
 
             // User Floating-point CSRs
-            CSR_FFLAGS: if (RV64F) fflags_d = csr_wdata_int[4:0];
-            CSR_FRM: if (RV64F) frm_d = csr_wdata_int[2:0];
+            CSR_FFLAGS: if (RV64F) begin
+              fflags_d = csr_wdata_int[4:0];
+              mstatus_d.fs = 2'b11;
+            end
+            CSR_FRM: if (RV64F) begin
+              frm_d = csr_wdata_int[2:0];
+              mstatus_d.fs = 2'b11;
+            end
             CSR_FCSR: if (RV64F) begin
               fflags_d = csr_wdata_int[4:0];
               frm_d = csr_wdata_int[7:5];
+              mstatus_d.fs = 2'b11;
             end
 
             CSR_SSTATUS: begin
