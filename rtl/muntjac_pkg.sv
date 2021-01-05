@@ -20,6 +20,7 @@ typedef enum logic [6:0] {
   OPCODE_OP           = 7'b0110011,
   OPCODE_LUI          = 7'b0110111,
   OPCODE_OP_32        = 7'b0111011,
+  OPCODE_OP_FP        = 7'b1010011,
   OPCODE_BRANCH       = 7'b1100011,
   OPCODE_JALR         = 7'b1100111,
   OPCODE_JAL          = 7'b1101111,
@@ -456,6 +457,10 @@ typedef struct packed {
   logic [4:0]  rs2;
   logic [4:0]  rd;
   logic [31:0] immediate;
+
+  logic use_frd;
+  logic use_frs1;
+  logic use_frs2;
 
   op_type_e op_type;
 
