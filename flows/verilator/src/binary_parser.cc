@@ -24,6 +24,11 @@
 using std::ifstream;
 using std::vector;
 
+// Older versions of elf.h do not contain this value.
+#ifndef EM_RISCV
+  #define EM_RISCV 0xf3
+#endif
+
 DataBlock arguments(int argc, char** argv) {
   // Target memory looks like this:
   // 0x00000000 zero word
