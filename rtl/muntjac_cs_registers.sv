@@ -44,6 +44,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     // CSR exports
     output logic [63:0]        satp_o,
     output status_t            status_o,
+    output logic [2:0]         frm_o,
 
     // Exception
     input  logic               ex_valid_i,
@@ -58,6 +59,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
     // Floating-point register status tracker
     input  logic               make_fs_dirty_i,
+    input  logic [4:0]         set_fflags_i,
 
     // Performance counters
     input  logic               instr_ret_i
@@ -192,6 +194,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   // User Floating-Point CSRs.
   logic [4:0] fflags_q, fflags_d;
   logic [2:0] frm_q, frm_d;
+  assign frm_o = frm_q;
 
   // Counter Enable
   logic [2:0] mcounteren_q, mcounteren_d;
@@ -457,8 +460,15 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     ex_tvec_o = 'x;
     er_epc_o = 'x;
 
-    if (RV64F && make_fs_dirty_i) begin
-      mstatus_d.fs = 2'b11;
+    if (RV64F) begin
+      if (make_fs_dirty_i) begin
+        mstatus_d.fs = 2'b11;
+      end
+
+      if (|set_fflags_i) begin
+        fflags_d = fflags_q | set_fflags_i;
+        mstatus_d.fs = 2'b11;
+      end
     end
 
     unique case (1'b1)

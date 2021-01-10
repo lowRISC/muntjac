@@ -851,6 +851,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     .irq_cause_o (int_cause),
     .satp_o (satp_o),
     .status_o (status_o),
+    .frm_o (),
     .ex_valid_i (mem_trap_valid || exception_issue),
     .ex_exception_i (mem_trap_valid ? mem_trap : de_ex_decoded.exception),
     .ex_epc_i (mem_trap_valid ? 64'(signed'(ex2_select_q == FU_MEM ? ex2_pc_q : ex1_pc_q)) : de_ex_decoded.pc),
@@ -859,6 +860,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
     .er_epc_o (er_epc),
     .make_fs_dirty_i (1'b0),
+    .set_fflags_i ('0),
     .instr_ret_i (ex2_pending_q && ex2_data_valid)
   );
 
