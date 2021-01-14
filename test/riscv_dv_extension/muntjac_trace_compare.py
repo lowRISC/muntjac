@@ -10,7 +10,7 @@ def compare_row(line, correct, test):
     # reached this point without failing, the traces are considered equivalent.
     if correct["instr"] == "ecall":
         exit(0)
-    
+
     for field in ["pc", "gpr", "csr", "binary", "mode"]:
         if correct[field] != test[field]:
             # Exceptions.
@@ -22,6 +22,10 @@ def compare_row(line, correct, test):
                 continue
             # Spike doesn't output a mode when no state is updated.
             if field == "mode" and correct[field] == "":
+                continue
+            # riscv-dv generates 64-bit instructions, which Spike displays in
+            # full, but Muntjac doesn't even attempt to load.
+            if field == "binary" and test[field] in correct[field]:
                 continue
 
             print("Divergence on line", line, ": expected", field,

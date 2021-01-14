@@ -27,6 +27,14 @@ private:
   const MemoryAddress address;
 };
 
+class AlignmentFault : public MuntjacException {
+public:
+  AlignmentFault(MemoryAddress address);
+  exc_cause_e get_exception_code(MemoryOperation operation) const;
+private:
+  const MemoryAddress address;
+};
+
 class PageFault : public MuntjacException {
 public:
   PageFault(MemoryAddress address, string description);

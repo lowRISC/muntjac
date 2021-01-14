@@ -17,7 +17,7 @@ extern double sc_time_stamp();
 // 1 = all logging
 // Potential to add more options here.
 extern int log_level;
-#define MUNTJAC_LOG(LEVEL) if (log_level >= LEVEL) cout << "[sim " << (uint64_t)sc_time_stamp() << "] "
+#define MUNTJAC_LOG(LEVEL) if (log_level >= LEVEL) cout << "[sim " << std::dec << (uint64_t)sc_time_stamp() << "] "
 
 #define MUNTJAC_WARN cerr << "[sim] Warning: "
 #define MUNTJAC_ERROR cerr << "[sim] Error: "

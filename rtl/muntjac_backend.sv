@@ -605,6 +605,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   logic [63:0] ex2_alu_data_q;
   logic [LogicSextAddrLen-1:0] ex2_pc_q;
   instr_trace_t ex2_trace_q;
+  logic ex2_squashed_q;
 
   always_comb begin
     unique case (ex1_select_q)
@@ -827,6 +828,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   instr_trace_t ex2_trace_d;
   logic ex2_use_frd_d;
   logic [4:0] ex2_rd_d;
+  logic ex2_squashed_d;
 
   always_comb begin
     ex2_pending_d = ex2_pending_q;
@@ -836,6 +838,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     ex2_trace_d = ex2_trace_q;
     ex2_use_frd_d = ex2_use_frd_q;
     ex2_rd_d = ex2_rd_q;
+    ex2_squashed_d = ex2_squashed_q;
 
     // Reset to default values when committed, or when the MEM traps in EX2 stage.
     // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
@@ -846,6 +849,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_use_frd_d = 1'b0;
       ex2_rd_d = '0;
       ex2_alu_data_d = 'x;
+      ex2_squashed_d = 1'b0;
     end
 
     // If a MEM trap happens in EX2 stage, and EX1 stage is executing a non-memory
@@ -859,6 +863,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_use_frd_d = 1'b0;
       ex2_rd_d = '0;
       ex2_alu_data_d = 'x;
+      ex2_squashed_d = 1'b1;
     end
 
     // Progress an instruction from EX1 to EX2.
@@ -873,6 +878,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_use_frd_d = ex1_use_frd_q;
       ex2_rd_d = ex1_rd_q;
       ex2_alu_data_d = 'x;
+      ex2_squashed_d = 1'b0;
 
       // If data is already valid, then move it to ALU register so that we don't wait
       // for it.
@@ -892,6 +898,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_trace_q <= 'x;
       ex2_use_frd_q <= 1'b0;
       ex2_rd_q <= '0;
+      ex2_squashed_q <= 1'b0;
     end
     else begin
       ex2_pending_q <= ex2_pending_d;
@@ -901,6 +908,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_trace_q <= ex2_trace_d;
       ex2_use_frd_q <= ex2_use_frd_d;
       ex2_rd_q <= ex2_rd_d;
+      ex2_squashed_q <= ex2_squashed_d;
     end
   end
 
@@ -1086,15 +1094,22 @@ module muntjac_backend import muntjac_pkg::*; #(
   end
 
   // Debug connections
-  always_comb begin
-    if (ex2_pending_q && ex2_data_valid) begin
-      dbg_o = ex2_trace_q;
+  always_ff @(posedge clk_i) begin
+    if (ex2_pending_q && ex2_data_valid && !ex2_squashed_q) begin
+      // Successful instruction commit.
+      dbg_o <= ex2_trace_q;
 
 `ifdef TRACE_ENABLE
-      dbg_o.gpr_written = 1;
-      dbg_o.gpr = ex2_rd_q;
-      dbg_o.gpr_data = ex2_data;
+      dbg_o.gpr_written <= 1;
+      dbg_o.gpr <= ex2_rd_q;
+      dbg_o.gpr_data <= ex2_data;
 `endif
+    end else if (mem_trap_valid) begin
+      // Memory trap.
+      dbg_o <= ex2_trace_q;
+    end else if (exception_issue) begin
+      // Any other exception.
+      dbg_o <= de_ex_decoded.trace;
     end
   end
 

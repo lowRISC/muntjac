@@ -43,6 +43,9 @@ protected:
     uint64_t operand = dut.dcache_req_value;
 
     try {
+      if (!aligned(address, dut.dcache_req_size))
+        throw AlignmentFault(address);
+
       // Do virtual -> physical address translation if necessary.
       AddressTranslationProtection64 atp(dut.dcache_req_atp);
       if (atp.mode() != ATP_MODE_BARE) {
@@ -88,10 +91,13 @@ protected:
       // payload,we need to signal that the request completed successfully.
       queue_response(data_read);
     }
-    catch (const PageFault& e) {
+    catch (const AccessFault& e) {
       queue_response(address, e.get_exception_code(operation));
     }
-    catch (const AccessFault& e) {
+    catch (const AlignmentFault& e) {
+      queue_response(address, e.get_exception_code(operation));
+    }
+    catch (const PageFault& e) {
       queue_response(address, e.get_exception_code(operation));
     }
 
@@ -137,6 +143,19 @@ protected:
   }
 
 private:
+
+  bool aligned(MemoryAddress address, int alignment) {
+    switch (alignment) {
+      case 0: return true;
+      case 1: return (address & 0x1) == 0;
+      case 2: return (address & 0x3) == 0;
+      case 3: return (address & 0x7) == 0;
+      default:
+        MUNTJAC_ERROR << "Invalid alignment parameter: " << alignment << endl;
+        exit(1);
+        break;
+    }
+  }
 
   // Zero-extend the lowest `bytes` of `original` to create a signed 64-bit
   // integer.

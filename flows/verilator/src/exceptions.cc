@@ -45,6 +45,31 @@ exc_cause_e AccessFault::get_exception_code(MemoryOperation operation) const {
 }
 
 
+AlignmentFault::AlignmentFault(MemoryAddress address) :
+    MuntjacException("Alignment fault"),
+    address(address) {
+  // Nothing
+}
+
+exc_cause_e AlignmentFault::get_exception_code(MemoryOperation operation) const {
+  switch (operation) {
+    case MEM_LOAD:
+    case MEM_LR:
+      return EXC_CAUSE_LOAD_MISALIGN;
+
+    case MEM_STORE:
+    case MEM_SC:
+    case MEM_AMO:
+      return EXC_CAUSE_STORE_MISALIGN;
+
+//    case MEM_FETCH:
+    default:
+      assert(false);
+      break;
+  }
+}
+
+
 PageFault::PageFault(MemoryAddress address, string description) :
     MuntjacException("Page fault: " + description),
     address(address) {
