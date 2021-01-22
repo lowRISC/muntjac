@@ -332,7 +332,7 @@ riscv_dv_fields = [
     "pad"           # Padding: empty
 ]
 
-def translate_row(row):
+def translate_row(row, fast=False):
     """Translate a single row of data from Muntjac simulator format to riscv-dv
     format."""
     new_row = OrderedDict()
@@ -347,20 +347,22 @@ def translate_row(row):
     new_row["operand"] = "unknown"
     new_row["pad"] = ""
 
-    try:
-        # The `decude` function supports a `variant` argument specifying the
-        # allowed instruction set extensions, but at the time of writing, it
-        # makes the output worse.
-        decoded = str(decode(int(row["binary"], 16)))
-        parts = decoded.split(maxsplit=1)
-        new_row["instr"] = parts[0]
-        new_row["instr_str"] = decoded
-        new_row["operand"] = parts[1] if len(parts) > 1 else ""
-    except MachineDecodeError:
-        # riscvmodel isn't yet able to decode all instructions.
-        # This isn't a fatal error: the instruction strings are not necessary
-        # when comparing traces, so long as the program counter is included.
-        pass
+    # Decode instructions to output more information. Doing this slows down the
+    # script by 20x.
+    if not fast:
+        try:
+            # The `decude` function supports a `variant` argument specifying the
+            # allowed instruction set extensions, but at the time of writing, it
+            # makes the output worse.
+            decoded = str(decode(int(row["binary"], 16)))
+            parts = decoded.split(maxsplit=1)
+            new_row["instr"] = parts[0]
+            new_row["instr_str"] = decoded
+            new_row["operand"] = parts[1] if len(parts) > 1 else ""
+        except MachineDecodeError:
+            # riscvmodel isn't yet able to decode all instructions, but this
+            # doesn't matter for trace comparisons.
+            pass
 
     return new_row
 
@@ -370,6 +372,8 @@ def main():
                         help="Log file produced using `muntjac --csv`")
     parser.add_argument("--csv", type=str, required=True,
                         help="Location to store output. Must be separate from input.")
+    parser.add_argument("--fast", action='store_true',
+                        help="Skip instruction decode to improve speed")
     args = parser.parse_args()
 
     with open(args.log, newline='') as logfile:
@@ -381,7 +385,7 @@ def main():
             writer.writeheader()
 
             for row in reader:
-                writer.writerow(translate_row(row))
+                writer.writerow(translate_row(row, args.fast))
 
 if __name__ == "__main__":
     main()
