@@ -3,61 +3,8 @@
 Muntjac supports the following synthesis flows:
 
  * Verilator (software)
- * Vivado (FPGA)
- * OpenROAD (ASIC, free)
- * Synopsys (ASIC, commercial)
+ * ~~Vivado (FPGA)~~
+ * ~~OpenROAD (ASIC, free)~~
+ * ~~Synopsys (ASIC, commercial)~~
 
-The main files in this directory are the `.core` files, which determine which source files and arguments are required for each build, and [FuseSoC](https://github.com/olofk/fusesoc) is then responsible for passing this information to the various tools.
-
-## FuseSoC
-
-### Install
-```
-pip install fusesoc
-```
-
-## Verilator
-
-### Install (Ubuntu)
-```
-apt install verilator
-```
-
-### Lint
-The goal is that if linting succeeds, the source will successfully build on any of the supported platforms.
-
-```
-fusesoc --cores-root=.. run --target=lint --tool=verilator lowrisc:muntjac:pipeline:0.1
-```
-
-### Build simulator
-```
-fusesoc --cores-root=.. run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline_tb:0.1
-```
-
-Once built, the simulator will be available at `./build/lowrisc_muntjac_pipeline_tb_0.1/sim-verilator/muntjac_pipeline`.
-
-### Run tests
-RISC-V binaries can be executed using:
-
-```
-muntjac_pipeline [simulator arguments] <executable> [program arguments]
-```
-
-| Simulator argument | Description |
-| --- | --- |
-| `--csv=X` | Output CSV (comma separated value) data to file X, describing instructions executed and state modified. Used mainly for riscv-dv. |
-| `--help` | Display usage information. |
-| `--memory-latency=X` | Set main memory latency to X cycles. |
-| `--timeout=X` | Force end of simulation after X cycles. |
-| `--trace=X` | Dump VCD output to file X. |
-| `-v[v]` | Display additional information as simulation proceeds. More `v`s gives more output. |
-
-## Vivado
-
-## OpenROAD
-
-### Install
-OpenROAD provide their [own instructions](https://github.com/The-OpenROAD-Project/OpenROAD-flow/blob/master/README.md#installation).
-
-## Synopsys
+This directory contains scripts and other auxiliary files required to exercise these tools, and also [`.core` files](https://fusesoc.readthedocs.io/en/master/ref/capi2.html), which determine which source files and arguments are required for each build.

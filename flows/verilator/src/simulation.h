@@ -177,7 +177,7 @@ private:
         string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
         timeout = std::stoi(value);
       }
-      else if (arg_string.rfind("--trace", 0) == 0) {
+      else if (arg_string.rfind("--vcd", 0) == 0) {
         string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
         trace_file = value;
         trace_on = true;
@@ -239,7 +239,7 @@ private:
     cout << "  --csv=X\t\tDump a CSV trace to file X (mainly for riscv-dv)" << endl;
     cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
     cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
-    cout << "  --trace=X\t\tDump VCD output to file X" << endl;
+    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
     cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
     cout << "  --help\t\tDisplay this information and exit" << endl;
   }
