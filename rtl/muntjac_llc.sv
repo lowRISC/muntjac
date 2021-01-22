@@ -678,7 +678,7 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
   end
 
   for (genvar i = 0; i < NumWays; i++) begin: ram
-    prim_generic_ram_1p #(
+    prim_ram_1p #(
       .Width           ($bits(tag_t)),
       .Depth           (2 ** SetsWidth),
       .DataBitsPerMask ($bits(tag_t))
@@ -693,7 +693,7 @@ module muntjac_llc_raw import tl_pkg::*; import muntjac_pkg::*; #(
     );
   end
 
-  prim_generic_ram_1p #(
+  prim_ram_1p #(
     .Width           (64),
     .Depth           (2 ** (WaysWidth + SetsWidth + 3)),
     .DataBitsPerMask (8)
