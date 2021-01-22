@@ -31,10 +31,18 @@ jobs:
         run: pip3 install -r python-requirements.txt
 
       - name: Run lint
-        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=lint --tool=verilator lowrisc:muntjac:pipeline_tb:0.1
+        run: make lint
 
-  build-pipeline:
+  build-simulators:
     runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        include:
+          - name: pipeline
+            sim: muntjac_pipeline
+          - name: core
+            sim: muntjac_core
 
     steps:
       - uses: actions/checkout@v2
@@ -53,17 +61,25 @@ jobs:
         run: pip3 install -r python-requirements.txt
 
       - name: Run build
-        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=sim --tool=verilator --build lowrisc:muntjac:pipeline_tb:0.1
+        run: make sim-${{ matrix.name }}
 
       - uses: actions/upload-artifact@v2
         with:
-          name: muntjac_pipeline
-          path: build/lowrisc_muntjac_pipeline_tb_0.1/sim-verilator/muntjac_pipeline
+          name: ${{ matrix.sim }}
+          path: bin/${{ matrix.sim }}
           if-no-files-found: error
 
-  riscv-tests-pipeline:
+  riscv-tests:
     runs-on: ubuntu-20.04
-    needs: build-pipeline
+    needs: build-simulators
+
+    strategy:
+      matrix:
+        include:
+          - name: pipeline
+            sim: muntjac_pipeline
+          - name: core
+            sim: muntjac_core
 
     steps:
       - uses: actions/checkout@v2
@@ -104,17 +120,17 @@ jobs:
       - name: Get simulator
         uses: actions/download-artifact@v2
         with:
-          name: muntjac_pipeline
+          name: ${{ matrix.sim }}
 
       # Create a summary of each test outcome in the JUnit XML format.
       - name: Run tests
         run: |
-          chmod +x muntjac_pipeline
+          chmod +x ${{ matrix.sim }}
           echo "<testsuite>" > results.xml
 
           for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi; do
             for test in riscv-tests/isa/$isa-*; do
-              /usr/bin/time --quiet -o $test.time -f "%e" ./muntjac_pipeline $test --timeout=1000000 > $test.out 2> $test.err || true
+              /usr/bin/time --quiet -o $test.time -f "%e" ./${{ matrix.sim }} $test --timeout=1000000 > $test.out 2> $test.err || true
 
               echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" >> results.xml
 
@@ -140,113 +156,4 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           report_paths: 'results.xml'
-          check_name: riscv-tests-pipeline
-
-  build-core:
-    runs-on: ubuntu-20.04
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Install Verilator
-        run: |
-          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
-          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
-          sudo apt-get update
-          sudo apt-get install verilator-4.040
-
-      - name: Install Python dependencies
-        run: pip3 install setuptools wheel
-
-      - name: Install FuseSoC
-        run: pip3 install -r python-requirements.txt
-
-      - name: Run build
-        run: ~/.local/bin/fusesoc --cores-root $GITHUB_WORKSPACE run --target=sim --tool=verilator --build lowrisc:muntjac:core_tb:0.1
-
-      - uses: actions/upload-artifact@v2
-        with:
-          name: muntjac_core
-          path: build/lowrisc_muntjac_core_tb_0.1/sim-verilator/muntjac_core
-          if-no-files-found: error
-
-  riscv-tests-core:
-    runs-on: ubuntu-20.04
-    needs: build-core
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Checkout riscv-tests
-        uses: actions/checkout@v2
-        with:
-          repository: riscv/riscv-tests
-          ref: c4217d88bce9f805a81f42e86ff56ed363931d69
-          submodules: recursive
-          path: riscv-tests
-
-      - name: Override with custom link.ld
-        run: |
-          cp flows/link.ld riscv-tests/env/p/link.ld
-
-      - name: Download compiler toolchain
-        uses: i3h/download-release-asset@v1
-        with:
-          owner: lowRISC
-          repo: lowrisc-toolchains
-          tag: 20200904-1
-          file: lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
-
-      # Also add the tools to PATH for next step.
-      - name: Extract compiler toolchain
-        run: |
-          tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
-          echo "`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin" >> $GITHUB_PATH
-
-      - name: Build ISA tests
-        run: |
-          cd riscv-tests/isa
-          make -j$(nproc)
-          rm *.dump
-          rm rv64mi-p-breakpoint
-
-      - name: Get simulator
-        uses: actions/download-artifact@v2
-        with:
-          name: muntjac_core
-
-      # Create a summary of each test outcome in the JUnit XML format.
-      - name: Run tests
-        run: |
-          chmod +x muntjac_core
-          echo "<testsuite>" > results.xml
-
-          for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi; do
-            for test in riscv-tests/isa/$isa-*; do
-              /usr/bin/time --quiet -o $test.time -f "%e" ./muntjac_core $test --timeout=1000000 > $test.out 2> $test.err || true
-
-              echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" >> results.xml
-
-              if ! grep -q "Exiting with argument 1$" $test.out; then
-                echo "<failure type=\"failure\">" >> results.xml
-
-                echo "System error:" >> results.xml
-                sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.err >> results.xml
-                echo "" >> results.xml
-                echo "System out:" >> results.xml
-                sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.out >> results.xml
-
-                echo "</failure>" >> results.xml
-              fi
-              echo "</testcase>" >> results.xml
-            done
-          done
-
-          echo "</testsuite>" >> results.xml
-
-      - name: Publish test report
-        uses: scacap/action-surefire-report@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          report_paths: 'results.xml'
-          check_name: riscv-tests-core
+          check_name: riscv-tests-${{ matrix.name }}
