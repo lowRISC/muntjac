@@ -1,3 +1,5 @@
+`include "tl_util.svh"
+
 module muntjac_core import muntjac_pkg::*; #(
   // Number of bits of physical address supported. This must not exceed 56.
   // This must match AddrWidth of the TileLink interface.
@@ -13,7 +15,7 @@ module muntjac_core import muntjac_pkg::*; #(
     input  logic            rst_ni,
 
     // Memory interface
-    tl_channel.host mem,
+    `TL_DECLARE_HOST_PORT(64, PhysAddrLen, SourceWidth, SinkWidth, mem),
 
     input  logic irq_software_m_i,
     input  logic irq_timer_m_i,
@@ -25,6 +27,9 @@ module muntjac_core import muntjac_pkg::*; #(
     // Debug connections
     output instr_trace_t dbg_o
 );
+
+  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem);
+  `TL_BIND_HOST_PORT(mem, mem);
 
   localparam [SourceWidth-1:0] DcacheSourceBase = 0;
   localparam [SourceWidth-1:0] IcacheSourceBase = 1;
@@ -56,13 +61,7 @@ module muntjac_core import muntjac_pkg::*; #(
       .dbg_o
   );
 
-  tl_channel #(
-    .AddrWidth (PhysAddrLen),
-    .DataWidth (64),
-    .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth)
-  ) ch[4] ();
-
+  `TL_DECLARE_ARR(64, PhysAddrLen, SourceWidth, SinkWidth, ch, [3:0]);
   tl_socket_m1 #(
     .AddrWidth (PhysAddrLen),
     .SourceWidth (SourceWidth),
@@ -77,8 +76,8 @@ module muntjac_core import muntjac_pkg::*; #(
   ) socket (
     .clk_i,
     .rst_ni,
-    .host (ch),
-    .device (mem)
+    `TL_CONNECT_DEVICE_PORT(host, ch),
+    `TL_CONNECT_HOST_PORT(device, mem)
   );
 
   muntjac_icache #(
@@ -92,8 +91,8 @@ module muntjac_core import muntjac_pkg::*; #(
     .rst_ni,
     .cache_h2d_i (icache_h2d),
     .cache_d2h_o (icache_d2h),
-    .mem (ch[1]),
-    .mem_ptw (ch[3])
+    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [1]),
+    `TL_CONNECT_HOST_PORT_IDX(mem_ptw, ch, [3])
   );
 
   muntjac_dcache #(
@@ -107,8 +106,8 @@ module muntjac_core import muntjac_pkg::*; #(
     .rst_ni,
     .cache_h2d_i (dcache_h2d),
     .cache_d2h_o (dcache_d2h),
-    .mem (ch[0]),
-    .mem_ptw (ch[2])
+    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [0]),
+    `TL_CONNECT_HOST_PORT_IDX(mem_ptw, ch, [2])
   );
 
 endmodule

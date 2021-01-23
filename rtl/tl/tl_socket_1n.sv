@@ -1,9 +1,10 @@
+`include "tl_util.svh"
+
 module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   parameter  int unsigned SourceWidth   = 1,
   parameter  int unsigned SinkWidth     = 1,
   parameter  int unsigned AddrWidth     = 56,
   parameter  int unsigned DataWidth     = 64,
-  parameter  int unsigned SizeWidth     = 3,
 
   parameter  int unsigned MaxSize       = 6,
 
@@ -32,35 +33,28 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   input  logic clk_i,
   input  logic rst_ni,
 
-  tl_channel.device host,
-  tl_channel.host   device[NumLinks]
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT_ARR(DataWidth, AddrWidth, SourceWidth, SinkWidth, device, [NumLinks-1:0])
 );
 
-  if (host.SourceWidth != SourceWidth) $fatal(1, "SourceWidth mismatch");
-  if (host.SinkWidth > SinkWidth) $fatal(1, "SinkWidth mismatch");
-  if (host.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
-  if (host.SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-
-  for (genvar i = 0; i < NumLinks; i++) begin
-    initial begin
-      if (device[i].SourceWidth != SourceWidth) $fatal(1, "SourceWidth mismatch");
-      if (device[i].SinkWidth < SinkWidth) $fatal(1, "SinkWidth mismatch");
-      if (device[i].DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
-      if (device[i].SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
-    end
-  end
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
+  `TL_DECLARE_ARR(DataWidth, AddrWidth, SourceWidth, SinkWidth, device, [NumLinks-1:0]);
+  `TL_BIND_DEVICE_PORT(host, host);
+  `TL_BIND_HOST_PORT(device, device);
 
   logic host_prb_last;
   logic host_gnt_last;
 
   tl_burst_tracker #(
+    .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
-    .SizeWidth (SizeWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,
     .rst_ni,
-    .link (host),
+    `TL_FORWARD_TAP_PORT_FROM_DEVICE(link, host),
     .req_len_o (),
     .prb_len_o (),
     .rel_len_o (),
@@ -92,7 +86,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   always_comb begin
     req_device_id = 0;
     for (int i = 0; i < NumAddressRange; i++) begin
-      if ((host.a_address &~ AddressMask[i]) == AddressBase[i]) begin
+      if ((host_a.address &~ AddressMask[i]) == AddressBase[i]) begin
         req_device_id = AddressLink[i];
       end
     end
@@ -101,73 +95,17 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   logic [NumLinks-1:0] req_ready_mult;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign req_ready_mult[i] = host.a_valid && req_device_id == i && device[i].a_ready;
-    assign device[i].a_valid   = host.a_valid && req_device_id == i;
+    assign req_ready_mult[i] = host_a_valid && req_device_id == i && device_a_ready[i];
+    assign device_a_valid[i] = host_a_valid && req_device_id == i;
 
-    assign device[i].a_opcode  = host.a_opcode;
-    assign device[i].a_param   = host.a_param;
-    assign device[i].a_size    = host.a_size;
-    assign device[i].a_source  = host.a_source;
-    assign device[i].a_address = host.a_address;
-    assign device[i].a_mask    = host.a_mask;
-    assign device[i].a_corrupt = host.a_corrupt;
-    assign device[i].a_data    = host.a_data;
+    assign device_a[i] = host_a;
   end
 
-  assign host.a_ready = |req_ready_mult;
+  assign host_a_ready = |req_ready_mult;
 
   ///////////////////////////////
   // Probe channel arbitration //
   ///////////////////////////////
-
-  typedef struct packed {
-    tl_b_op_e               opcode;
-    logic [2:0]             param;
-    logic [SizeWidth-1:0]   size;
-    logic [SourceWidth-1:0] source;
-    logic [AddrWidth-1:0]   address;
-    logic [DataWidth/8-1:0] mask;
-    logic                   corrupt;
-    logic [DataWidth-1:0]   data;
-  } prb_t;
-
-  // Grouped signals before multiplexing/arbitration
-  prb_t [NumLinks-1:0] prb_mult;
-  logic [NumLinks-1:0] prb_valid_mult;
-  logic [NumLinks-1:0] prb_ready_mult;
-
-  for (genvar i = 0; i < NumLinks; i++) begin
-    assign prb_mult[i] = prb_t'{
-      device[i].b_opcode,
-      device[i].b_param,
-      device[i].b_size,
-      device[i].b_source,
-      device[i].b_address,
-      device[i].b_mask,
-      device[i].b_corrupt,
-      device[i].b_data
-    };
-    assign prb_valid_mult[i] = device[i].b_valid;
-
-    assign device[i].b_ready = prb_ready_mult[i];
-  end
-
-  // Signals after multiplexing
-  prb_t prb;
-  logic prb_valid;
-  logic prb_ready;
-
-  assign prb_ready = host.b_ready;
-
-  assign host.b_valid   = prb_valid;
-  assign host.b_opcode  = prb.opcode;
-  assign host.b_param   = prb.param;
-  assign host.b_size    = prb.size;
-  assign host.b_source  = prb.source;
-  assign host.b_address = prb.address;
-  assign host.b_mask    = prb.mask;
-  assign host.b_corrupt = prb.corrupt;
-  assign host.b_data    = prb.data;
 
   // Signals for arbitration
   logic [NumLinks-1:0] prb_arb_grant;
@@ -177,8 +115,8 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) prb_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (prb_valid && prb_ready && !prb_locked),
-    .request (prb_valid_mult),
+    .enable  (host_b_valid && host_b_ready && !prb_locked),
+    .request (device_b_valid),
     .grant   (prb_arb_grant)
   );
 
@@ -189,7 +127,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
       prb_selected <= '0;
     end
     else begin
-      if (prb_valid && prb_ready) begin
+      if (host_b_valid && host_b_ready) begin
         if (!prb_locked) begin
           prb_locked   <= 1'b1;
           prb_selected <= prb_arb_grant;
@@ -204,17 +142,17 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   wire [NumLinks-1:0] prb_select = prb_locked ? prb_selected : prb_arb_grant;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign prb_ready_mult[i] = prb_select[i] && prb_ready;
+    assign device_b_ready[i] = prb_select[i] && host_b_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
-    prb = prb_t'('x);
-    prb_valid = 1'b0;
+    host_b = 'x;
+    host_b_valid = 1'b0;
     for (int i = NumLinks - 1; i >= 0; i--) begin
       if (prb_select[i]) begin
-        prb = prb_mult[i];
-        prb_valid = prb_valid_mult[i];
+        host_b = device_b[i];
+        host_b_valid = device_b_valid[i];
       end
     end
   end
@@ -228,7 +166,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   always_comb begin
     rel_device_id = 0;
     for (int i = 0; i < NumAddressRange; i++) begin
-      if ((host.c_address &~ AddressMask[i]) == AddressBase[i]) begin
+      if ((host_c.address &~ AddressMask[i]) == AddressBase[i]) begin
         rel_device_id = AddressLink[i];
       end
     end
@@ -237,72 +175,17 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   logic [NumLinks-1:0] rel_ready_mult;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign rel_ready_mult[i] = host.c_valid && rel_device_id == i && device[i].c_ready;
-    assign device[i].c_valid   = host.c_valid && rel_device_id == i;
+    assign rel_ready_mult[i] = host_c_valid && rel_device_id == i && device_c_ready[i];
+    assign device_c_valid[i] = host_c_valid && rel_device_id == i;
 
-    assign device[i].c_opcode  = host.c_opcode;
-    assign device[i].c_param   = host.c_param;
-    assign device[i].c_size    = host.c_size;
-    assign device[i].c_source  = host.c_source;
-    assign device[i].c_address = host.c_address;
-    assign device[i].c_corrupt = host.c_corrupt;
-    assign device[i].c_data    = host.c_data;
+    assign device_c[i] = host_c;
   end
 
-  assign host.c_ready = |rel_ready_mult;
+  assign host_c_ready = |rel_ready_mult;
 
   ///////////////////////////////
   // Grant channel arbitration //
   ///////////////////////////////
-
-  typedef struct packed {
-    tl_d_op_e               opcode;
-    logic [2:0]             param;
-    logic [SizeWidth-1:0]   size;
-    logic [SourceWidth-1:0] source;
-    logic [SinkWidth-1:0]   sink;
-    logic                   denied;
-    logic                   corrupt;
-    logic [DataWidth-1:0]   data;
-  } gnt_t;
-
-  // Grouped signals before multiplexing/arbitration
-  gnt_t [NumLinks-1:0] gnt_mult;
-  logic [NumLinks-1:0] gnt_valid_mult;
-  logic [NumLinks-1:0] gnt_ready_mult;
-
-  for (genvar i = 0; i < NumLinks; i++) begin
-    assign gnt_mult[i] = gnt_t'{
-      device[i].d_opcode,
-      device[i].d_param,
-      device[i].d_size,
-      device[i].d_source,
-      device[i].d_sink,
-      device[i].d_denied,
-      device[i].d_corrupt,
-      device[i].d_data
-    };
-    assign gnt_valid_mult[i] = device[i].d_valid;
-
-    assign device[i].d_ready = gnt_ready_mult[i];
-  end
-
-  // Signals after multiplexing
-  gnt_t gnt;
-  logic gnt_valid;
-  logic gnt_ready;
-
-  assign gnt_ready = host.d_ready;
-
-  assign host.d_valid   = gnt_valid;
-  assign host.d_opcode  = gnt.opcode;
-  assign host.d_param   = gnt.param;
-  assign host.d_size    = gnt.size;
-  assign host.d_source  = gnt.source;
-  assign host.d_sink    = gnt.sink;
-  assign host.d_denied  = gnt.denied;
-  assign host.d_corrupt = gnt.corrupt;
-  assign host.d_data    = gnt.data;
 
   // Signals for arbitration
   logic [NumLinks-1:0] gnt_arb_grant;
@@ -312,8 +195,8 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) gnt_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (gnt_valid && gnt_ready && !gnt_locked),
-    .request (gnt_valid_mult),
+    .enable  (host_d_valid && host_d_ready && !gnt_locked),
+    .request (device_d_valid),
     .grant   (gnt_arb_grant)
   );
 
@@ -324,7 +207,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
       gnt_selected <= '0;
     end
     else begin
-      if (gnt_valid && gnt_ready) begin
+      if (host_d_valid && host_d_ready) begin
         if (!gnt_locked) begin
           gnt_locked   <= 1'b1;
           gnt_selected <= gnt_arb_grant;
@@ -339,17 +222,17 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   wire [NumLinks-1:0] gnt_select = gnt_locked ? gnt_selected : gnt_arb_grant;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign gnt_ready_mult[i] = gnt_select[i] && gnt_ready;
+    assign device_d_ready[i] = gnt_select[i] && host_d_ready;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
-    gnt = gnt_t'('x);
-    gnt_valid = 1'b0;
+    host_d = 'x;
+    host_d_valid = 1'b0;
     for (int i = NumLinks - 1; i >= 0; i--) begin
       if (gnt_select[i]) begin
-        gnt = gnt_mult[i];
-        gnt_valid = gnt_valid_mult[i];
+        host_d = device_d[i];
+        host_d_valid = device_d_valid[i];
       end
     end
   end
@@ -363,7 +246,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   always_comb begin
     ack_device_id = 0;
     for (int i = 0; i < NumSinkRange; i++) begin
-      if ((host.e_sink &~ SinkMask[i]) == SinkBase[i]) begin
+      if ((host_e.sink &~ SinkMask[i]) == SinkBase[i]) begin
         ack_device_id = SinkLink[i];
       end
     end
@@ -372,12 +255,12 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   logic [NumLinks-1:0] ack_ready_mult;
 
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign ack_ready_mult[i] = host.e_valid && ack_device_id == i && device[i].e_ready;
-    assign device[i].e_valid = host.e_valid && ack_device_id == i;
+    assign ack_ready_mult[i] = host_e_valid && ack_device_id == i && device_e_ready[i];
+    assign device_e_valid[i] = host_e_valid && ack_device_id == i;
 
-    assign device[i].e_sink  = host.e_sink;
+    assign device_e[i] = host_e;
   end
 
-  assign host.e_ready = |ack_ready_mult;
+  assign host_e_ready = |ack_ready_mult;
 
 endmodule

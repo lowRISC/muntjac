@@ -1,6 +1,11 @@
+`include "tl_util.svh"
+
 module tl_source_shifter #(
   parameter  int unsigned HostSourceWidth = 4,
   parameter  int unsigned DeviceSourceWidth = 4,
+  parameter  int unsigned SinkWidth     = 1,
+  parameter  int unsigned AddrWidth     = 56,
+  parameter  int unsigned DataWidth     = 64,
 
   parameter bit [DeviceSourceWidth-1:0] SourceBase = 0,
   parameter bit [HostSourceWidth-1:0]   SourceMask = 0
@@ -8,92 +13,89 @@ module tl_source_shifter #(
   input  logic clk_i,
   input  logic rst_ni,
 
-  tl_channel.device host,
-  tl_channel.host   device
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
 );
 
-  if (host.SourceWidth != HostSourceWidth) $fatal(1, "SourceWidth mismatch");
-  if (device.SourceWidth != DeviceSourceWidth) $fatal(1, "SourceWidth mismatch");
-
-  if (host.SinkWidth != device.SinkWidth) $fatal(1, "SinkWidth mismatch");
-  if (host.AddrWidth != device.AddrWidth) $fatal(1, "AddrWidth mismatch");
-  if (host.DataWidth != device.DataWidth) $fatal(1, "DataWidth mismatch");
-  if (host.SizeWidth != device.SizeWidth) $fatal(1, "SizeWidth mismatch");
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_BIND_DEVICE_PORT(host, host);
+  `TL_BIND_HOST_PORT(device, device);
 
   /////////////////////
   // Request channel //
   /////////////////////
 
-  assign host.a_ready = device.a_ready;
+  assign host_a_ready = device_a_ready;
 
-  assign device.a_valid   = host.a_valid;
-  assign device.a_opcode  = host.a_opcode;
-  assign device.a_param   = host.a_param;
-  assign device.a_size    = host.a_size;
-  assign device.a_address = host.a_address;
-  assign device.a_mask    = host.a_mask;
-  assign device.a_corrupt = host.a_corrupt;
-  assign device.a_data    = host.a_data;
+  assign device_a_valid   = host_a_valid;
+  assign device_a.opcode  = host_a.opcode;
+  assign device_a.param   = host_a.param;
+  assign device_a.size    = host_a.size;
+  assign device_a.address = host_a.address;
+  assign device_a.mask    = host_a.mask;
+  assign device_a.corrupt = host_a.corrupt;
+  assign device_a.data    = host_a.data;
 
-  assign device.a_source = SourceBase | host.a_source;
+  assign device_a.source = SourceBase | host_a.source;
 
   ///////////////////
   // Probe channel //
   ///////////////////
 
-  assign device.b_ready = host.b_ready;
+  assign device_b_ready = host_b_ready;
 
-  assign host.b_valid   = device.b_valid;
-  assign host.b_opcode  = device.b_opcode;
-  assign host.b_param   = device.b_param;
-  assign host.b_size    = device.b_size;
-  assign host.b_address = device.b_address;
-  assign host.b_mask    = device.b_mask;
-  assign host.b_corrupt = device.b_corrupt;
-  assign host.b_data    = device.b_data;
+  assign host_b_valid   = device_b_valid;
+  assign host_b.opcode  = device_b.opcode;
+  assign host_b.param   = device_b.param;
+  assign host_b.size    = device_b.size;
+  assign host_b.address = device_b.address;
+  assign host_b.mask    = device_b.mask;
+  assign host_b.corrupt = device_b.corrupt;
+  assign host_b.data    = device_b.data;
 
-  assign host.b_source = device.b_source & SourceMask;
+  assign host_b.source = device_b.source & SourceMask;
 
   /////////////////////
   // Release channel //
   /////////////////////
 
-  assign host.c_ready = device.c_ready;
+  assign host_c_ready = device_c_ready;
 
-  assign device.c_valid   = host.c_valid;
-  assign device.c_opcode  = host.c_opcode;
-  assign device.c_param   = host.c_param;
-  assign device.c_size    = host.c_size;
-  assign device.c_address = host.c_address;
-  assign device.c_corrupt = host.c_corrupt;
-  assign device.c_data    = host.c_data;
+  assign device_c_valid   = host_c_valid;
+  assign device_c.opcode  = host_c.opcode;
+  assign device_c.param   = host_c.param;
+  assign device_c.size    = host_c.size;
+  assign device_c.address = host_c.address;
+  assign device_c.corrupt = host_c.corrupt;
+  assign device_c.data    = host_c.data;
 
-  assign device.c_source = SourceBase | host.c_source;
+  assign device_c.source = SourceBase | host_c.source;
 
   ///////////////////
   // Grant channel //
   ///////////////////
 
-  assign device.d_ready = host.d_ready;
+  assign device_d_ready = host_d_ready;
 
-  assign host.d_valid   = device.d_valid;
-  assign host.d_opcode  = device.d_opcode;
-  assign host.d_param   = device.d_param;
-  assign host.d_size    = device.d_size;
-  assign host.d_sink    = device.d_sink;
-  assign host.d_denied  = device.d_denied;
-  assign host.d_corrupt = device.d_corrupt;
-  assign host.d_data    = device.d_data;
+  assign host_d_valid   = device_d_valid;
+  assign host_d.opcode  = device_d.opcode;
+  assign host_d.param   = device_d.param;
+  assign host_d.size    = device_d.size;
+  assign host_d.sink    = device_d.sink;
+  assign host_d.denied  = device_d.denied;
+  assign host_d.corrupt = device_d.corrupt;
+  assign host_d.data    = device_d.data;
 
-  assign host.d_source = device.d_source & SourceMask;
+  assign host_d.source = device_d.source & SourceMask;
 
   /////////////////////////////
   // Acknowledgement channel //
   /////////////////////////////
 
-  assign host.e_ready = device.e_ready;
+  assign host_e_ready = device_e_ready;
 
-  assign device.e_valid = host.e_valid;
-  assign device.e_sink  = host.e_sink;
+  assign device_e_valid = host_e_valid;
+  assign device_e.sink  = host_e.sink;
 
 endmodule

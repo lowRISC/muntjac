@@ -25,8 +25,5 @@ lint_off -rule DECLFILENAME -file "*/OpenIP/*"
 // We want implicit width conversion to make data alignment logic, 
 lint_off -rule WIDTH -file "*/rtl/muntjac_dcache.sv" -match "*align_load*"
 
-// Many signals TileLink channel signals are indeed unused.
-lint_off -rule UNUSED -file "*/rtl/tl/tl_channel.sv"
-
 // The page table walker does not need full SATP. We pass the full SATP to keep code clean.
 lint_off -rule UNUSED -file "*/rtl/muntjac_ptw.sv" -match "*'satp_i'[63:44]"

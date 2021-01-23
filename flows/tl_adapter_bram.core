@@ -17,6 +17,9 @@ filesets:
     depend:
       # common waivers
       - lowrisc:lint:common
+    files:
+      - ../rtl/tl/lint_waiver_adapter_bram.vlt
+    file_type: systemVerilogSource
 
   files_ascentlint_waiver:
     depend:

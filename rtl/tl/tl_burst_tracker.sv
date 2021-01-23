@@ -1,6 +1,10 @@
+`include "tl_util.svh"
+
 module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
-  parameter  int unsigned DataWidth     = 64,
-  parameter  int unsigned SizeWidth     = 3,
+  parameter  int unsigned AddrWidth = 56,
+  parameter  int unsigned DataWidth = 64,
+  parameter  int unsigned SourceWidth = 1,
+  parameter  int unsigned SinkWidth = 1,
 
   parameter  int unsigned MaxSize       = 6,
 
@@ -12,7 +16,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
   input  logic clk_i,
   input  logic rst_ni,
 
-  tl_channel.tap link,
+  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, link),
 
   // Total number of beats in the current burst.
   output logic [BurstLenWidth-1:0] req_len_o,
@@ -45,16 +49,16 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
   output logic gnt_last_o
 );
 
-  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [SizeWidth-1:0] size);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, link);
+  `TL_BIND_TAP_PORT(link, link);
+
+  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [`TL_SIZE_WIDTH-1:0] size);
     if (size <= NonBurstSize) begin
       return 0;
     end else begin
       return (1 << (size - NonBurstSize)) - 1;
     end
   endfunction
-
-  if (link.DataWidth != DataWidth) $fatal(1, "DataWidth mismatch");
-  if (link.SizeWidth != SizeWidth) $fatal(1, "SizeWidth mismatch");
 
   /////////////////////
   // Request channel //
@@ -75,7 +79,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
   // which is further identical to req_len_o & req_left_q!
   logic [BurstLenWidth-1:0] req_left_q;
 
-  assign req_len_o   = link.a_opcode < 4 ? burst_len(link.a_size) : 0;
+  assign req_len_o   = link_a.opcode < 4 ? burst_len(link_a.size) : 0;
   assign req_idx_o   = req_len_o &~ req_left_q;
   assign req_left_o  = req_len_o & req_left_q;
   assign req_first_o = &req_left_q;
@@ -85,7 +89,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
     if (!rst_ni) begin
       req_left_q <= '1;
     end else begin
-      if (link.a_valid && link.a_ready) begin
+      if (link_a_valid && link_a_ready) begin
         req_left_q <= req_left_o - 1;
       end
     end
@@ -108,7 +112,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
 
   logic [BurstLenWidth-1:0] rel_left_q;
 
-  assign rel_len_o   = link.c_opcode[0] ? burst_len(link.c_size) : 0;
+  assign rel_len_o   = link_c.opcode[0] ? burst_len(link_c.size) : 0;
   assign rel_idx_o   = rel_len_o &~ rel_left_q;
   assign rel_left_o  = rel_len_o & rel_left_q;
   assign rel_first_o = &rel_left_q;
@@ -118,7 +122,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
     if (!rst_ni) begin
       rel_left_q <= '1;
     end else begin
-      if (link.c_valid && link.c_ready) begin
+      if (link_c_valid && link_c_ready) begin
         rel_left_q <= rel_left_o - 1;
       end
     end
@@ -130,7 +134,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
 
   logic [BurstLenWidth-1:0] gnt_left_q;
 
-  assign gnt_len_o   = link.d_opcode[0] ? burst_len(link.d_size) : 0;
+  assign gnt_len_o   = link_d.opcode[0] ? burst_len(link_d.size) : 0;
   assign gnt_idx_o   = gnt_len_o &~ gnt_left_q;
   assign gnt_left_o  = gnt_len_o & gnt_left_q;
   assign gnt_first_o = &gnt_left_q;
@@ -140,7 +144,7 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
     if (!rst_ni) begin
       gnt_left_q <= '1;
     end else begin
-      if (link.d_valid && link.d_ready) begin
+      if (link_d_valid && link_d_ready) begin
         gnt_left_q <= gnt_left_o - 1;
       end
     end

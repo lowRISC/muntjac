@@ -1,5 +1,7 @@
+`include "tl_util.svh"
+
 // Coherent I$ (Adapted from muntjac_dcache)
-module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
+module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
     // Number of ways is `2 ** WaysWidth`.
     parameter int unsigned WaysWidth   = 2,
     // Number of sets is `2 ** SetsWidth`.
@@ -19,11 +21,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     input  icache_h2d_t cache_h2d_i,
     output icache_d2h_t cache_d2h_o,
 
-    // Channel for D$
-    tl_channel.host mem,
-
+    // Channel for I$
+    `TL_DECLARE_HOST_PORT(64, PhysAddrLen, SourceWidth, SinkWidth, mem),
     // Channel for PTW
-    tl_channel.host mem_ptw
+    `TL_DECLARE_HOST_PORT(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw)
 );
 
   // This is the largest address width that we ever have to deal with.
@@ -32,6 +33,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   localparam NumWays = 2 ** WaysWidth;
 
   if (SetsWidth > 6) $fatal(1, "PIPT cache's SetsWidth is bounded by 6");
+
+  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem);
+  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw);
+  `TL_BIND_HOST_PORT(mem, mem);
+  `TL_BIND_HOST_PORT(mem_ptw, mem_ptw);
 
   /////////////////////
   // Type definition //
@@ -71,13 +77,14 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   // MEM Channel D Demultiplexing //
   //////////////////////////////////
 
-  wire           mem_grant_valid  = mem.d_valid;
-  wire [63:0]    mem_grant_data   = mem.d_data;
-  wire tl_d_op_e mem_grant_opcode = mem.d_opcode;
-  wire           mem_grant_denied = mem.d_denied;
+  wire                 mem_grant_valid  = mem_d_valid;
+  wire [63:0]          mem_grant_data   = mem_d.data;
+  wire tl_d_op_e       mem_grant_opcode = mem_d.opcode;
+  wire [SinkWidth-1:0] mem_grant_sink   = mem_d.sink;
+  wire                 mem_grant_denied = mem_d.denied;
 
   logic mem_grant_ready;
-  assign mem.d_ready = mem_grant_ready;
+  assign mem_d_ready = mem_grant_ready;
 
   //////////////////////////////
   // Cache access arbitration //
@@ -436,8 +443,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [2:0]             wb_param_q, wb_param_d;
   logic [PhysAddrLen-7:0] wb_address_q, wb_address_d;
 
-  wire mem_release_ready = mem.c_ready;
-
   always_comb begin
     release_lock_move = 1'b0;
     release_lock_rel = 1'b0;
@@ -446,16 +451,16 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     wb_param_d = wb_param_q;
     wb_address_d = wb_address_q;
 
-    mem.c_valid = wb_progress_q;
-    mem.c_opcode = ProbeAck;
-    mem.c_param = wb_param_q;
-    mem.c_size = 6;
-    mem.c_source = SourceBase;
-    mem.c_address = {wb_address_q, 6'd0};
-    mem.c_corrupt = 1'b0;
-    mem.c_data = 'x;
+    mem_c_valid = wb_progress_q;
+    mem_c.opcode = ProbeAck;
+    mem_c.param = wb_param_q;
+    mem_c.size = 6;
+    mem_c.source = SourceBase;
+    mem_c.address = {wb_address_q, 6'd0};
+    mem_c.corrupt = 1'b0;
+    mem_c.data = 'x;
 
-    if (wb_progress_q && mem_release_ready) begin
+    if (wb_progress_q && mem_c_ready) begin
       // Last cycle. Signal the invoker and clear progress bit.
       wb_progress_d = 1'b0;
 
@@ -495,9 +500,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [SinkWidth-1:0] ack_sink_q, ack_sink_d;
   logic                 ack_pending_q, ack_pending_d;
 
-  wire [SinkWidth-1:0] mem_grant_sink = mem.d_sink;
-  wire                 mem_ack_ready  = mem.e_ready;
-
   typedef enum logic [1:0] {
     RefillStateIdle,
     RefillStateProgress,
@@ -527,11 +529,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     ack_sink_d = ack_sink_q;
     ack_pending_d = ack_pending_q;
 
-    mem.e_valid = ack_pending_q;
-    mem.e_sink = ack_sink_q;
+    mem_e_valid = ack_pending_q;
+    mem_e.sink = ack_sink_q;
 
     // Process Ack on E channel
-    if (mem_ack_ready) ack_pending_d = 1'b0;
+    if (mem_e_ready) ack_pending_d = 1'b0;
 
     unique case (refill_state_q)
       RefillStateIdle: begin
@@ -636,36 +638,30 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       .resp_valid_o      (ptw_resp_valid),
       .resp_ppn_o        (ptw_resp_ppn),
       .resp_perm_o       (ptw_resp_perm),
-      .mem_req_ready_i   (mem_ptw.a_ready),
-      .mem_req_valid_o   (mem_ptw.a_valid),
-      .mem_req_address_o (mem_ptw.a_address),
-      .mem_resp_valid_i  (mem_ptw.d_valid),
-      .mem_resp_data_i   (mem_ptw.d_data)
+      .mem_req_ready_i   (mem_ptw_a_ready),
+      .mem_req_valid_o   (mem_ptw_a_valid),
+      .mem_req_address_o (mem_ptw_a.address),
+      .mem_resp_valid_i  (mem_ptw_d_valid),
+      .mem_resp_data_i   (mem_ptw_d.data)
   );
 
-  assign mem_ptw.a_opcode = Get;
-  assign mem_ptw.a_param = 0;
-  assign mem_ptw.a_size = 1;
-  assign mem_ptw.a_source = PtwSourceBase;
-  assign mem_ptw.a_mask = '1;
-  assign mem_ptw.a_corrupt = 1'b0;
-  assign mem_ptw.a_data = 'x;
+  assign mem_ptw_a.opcode = Get;
+  assign mem_ptw_a.param = 0;
+  assign mem_ptw_a.size = 1;
+  assign mem_ptw_a.source = PtwSourceBase;
+  assign mem_ptw_a.mask = '1;
+  assign mem_ptw_a.corrupt = 1'b0;
+  assign mem_ptw_a.data = 'x;
 
-  assign mem_ptw.b_ready = 1'b1;
+  assign mem_ptw_b_ready = 1'b1;
 
-  assign mem_ptw.c_valid = 1'b0;
-  assign mem_ptw.c_opcode = tl_c_op_e'('x);
-  assign mem_ptw.c_param = 'x;
-  assign mem_ptw.c_size = 'x;
-  assign mem_ptw.c_source = 'x;
-  assign mem_ptw.c_address = 'x;
-  assign mem_ptw.c_corrupt = 1'bx;
-  assign mem_ptw.c_data = 'x;
+  assign mem_ptw_c_valid = 1'b0;
+  assign mem_ptw_c       = 'x;
 
-  assign mem_ptw.d_ready = 1'b1;
+  assign mem_ptw_d_ready = 1'b1;
 
-  assign mem_ptw.e_valid = 1'b0;
-  assign mem_ptw.e_sink = 'x;
+  assign mem_ptw_e_valid = 1'b0;
+  assign mem_ptw_e       = 'x;
 
   // PPN response is just single pulse. The logic below extends it.
   logic [43:0] ppn_latch;
@@ -751,10 +747,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-7:0] probe_address_q, probe_address_d;
   logic [2:0] probe_param_q, probe_param_d;
 
-  wire                   mem_probe_valid   = mem.b_valid;
-  wire [PhysAddrLen-1:0] mem_probe_address = mem.b_address;
-  wire [2:0]             mem_probe_param   = mem.b_param;
-
   always_comb begin
     probe_lock_acq = 1'b0;
     probe_read_req_tag = 1'b0;
@@ -774,17 +766,17 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     probe_address_d = probe_address_q;
     probe_param_d = probe_param_q;
 
-    mem.b_ready = 1'b0;
+    mem_b_ready = 1'b0;
 
     unique case (probe_state_q)
       // Waiting for a probe request to reach us.
       ProbeStateIdle: begin
-        probe_lock_acq = mem_probe_valid;
+        probe_lock_acq = mem_b_valid;
 
-        if (mem_probe_valid) begin
-          mem.b_ready = 1'b1;
-          probe_address_d = mem_probe_address[PhysAddrLen-1:6];
-          probe_param_d = mem_probe_param;
+        if (mem_b_valid) begin
+          mem_b_ready = 1'b1;
+          probe_address_d = mem_b.address[PhysAddrLen-1:6];
+          probe_param_d = mem_b.param;
 
           // Does the tag read necessary for performing invalidation
           probe_read_req_tag = 1'b1;
@@ -940,22 +932,15 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
-  assign mem.a_source = SourceBase;
-  assign mem.a_corrupt = 1'b0;
-  assign mem.a_data = 'x;
-  wire mem_req_ready   = mem.a_ready;
-
   always_comb begin
     resp_valid = 1'b0;
     resp_value = 'x;
     ex_valid = 1'b0;
     resp_ex_code = exc_cause_e'('x);
-    mem.a_valid = 1'b0;
-    mem.a_opcode = tl_a_op_e'('x);
-    mem.a_address = 'x;
-    mem.a_param = 'x;
-    mem.a_size = 'x;
-    mem.a_mask = 'x;
+    mem_a_valid = 1'b0;
+    mem_a = 'x;
+    mem_a.source = SourceBase;
+    mem_a.corrupt = 1'b0;
 
     refill_req_address = address_phys[PhysAddrLen-1:6];
     refill_req_way = way_q;
@@ -1039,13 +1024,13 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       StateFill: begin
-        mem.a_valid = !req_sent_q;
-        mem.a_opcode = AcquireBlock;
-        mem.a_param = tl_pkg::NtoB;
-        mem.a_size = 6;
-        mem.a_address = {address_phys[PhysAddrLen-1:6], 6'd0};
-        mem.a_mask = '1;
-        if (mem_req_ready) begin
+        mem_a_valid = !req_sent_q;
+        mem_a.opcode = AcquireBlock;
+        mem_a.param = tl_pkg::NtoB;
+        mem_a.size = 6;
+        mem_a.address = {address_phys[PhysAddrLen-1:6], 6'd0};
+        mem_a.mask = '1;
+        if (mem_a_ready) begin
           req_sent_d = 1'b1;
         end
 

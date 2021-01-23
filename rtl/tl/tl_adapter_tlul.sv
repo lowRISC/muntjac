@@ -1,3 +1,5 @@
+`include "tl_util.svh"
+
 // An adpater that converts an TL-UH to a TL-UL by fragmenting
 // multi-beat bursts into multiple transactions.
 //
@@ -6,18 +8,18 @@
 module tl_adapter_tlul import tl_pkg::*; #(
     parameter  int unsigned AddrWidth   = 56,
     parameter  int unsigned DataWidth   = 64,
-    parameter  int unsigned SizeWidth   = 3,
+    parameter  int unsigned SinkWidth   = 1,
 
     parameter  int unsigned HostSourceWidth = 1,
     parameter  int unsigned DeviceSourceWidth = 1,
 
     parameter  int unsigned HostMaxSize     = 6
 ) (
-    input  logic       clk_i,
-    input  logic       rst_ni,
+  input  logic       clk_i,
+  input  logic       rst_ni,
 
-    tl_channel.device  host,
-    tl_channel.host    device
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
 );
 
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
@@ -26,53 +28,40 @@ module tl_adapter_tlul import tl_pkg::*; #(
   localparam int unsigned BurstLenWidth = $clog2(MaxBurstLen);
 
   // Check if parameters are well formed
-  if (host.DataWidth != DataWidth || device.DataWidth != DataWidth) $fatal(1, "DataWidth does not match");
-  if (host.SizeWidth != SizeWidth || device.SizeWidth != SizeWidth) $fatal(1, "SizeWidth does not match");
-  if (host.SourceWidth != HostSourceWidth || device.SourceWidth != DeviceSourceWidth) $fatal(1, "SourceWidth does not match");
   if (BurstLenWidth == 0) $fatal(1, "MaxBurstLen is 1 already");
+
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_BIND_DEVICE_PORT(host, host);
+  `TL_BIND_HOST_PORT(device, device);
 
   /////////////////////
   // Unused channels //
   /////////////////////
 
   // We don't use channel B.
-  assign host.b_valid = 1'b0;
-  assign host.b_opcode = tl_b_op_e'('x);
-  assign host.b_param = 'x;
-  assign host.b_size = 'x;
-  assign host.b_source = 'x;
-  assign host.b_address = 'x;
-  assign host.b_mask = 'x;
-  assign host.b_corrupt = 'x;
-  assign host.b_data = 'x;
+  assign host_b_valid = 1'b0;
+  assign host_b       = 'x;
 
   // We don't use channel C and E
-  assign host.c_ready = 1'b1;
-  assign host.e_ready = 1'b1;
+  assign host_c_ready = 1'b1;
+  assign host_e_ready = 1'b1;
 
   // We don't use channel B.
-  assign device.b_ready = 1'b1;
+  assign device_b_ready = 1'b1;
 
   // We don't use channel C and E
-  assign device.c_valid = 1'b0;
-  assign device.c_opcode = tl_c_op_e'('x);
-  assign device.c_param = 'x;
-  assign device.c_size = 'x;
-  assign device.c_source = 'x;
-  assign device.c_address = 'x;
-  assign device.c_corrupt = 'x;
-  assign device.c_data = 'x;
-  assign device.e_valid = 1'b0;
-  assign device.e_sink = 'x;
+  assign device_c_valid = 1'b0;
+  assign device_c       = 'x;
 
   //////////////////////////////
   // Pending transaction FIFO //
   //////////////////////////////
 
   // The grant channel needs some information to recover the transaction.
-  // We pass the number of beats left using the LSBs of device.a_source and
-  // original host.a_source in MSBs of device.a_source, both of which can be
-  // retrieved via device.d_source.
+  // We pass the number of beats left using the LSBs of device_a.source and
+  // original host_a.source in MSBs of device_a.source, both of which can be
+  // retrieved via device_d.source.
   //
   // We still need to know the original size. This technically can be recovered
   // by looking at the "offset" (number of beats left) from the first beat of
@@ -83,7 +72,7 @@ module tl_adapter_tlul import tl_pkg::*; #(
   // a_source in the future so we don't need many source bits in the device.
 
   typedef struct packed {
-    logic [SizeWidth-1:0] size;
+    logic [`TL_SIZE_WIDTH-1:0] size;
   } xact_t;
 
   logic xact_fifo_can_push;
@@ -112,18 +101,6 @@ module tl_adapter_tlul import tl_pkg::*; #(
   // A channel handling //
   ////////////////////////
 
-  wire                       host_req_valid   = host.a_valid;
-  wire tl_a_op_e             host_req_opcode  = host.a_opcode;
-  wire [2:0]                 host_req_param   = host.a_param;
-  wire [SizeWidth-1:0]       host_req_size    = host.a_size;
-  wire [HostSourceWidth-1:0] host_req_source  = host.a_source;
-  wire [AddrWidth-1:0]       host_req_address = host.a_address;
-  wire [DataWidth/8-1:0]     host_req_mask    = host.a_mask;
-  wire                       host_req_corrupt = host.a_corrupt;
-  wire [DataWidth-1:0]       host_req_data    = host.a_data;
-
-  wire device_req_ready = device.a_ready;
-
   enum logic [1:0] {
     ReqStateIdle,
     ReqStateGet,
@@ -135,25 +112,25 @@ module tl_adapter_tlul import tl_pkg::*; #(
   logic [DataWidth/8-1:0] mask_q, mask_d;
   logic [BurstLenWidth-1:0] len_q, len_d;
 
-  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [SizeWidth-1:0] size);
+  function automatic logic [BurstLenWidth-1:0] burst_len(input logic [`TL_SIZE_WIDTH-1:0] size);
     return (1 << (size - $clog2(DataWidth / 8))) - 1;
   endfunction
 
-  // Compose source and offset into device.a_source.
+  // Compose source and offset into device_a.source.
   logic [HostSourceWidth-1:0] device_req_source;
   logic [BurstLenWidth-1:0] device_req_offset;
-  assign device.a_source = {device_req_source, device_req_offset};
+  assign device_a.source = {device_req_source, device_req_offset};
 
   always_comb begin
-    host.a_ready = 1'b0;
+    host_a_ready = 1'b0;
 
-    device.a_valid = 1'b0;
-    device.a_opcode = tl_a_op_e'('x);
-    device.a_param = 'x;
-    device.a_address = 'x;
-    device.a_mask = 'x;
-    device.a_corrupt = 1'bx;
-    device.a_data = 'x;
+    device_a_valid = 1'b0;
+    device_a.opcode = tl_a_op_e'('x);
+    device_a.param = 'x;
+    device_a.address = 'x;
+    device_a.mask = 'x;
+    device_a.corrupt = 1'bx;
+    device_a.data = 'x;
 
     device_req_source = 'x;
     device_req_offset = 'x;
@@ -164,56 +141,56 @@ module tl_adapter_tlul import tl_pkg::*; #(
     len_d = len_q;
 
     xact_fifo_push = 1'b0;
-    xact_fifo_push_data = xact_t'{host_req_size};
+    xact_fifo_push_data = xact_t'{host_a.size};
 
     unique case (req_state_q)
       ReqStateIdle: begin
-        host.a_ready = device_req_ready && xact_fifo_can_push;
+        host_a_ready = device_a_ready && xact_fifo_can_push;
 
-        device.a_valid = host_req_valid && xact_fifo_can_push;
-        device.a_opcode = host_req_opcode;
-        device.a_param = host_req_param;
-        device.a_size = host_req_size;
-        device.a_address = host_req_address;
-        device.a_mask = host_req_mask;
-        device.a_corrupt = host_req_corrupt;
-        device.a_data = host_req_data;
+        device_a_valid = host_a_valid && xact_fifo_can_push;
+        device_a.opcode = host_a.opcode;
+        device_a.param = host_a.param;
+        device_a.size = host_a.size;
+        device_a.address = host_a.address;
+        device_a.mask = host_a.mask;
+        device_a.corrupt = host_a.corrupt;
+        device_a.data = host_a.data;
 
-        device_req_source = host_req_source;
+        device_req_source = host_a.source;
         device_req_offset = 0;
 
-        if (host_req_size > NonBurstSize) begin
-          device.a_size = NonBurstSize;
-          device_req_offset = burst_len(host_req_size);
+        if (host_a.size > NonBurstSize) begin
+          device_a.size = NonBurstSize;
+          device_req_offset = burst_len(host_a.size);
         end
 
-        if (host_req_valid && device_req_ready && xact_fifo_can_push) begin
+        if (host_a_valid && device_a_ready && xact_fifo_can_push) begin
           xact_fifo_push = 1'b1;
 
-          if (host_req_size > NonBurstSize) begin
-            source_d = host_req_source;
-            address_d = host_req_address + DataWidthInBytes;
+          if (host_a.size > NonBurstSize) begin
+            source_d = host_a.source;
+            address_d = host_a.address + DataWidthInBytes;
 
-            len_d = burst_len(host_req_size) - 1;
-            req_state_d = host_req_opcode == Get ? ReqStateGet : ReqStatePut;
+            len_d = burst_len(host_a.size) - 1;
+            req_state_d = host_a.opcode == Get ? ReqStateGet : ReqStatePut;
           end
         end
       end
 
       ReqStateGet: begin
-        device.a_valid = 1'b1;
-        device.a_opcode = Get;
-        device.a_param = 0;
-        device.a_size = NonBurstSize;
-        device.a_address = address_q;
-        device.a_mask = '1;
-        device.a_corrupt = 1'b0;
-        device.a_data = 'x;
+        device_a_valid = 1'b1;
+        device_a.opcode = Get;
+        device_a.param = 0;
+        device_a.size = NonBurstSize;
+        device_a.address = address_q;
+        device_a.mask = '1;
+        device_a.corrupt = 1'b0;
+        device_a.data = 'x;
 
         device_req_source = source_q;
         device_req_offset = len_q;
 
-        if (device_req_ready) begin
+        if (device_a_ready) begin
           len_d = len_q - 1;
           address_d = address_q + DataWidthInBytes;
           if (len_q == 0) begin
@@ -223,21 +200,21 @@ module tl_adapter_tlul import tl_pkg::*; #(
       end
 
       ReqStatePut: begin
-        host.a_ready = device_req_ready;
+        host_a_ready = device_a_ready;
 
-        device.a_valid = host_req_valid;
-        device.a_opcode = host_req_opcode;
-        device.a_param = host_req_param;
-        device.a_size = NonBurstSize;
-        device.a_address = address_q;
-        device.a_mask = host_req_mask;
-        device.a_corrupt = host_req_corrupt;
-        device.a_data = host_req_data;
+        device_a_valid = host_a_valid;
+        device_a.opcode = host_a.opcode;
+        device_a.param = host_a.param;
+        device_a.size = NonBurstSize;
+        device_a.address = address_q;
+        device_a.mask = host_a.mask;
+        device_a.corrupt = host_a.corrupt;
+        device_a.data = host_a.data;
 
         device_req_source = source_q;
         device_req_offset = len_q;
 
-        if (host_req_valid && device_req_ready) begin
+        if (host_a_valid && device_a_ready) begin
           len_d = len_q - 1;
           address_d = address_q + DataWidthInBytes;
           if (len_q == 0) begin
@@ -278,41 +255,32 @@ module tl_adapter_tlul import tl_pkg::*; #(
   // will be kept consistent by the downstream device, and for AccessAck we
   // discard all except last.
 
-  wire                   device_gnt_valid   = device.d_valid;
-  wire tl_d_op_e         device_gnt_opcode  = device.d_opcode;
-  wire                   device_gnt_denied  = device.d_denied;
-  wire                   device_gnt_corrupt = device.d_corrupt;
-  wire [DataWidth-1:0]   device_gnt_data    = device.d_data;
+  // Decompose device_d.source to the original source and an offset.
+  wire [HostSourceWidth-1:0] device_d_source  = device_d.source[DeviceSourceWidth-1:BurstLenWidth];
+  wire [BurstLenWidth-1:0]   device_d_offset  = device_d.source[BurstLenWidth-1:0];
 
-  // Decompose device.d_source to the original source and an offset.
-  wire [HostSourceWidth-1:0]   device_gnt_source  = device.d_source[DeviceSourceWidth-1:BurstLenWidth];
-  wire [BurstLenWidth-1:0] device_gnt_offset  = device.d_source[BurstLenWidth-1:0];
-
-  wire host_gnt_ready = host.d_ready;
-
-  assign host.d_opcode  = device_gnt_opcode;
-  assign host.d_param   = 0;
-  assign host.d_source  = device_gnt_source;
-  assign host.d_sink    = 'x;
-  assign host.d_denied  = device_gnt_denied;
-  assign host.d_corrupt = device_gnt_corrupt;
-  assign host.d_data    = device_gnt_data;
+  assign host_d.opcode  = device_d.opcode;
+  assign host_d.param   = 0;
+  assign host_d.source  = device_d_source;
+  assign host_d.sink    = 'x;
+  assign host_d.denied  = device_d.denied;
+  assign host_d.corrupt = device_d.corrupt;
+  assign host_d.data    = device_d.data;
 
   always_comb begin
     xact_fifo_pop = 1'b0;
-    device.d_ready = 1'b0;
-    device.d_ready = xact_fifo_peek_valid && host_gnt_ready;
-    host.d_valid = xact_fifo_peek_valid && device_gnt_valid;
-    host.d_size = xact_fifo_peek_data.size;
+    device_d_ready = xact_fifo_peek_valid && host_d_ready;
+    host_d_valid = xact_fifo_peek_valid && device_d_valid;
+    host_d.size = xact_fifo_peek_data.size;
 
     // All non-last beat of AccessAck is to be discarded.
-    if (device_gnt_valid && device_gnt_opcode == AccessAck && device_gnt_offset != 0) begin
-      device.d_ready = 1'b1;
-      host.d_valid = 1'b0;
+    if (device_d_valid && device_d.opcode == AccessAck && device_d_offset != 0) begin
+      device_d_ready = 1'b1;
+      host_d_valid = 1'b0;
     end
 
     // When the last beat is sent out, pop the transaction out.
-    if (xact_fifo_peek_valid && device_gnt_valid && host_gnt_ready && device_gnt_offset == 0) begin
+    if (xact_fifo_peek_valid && device_d_valid && host_d_ready && device_d_offset == 0) begin
       xact_fifo_pop = 1'b1;
     end
   end
