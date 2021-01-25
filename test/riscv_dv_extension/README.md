@@ -8,7 +8,9 @@ These files are based on the RV64GC configuration, with the following changes:
  * No unaligned loads/stores
 
 ## Setup
-Install riscv-dv and your choice of RISC-V instruction set simulator. If using Spike, remember to use the `--enable-commitlog` flag when running `configure`, and set `SPIKE_PATH` to the build directory.
+This has been tested on Ubuntu >= 16.04 with VCS and Spike.
+
+Install riscv-dv and your choice of RISC-V instruction set simulator. If using Spike, use the `--enable-commitlog` flag when running `configure`, and set `SPIKE_PATH` to the build directory.
 
 You will also need access to a SystemVerilog simulator with UVM support, such as VCS. Ensure this simulator is on your `PATH`.
 
@@ -26,12 +28,27 @@ pip3 install riscv-model
 Execute riscv-dv with the following command to use this extension. You may need to specify your own instruction set simulator (default: Spike) and SystemVerilog simulator (default: VCS).
 
 ```
-python3 run.py -cs=$MUNTJAC_ROOT/test/riscv_dv_extension/ --mabi=lp64 --isa=rv64imac
+python3 run.py -cs=$MUNTJAC_ROOT/test/riscv_dv_extension/ --mabi=lp64 --isa=rv64imac -o=build
 ```
+
+RISC-V programs will be generated in `build/asm_tests`.
 
 TODO: cov.py
 
-RISC-V programs will be generated in `out_$DATE/asm_tests`. Generate a Muntjac trace using:
+To generate a JUnit-style XML of test results (e.g. for continuous integration), use the provided Makefile:
+
+```
+export TEST_DIR=riscv-dv/build/asm_tests
+export SPIKE_LOG_DIR=riscv-dv/build/spike_sim
+export MUNTJAC_SIM_DIR=$MUNTJAC_ROOT/bin
+export MUNTJAC_SCRIPT_DIR=$MUNTJAC_ROOT/test/riscv_dv_extension
+
+make -f $MUNTJAC_ROOT/test/riscv_dv_extension/Makefile
+```
+
+Alternatively, the individual steps are as follows.
+
+Generate a Muntjac trace using:
 
 ```
 muntjac_pipeline --csv=<logfile> <program>
