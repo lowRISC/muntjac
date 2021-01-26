@@ -3,6 +3,8 @@ module muntjac_core import muntjac_pkg::*; #(
   // This must match AddrWidth of the TileLink interface.
   parameter PhysAddrLen = 56,
 
+  parameter rv64f_e RV64F = RV64FNone,
+
   parameter int unsigned SourceWidth = 4,
   parameter int unsigned SinkWidth = 1
 ) (
@@ -37,7 +39,8 @@ module muntjac_core import muntjac_pkg::*; #(
   dcache_d2h_t dcache_d2h;
 
   muntjac_pipeline # (
-    .PhysAddrLen (PhysAddrLen)
+    .PhysAddrLen (PhysAddrLen),
+    .RV64F (RV64F)
   ) pipeline (
       .clk_i,
       .rst_ni,

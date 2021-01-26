@@ -3,6 +3,26 @@
  */
 package muntjac_pkg;
 
+/////////////////////
+// Parameter Enums //
+/////////////////////
+
+typedef enum integer {
+    // None of the RV64F/D supporting facilities is present.
+    RV64FNone = 0,
+    // Partial floating-point support.
+    // Floating-point register files, FCSRs are present.
+    // Only FLD, FLW, FSD, FSW and their compressed variant is supported.
+    // FPU is not present.
+    // This mode allows efficient software emulation of floating-point for
+    // software that depends on hardfloat ABI but infrequently uses
+    // floating-point instructions, with only very small overhead compared to
+    // RV64FNone.
+    RV64FMem  = 1,
+    // Full FPU present.
+    RV64FFull = 2
+} rv64f_e;
+
 /////////////
 // Opcodes //
 /////////////
@@ -465,6 +485,7 @@ typedef struct packed {
   logic use_frd;
   logic use_frs1;
   logic use_frs2;
+  logic use_frs3;
 
   op_type_e op_type;
 

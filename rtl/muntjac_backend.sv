@@ -3,7 +3,9 @@ module muntjac_backend import muntjac_pkg::*; #(
   parameter PhysAddrLen = 56,
 
   // Number of bits of virtual address supported. This currently must be 39.
-  parameter VirtAddrLen = 39
+  parameter VirtAddrLen = 39,
+
+  parameter rv64f_e RV64F = RV64FNone
 ) (
     // Clock and reset
     input  logic          clk_i,
@@ -89,7 +91,9 @@ module muntjac_backend import muntjac_pkg::*; #(
   logic de_csr_illegal;
   decoded_instr_t de_decoded;
 
-  muntjac_decoder decoder (
+  muntjac_decoder #(
+    .RV64F (RV64F)
+  ) decoder (
     .fetched_instr_i (fetch_instr_i),
     .decoded_instr_o (de_decoded),
     .prv_i           (prv_o),
@@ -828,7 +832,10 @@ module muntjac_backend import muntjac_pkg::*; #(
   );
 
   logic [63:0] exc_tvec_q, exc_tvec_d;
-  muntjac_cs_registers csr_regfile (
+  muntjac_cs_registers #(
+    .RV64F (RV64F != RV64FNone),
+    .RV64D (RV64F != RV64FNone)
+  ) csr_regfile (
     .clk_i,
     .rst_ni,
     .hart_id_i (hart_id_i),

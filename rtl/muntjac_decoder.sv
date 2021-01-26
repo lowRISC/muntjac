@@ -1,4 +1,6 @@
-module muntjac_decoder import muntjac_pkg::*; (
+module muntjac_decoder import muntjac_pkg::*; #(
+  parameter rv64f_e RV64F = RV64FNone
+) (
   input  fetched_instr_t fetched_instr_i,
   input  priv_lvl_e      prv_i,
   input  status_t        status_i,
@@ -55,6 +57,11 @@ module muntjac_decoder import muntjac_pkg::*; (
   logic rs1_enable;
   logic rs2_enable;
 
+  logic use_frd;
+  logic use_frs1;
+  logic use_frs2;
+  logic use_frs3;
+
   logic illegal_instr;
   logic ecall;
   logic ebreak;
@@ -73,6 +80,11 @@ module muntjac_decoder import muntjac_pkg::*; (
     rd_enable = 1'b0;
     rs1_enable = 1'b0;
     rs2_enable = 1'b0;
+
+    use_frd = 1'b0;
+    use_frs1 = 1'b0;
+    use_frs2 = 1'b0;
+    use_frs3 = 1'b0;
 
     illegal_instr = illegal_compressed;
     ecall = 1'b0;
@@ -131,6 +143,25 @@ module muntjac_decoder import muntjac_pkg::*; (
         if (funct3[2] == 1'b1) illegal_instr = 1'b1;
       end
 
+      OPCODE_STORE_FP: begin
+        if (RV64F != RV64FNone) begin
+          decoded_instr_o.op_type = OP_MEM;
+          decoded_instr_o.size = funct3[1:0];
+          decoded_instr_o.mem_op = MEM_STORE;
+          rs1_enable = 1'b1;
+          rs2_enable = 1'b1;
+          use_frs2 = 1'b1;
+
+          // Only FLW and FLD
+          if (!(funct3 inside {3'b010, 3'b011})) illegal_instr = 1'b1;
+
+          // Trigger illegal instruction if FS is set to off
+          if (status_i.fs == 2'b00) illegal_instr = 1'b1;
+        end else begin
+          illegal_instr = 1'b1;
+        end
+      end
+
       OPCODE_LOAD: begin
         decoded_instr_o.op_type = OP_MEM;
         decoded_instr_o.size = funct3[1:0];
@@ -140,6 +171,26 @@ module muntjac_decoder import muntjac_pkg::*; (
         rs1_enable = 1'b1;
 
         if (funct3 == 3'b111) illegal_instr = 1'b1;
+      end
+
+      OPCODE_LOAD_FP: begin
+        if (RV64F != RV64FNone) begin
+          decoded_instr_o.op_type = OP_MEM;
+          decoded_instr_o.size = funct3[1:0];
+          decoded_instr_o.zeroext = funct3[2];
+          decoded_instr_o.mem_op = MEM_LOAD;
+          rd_enable = 1'b1;
+          rs1_enable = 1'b1;
+          use_frd = 1'b1;
+
+          // Only FLW and FLD
+          if (!(funct3 inside {3'b010, 3'b011})) illegal_instr = 1'b1;
+
+          // Trigger illegal instruction if FS is set to off
+          if (status_i.fs == 2'b00) illegal_instr = 1'b1;
+        end else begin
+          illegal_instr = 1'b1;
+        end
       end
 
       OPCODE_AMO: begin
@@ -444,6 +495,11 @@ module muntjac_decoder import muntjac_pkg::*; (
     decoded_instr_o.rs1 = rs1_enable ? rs1 : '0;
     decoded_instr_o.rs2 = rs2_enable ? rs2 : '0;
 
+    decoded_instr_o.use_frd = use_frd;
+    decoded_instr_o.use_frs1 = use_frs1;
+    decoded_instr_o.use_frs2 = use_frs2;
+    decoded_instr_o.use_frs3 = use_frs3;
+
     // Exception multiplexing
     if (fetched_instr_i.ex_valid) begin
       decoded_instr_o.ex_valid = 1'b1;
@@ -481,7 +537,7 @@ module muntjac_decoder import muntjac_pkg::*; (
     decoded_instr_o.adder_use_imm = 1'bx;
     decoded_instr_o.use_imm = 1'bx;
     unique case (opcode)
-      OPCODE_LOAD, OPCODE_STORE, OPCODE_AMO, OPCODE_LUI, OPCODE_JALR: begin
+      OPCODE_LOAD, OPCODE_LOAD_FP, OPCODE_STORE, OPCODE_STORE_FP, OPCODE_AMO, OPCODE_LUI, OPCODE_JALR: begin
         decoded_instr_o.adder_use_pc = 1'b0;
         decoded_instr_o.adder_use_imm = 1'b1;
       end
@@ -514,7 +570,7 @@ module muntjac_decoder import muntjac_pkg::*; (
     decoded_instr_o.immediate = 'x;
     unique case (opcode)
       // I-type
-      OPCODE_LOAD, OPCODE_OP_IMM, OPCODE_OP_IMM_32, OPCODE_JALR: begin
+      OPCODE_LOAD, OPCODE_LOAD_FP, OPCODE_OP_IMM, OPCODE_OP_IMM_32, OPCODE_JALR: begin
         decoded_instr_o.immediate = i_imm;
       end
       // U-Type
@@ -522,7 +578,7 @@ module muntjac_decoder import muntjac_pkg::*; (
         decoded_instr_o.immediate = u_imm;
       end
       // S-Type
-      OPCODE_STORE: begin
+      OPCODE_STORE, OPCODE_STORE_FP: begin
         decoded_instr_o.immediate = s_imm;
       end
       // B-Type
