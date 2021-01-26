@@ -84,6 +84,9 @@ module muntjac_backend import muntjac_pkg::*; #(
   decoded_instr_t de_ex_decoded;
   logic [63:0] de_ex_rs1;
   logic [63:0] de_ex_rs2;
+  logic [63:0] de_ex_frs1;
+  logic [63:0] de_ex_frs2;
+  logic [63:0] de_ex_frs3;
 
   logic [4:0] de_rs1_select, de_rs2_select;
   csr_num_e de_csr_sel;
@@ -146,62 +149,148 @@ module muntjac_backend import muntjac_pkg::*; #(
   ///////////////////////////////////////////
 
   logic data_hazard;
+  logic data_hazard_int;
+  logic data_hazard_fp_mem;
+  logic data_hazard_fp_full;
   logic [63:0] ex_rs1;
   logic [63:0] ex_rs2;
+  logic [63:0] ex_frs1;
+  logic [63:0] ex_frs2;
+  logic [63:0] ex_frs3;
 
   logic ex1_pending_q;
+  logic ex1_use_frd_q;
   logic [4:0] ex1_rd_q;
   logic ex1_data_valid;
   logic [63:0] ex1_data;
 
   logic ex2_pending_q;
+  logic ex2_use_frd_q;
   logic [4:0] ex2_rd_q;
   logic ex2_data_valid;
   logic [63:0] ex2_data;
 
   always_comb begin
-    data_hazard = 1'b0;
+    data_hazard_int = 1'b0;
 
     ex_rs1 = de_ex_rs1;
     // RS1 bypass from EX2
-    if (ex2_pending_q && ex2_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+    if (ex2_pending_q && !de_ex_decoded.use_frs1 && !ex2_use_frd_q && ex2_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
       if (ex2_data_valid) begin
         ex_rs1 = ex2_data;
       end
       else begin
-        data_hazard = 1'b1;
+        data_hazard_int = 1'b1;
       end
     end
     // RS1 bypass from EX1
-    if (ex1_pending_q && ex1_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
+    if (ex1_pending_q && !de_ex_decoded.use_frs1 && !ex1_use_frd_q && ex1_rd_q == de_ex_decoded.rs1 && de_ex_decoded.rs1 != 0) begin
       if (ex1_data_valid) begin
         ex_rs1 = ex1_data;
       end
       else begin
-        data_hazard = 1'b1;
+        data_hazard_int = 1'b1;
       end
     end
 
     ex_rs2 = de_ex_rs2;
     // RS2 bypass from EX2
-    if (ex2_pending_q && ex2_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+    if (ex2_pending_q && !de_ex_decoded.use_frs2 && !ex2_use_frd_q && ex2_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
       if (ex2_data_valid) begin
         ex_rs2 = ex2_data;
       end
       else begin
-        data_hazard = 1'b1;
+        data_hazard_int = 1'b1;
       end
     end
     // RS2 bypass from EX1
-    if (ex1_pending_q && ex1_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
+    if (ex1_pending_q && !de_ex_decoded.use_frs2 && !ex1_use_frd_q && ex1_rd_q == de_ex_decoded.rs2 && de_ex_decoded.rs2 != 0) begin
       if (ex1_data_valid) begin
         ex_rs2 = ex1_data;
       end
       else begin
-        data_hazard = 1'b1;
+        data_hazard_int = 1'b1;
       end
     end
   end
+
+  if (RV64F != RV64FNone) begin: gen_fp_mem_fwd
+    always_comb begin
+      data_hazard_fp_mem = 1'b0;
+
+      ex_frs2 = de_ex_frs2;
+      // FRS2 bypass from EX2
+      if (ex2_pending_q && de_ex_decoded.use_frs2 && ex2_use_frd_q && ex2_rd_q == de_ex_decoded.rs2) begin
+        if (ex2_data_valid) begin
+          ex_frs2 = ex2_data;
+        end
+        else begin
+          data_hazard_fp_mem = 1'b1;
+        end
+      end
+      // FRS2 bypass from EX1
+      if (ex1_pending_q && de_ex_decoded.use_frs2 && ex1_use_frd_q && ex1_rd_q == de_ex_decoded.rs2) begin
+        if (ex1_data_valid) begin
+          ex_frs2 = ex1_data;
+        end
+        else begin
+          data_hazard_fp_mem = 1'b1;
+        end
+      end
+    end
+  end else begin: gen_fp_mem_no_fwd
+    assign data_hazard_fp_mem = 1'b0;
+  end
+
+  if (RV64F == RV64FFull) begin: gen_fp_full_fwd
+    always_comb begin
+      data_hazard_fp_full = 1'b0;
+
+      ex_frs1 = de_ex_frs1;
+      // FRS1 bypass from EX2
+      if (ex2_pending_q && de_ex_decoded.use_frs1 && ex2_use_frd_q && ex2_rd_q == de_ex_decoded.rs1) begin
+        if (ex2_data_valid) begin
+          ex_frs1 = ex2_data;
+        end
+        else begin
+          data_hazard_fp_full = 1'b1;
+        end
+      end
+      // FRS1 bypass from EX1
+      if (ex1_pending_q && de_ex_decoded.use_frs1 && ex1_use_frd_q && ex1_rd_q == de_ex_decoded.rs1) begin
+        if (ex1_data_valid) begin
+          ex_frs1 = ex1_data;
+        end
+        else begin
+          data_hazard_fp_full = 1'b1;
+        end
+      end
+
+      ex_frs3 = de_ex_frs3;
+      // FRS3 bypass from EX2
+      if (ex2_pending_q && de_ex_decoded.use_frs3 && ex2_use_frd_q && ex2_rd_q == de_ex_decoded.exception.tval[31:27]) begin
+        if (ex2_data_valid) begin
+          ex_frs3 = ex2_data;
+        end
+        else begin
+          data_hazard_fp_full = 1'b1;
+        end
+      end
+      // FRS3 bypass from EX1
+      if (ex1_pending_q && de_ex_decoded.use_frs3 && ex1_use_frd_q && ex1_rd_q == de_ex_decoded.exception.tval[31:27]) begin
+        if (ex1_data_valid) begin
+          ex_frs3 = ex1_data;
+        end
+        else begin
+          data_hazard_fp_full = 1'b1;
+        end
+      end
+    end
+  end else begin
+    assign data_hazard_fp_full = 1'b0;
+  end
+
+  assign data_hazard = data_hazard_int || data_hazard_fp_mem || data_hazard_fp_full;
 
   ////////////////////////////////
   // Structure Hazard Detection //
@@ -539,22 +628,27 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex1_select_d;
   logic [63:0] ex1_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex1_pc_d;
+  logic ex1_use_frd_d;
   logic [4:0] ex1_rd_d;
   logic [63:0] ex_expected_pc_d;
   branch_type_e ex_branch_type_d;
   logic ex1_compressed_q, ex1_compressed_d;
+  logic make_fs_dirty;
 
   always_comb begin
     ex1_pending_d = ex1_pending_q;
     ex1_select_d = ex1_select_q;
     ex1_alu_data_d = ex1_alu_data_q;
     ex1_pc_d = ex1_pc_q;
+    ex1_use_frd_d = ex1_use_frd_q;
     ex1_rd_d = ex1_rd_q;
     ex_expected_pc_d = ex_expected_pc_q;
 
     // To avoid train branch predictor multiple times, this signal is only valid for 1 cycle.
     ex_branch_type_d = BRANCH_NONE;
     ex1_compressed_d = 1'b0;
+
+    make_fs_dirty = 1'b0;
 
     // If data is already valid but we couldn't move it to EX2, we need to prevent
     // it from being moved to next state.
@@ -570,6 +664,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     if (ex2_ready || mem_trap_valid) begin
       ex1_pending_d = 1'b0;
       ex1_select_d = FU_ALU;
+      ex1_use_frd_d = 1'b0;
       ex1_rd_d = '0;
       ex1_alu_data_d = 'x;
     end
@@ -579,8 +674,11 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
+        ex1_use_frd_d = de_ex_decoded.use_frd;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
+
+        make_fs_dirty = de_ex_decoded.use_frd;
 
         ex_expected_pc_d = 64'(signed'(npc));
         ex1_compressed_d = de_ex_decoded.exception.tval[1:0] != 2'b11;
@@ -621,6 +719,7 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
+        ex1_use_frd_d = 1'b0;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
 
@@ -637,6 +736,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     if (!rst_ni) begin
       ex1_pending_q <= 1'b0;
       ex1_select_q <= FU_ALU;
+      ex1_use_frd_q <= 1'b0;
       ex1_rd_q <= '0;
       ex1_alu_data_q <= 'x;
       ex1_pc_q <= 'x;
@@ -649,6 +749,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_select_q <= ex1_select_d;
       ex1_alu_data_q <= ex1_alu_data_d;
       ex1_pc_q <= ex1_pc_d;
+      ex1_use_frd_q <= ex1_use_frd_d;
       ex1_rd_q <= ex1_rd_d;
       ex_expected_pc_q <= ex_expected_pc_d;
       ex_branch_type_q <= ex_branch_type_d;
@@ -689,6 +790,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex2_select_d;
   logic [63:0] ex2_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex2_pc_d;
+  logic ex2_use_frd_d;
   logic [4:0] ex2_rd_d;
 
   always_comb begin
@@ -696,6 +798,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     ex2_select_d = ex2_select_q;
     ex2_alu_data_d = ex2_alu_data_q;
     ex2_pc_d = ex2_pc_q;
+    ex2_use_frd_d = ex2_use_frd_q;
     ex2_rd_d = ex2_rd_q;
 
     // Reset to default values when committed, or when the MEM traps in EX2 stage.
@@ -704,6 +807,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     if (ex2_data_valid || (ex2_select_q == FU_MEM && mem_trap_valid)) begin
       ex2_pending_d = 1'b0;
       ex2_select_d = FU_ALU;
+      ex2_use_frd_d = 1'b0;
       ex2_rd_d = '0;
       ex2_alu_data_d = 'x;
     end
@@ -716,6 +820,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     if (ex2_select_q == FU_MEM && mem_trap_valid && ex1_select_q != FU_MEM && !ex1_data_valid) begin
       ex2_pending_d = 1'b1;
       ex2_select_d = ex1_select_q;
+      ex2_use_frd_d = 1'b0;
       ex2_rd_d = '0;
       ex2_alu_data_d = 'x;
     end
@@ -728,6 +833,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_pending_d = 1'b1;
       ex2_select_d = ex1_select_q;
       ex2_pc_d = ex1_pc_q;
+      ex2_use_frd_d = ex1_use_frd_q;
       ex2_rd_d = ex1_rd_q;
       ex2_alu_data_d = 'x;
 
@@ -746,6 +852,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= FU_ALU;
       ex2_alu_data_q <= 'x;
       ex2_pc_q <= 'x;
+      ex2_use_frd_q <= 1'b0;
       ex2_rd_q <= '0;
     end
     else begin
@@ -753,6 +860,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= ex2_select_d;
       ex2_alu_data_q <= ex2_alu_data_d;
       ex2_pc_q <= ex2_pc_d;
+      ex2_use_frd_q <= ex2_use_frd_d;
       ex2_rd_q <= ex2_rd_d;
     end
   end
@@ -800,7 +908,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   assign dcache_h2d_o.req_address  = sum;
   assign dcache_h2d_o.req_size     = de_ex_decoded.size;
   assign dcache_h2d_o.req_unsigned = de_ex_decoded.zeroext;
-  assign dcache_h2d_o.req_value    = ex_rs2;
+  assign dcache_h2d_o.req_value    = de_ex_decoded.use_frs2 ? ex_frs2 : ex_rs2;
   assign dcache_h2d_o.req_prv      = data_prv[0];
   assign dcache_h2d_o.req_sum      = status_o.sum;
   assign dcache_h2d_o.req_mxr      = status_o.mxr;
@@ -828,8 +936,31 @@ module muntjac_backend import muntjac_pkg::*; #(
     .rdata_b_o (de_ex_rs2),
     .waddr_a_i (ex2_rd_q),
     .wdata_a_i (ex2_data),
-    .we_a_i    (ex2_pending_q && ex2_data_valid)
+    .we_a_i    (ex2_pending_q && ex2_data_valid && !ex2_use_frd_q)
   );
+
+  if (RV64F != RV64FNone) begin: gen_fp_reg_file
+    muntjac_fp_reg_file #(
+      .RV64F (RV64F)
+    ) fp_regfile (
+      .clk_i,
+      .rst_ni,
+      .raddr_a_i (de_rs1_select[4:0]),
+      .rdata_a_o (de_ex_frs1),
+      .raddr_b_i (de_rs2_select[4:0]),
+      .rdata_b_o (de_ex_frs2),
+      .raddr_c_i (de_ex_decoded.exception.tval[31:27]),
+      .rdata_c_o (de_ex_frs3),
+      .waddr_a_i (ex2_rd_q),
+      .wdata_a_i (ex2_data),
+      .we_a_i    (ex2_pending_q && ex2_data_valid && ex2_use_frd_q)
+    );
+  end else begin: gen_no_fp_reg_file
+    // All 1 is NaN.
+    assign de_ex_frs1 = '1;
+    assign de_ex_frs2 = '1;
+    assign de_ex_frs3 = '1;
+  end
 
   logic [63:0] exc_tvec_q, exc_tvec_d;
   muntjac_cs_registers #(
@@ -866,7 +997,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     .er_valid_i (sys_issue && de_ex_decoded.sys_op == SYS_ERET),
     .er_prv_i (de_ex_decoded.exception.tval[29] ? PRIV_LVL_M : PRIV_LVL_S),
     .er_epc_o (er_epc),
-    .make_fs_dirty_i (1'b0),
+    .make_fs_dirty_i (make_fs_dirty),
     .set_fflags_i ('0),
     .instr_ret_i (ex2_pending_q && ex2_data_valid)
   );
