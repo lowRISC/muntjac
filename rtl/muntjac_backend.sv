@@ -907,7 +907,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   assign dcache_h2d_o.req_amo      = de_ex_decoded.exception.tval[31:25];
   assign dcache_h2d_o.req_address  = sum;
   assign dcache_h2d_o.req_size     = de_ex_decoded.size;
-  assign dcache_h2d_o.req_unsigned = de_ex_decoded.zeroext;
+  assign dcache_h2d_o.req_size_ext = de_ex_decoded.size_ext;
   assign dcache_h2d_o.req_value    = de_ex_decoded.use_frs2 ? ex_frs2 : ex_rs2;
   assign dcache_h2d_o.req_prv      = data_prv[0];
   assign dcache_h2d_o.req_sum      = status_o.sum;

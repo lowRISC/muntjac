@@ -476,6 +476,13 @@ typedef enum logic [2:0] {
   SYS_WFI
 } sys_op_e;
 
+// Size extension methods
+typedef enum logic [1:0] {
+  SizeExtZero,
+  SizeExtOne,
+  SizeExtSigned
+} size_ext_e;
+
 typedef struct packed {
   logic [4:0]  rs1;
   logic [4:0]  rs2;
@@ -503,9 +510,9 @@ typedef struct packed {
   // For ALU, MUL, DIV, this currently can only be word (10) or dword (11).
   logic [1:0] size;
 
-  // Whether zero-extension or sign-extension should be used.
+  // Type of size extension to be perforemd.
   // Currently only used by MEM unit.
-  logic zeroext;
+  size_ext_e size_ext;
 
   // ALU ops
   alu_op_e alu_op;
@@ -583,8 +590,8 @@ typedef struct packed {
   mem_op_e         req_op;
   // Size of access. This must only be 2'b10 and 2'b11 when req_op is LR, SC or AMO.
   logic [1:0]      req_size;
-  // Whether the load should be unsigned. Relevant only when req_op is LOAD.
-  logic            req_unsigned;
+  // What type of size extension to be performed. Relevant only when req_op is LOAD.
+  size_ext_e       req_size_ext;
   // When req_op is MEM_AMO, this dictate the type and ordering requirement of the AMO op.
   // This specifies the ordering requirement for LR and SC operation.
   logic [6:0]      req_amo;

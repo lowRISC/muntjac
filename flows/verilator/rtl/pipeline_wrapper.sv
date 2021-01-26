@@ -32,7 +32,7 @@ module pipeline_wrapper import muntjac_pkg::*; #(
     output logic [63:0]     dcache_req_value,
     output mem_op_e         dcache_req_op,
     output logic [1:0]      dcache_req_size,
-    output logic            dcache_req_unsigned,
+    output size_ext_e       dcache_req_size_ext,
     output logic [6:0]      dcache_req_amo,
     output logic            dcache_req_prv,
     output logic            dcache_req_sum,
@@ -98,7 +98,7 @@ module pipeline_wrapper import muntjac_pkg::*; #(
   assign dcache_req_value = dcache_h2d.req_value;
   assign dcache_req_op = dcache_h2d.req_op;
   assign dcache_req_size = dcache_h2d.req_size;
-  assign dcache_req_unsigned = dcache_h2d.req_unsigned;
+  assign dcache_req_size_ext = dcache_h2d.req_size_ext;
   assign dcache_req_amo = dcache_h2d.req_amo;
   assign dcache_req_prv = dcache_h2d.req_prv;
   assign dcache_req_sum = dcache_h2d.req_sum;

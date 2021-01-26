@@ -61,12 +61,12 @@ protected:
       uint64_t data_write = operand;
 
       // Sign extend data for signed loads and all atomics.
-      if ((operation == MEM_LOAD && !dut.dcache_req_unsigned) ||
+      if ((operation == MEM_LOAD) ||
           (operation == MEM_AMO) ||
           (operation == MEM_LR)) {
         size_t bytes = 1 << dut.dcache_req_size;
-        data_read = sign_extend(data_read, bytes);
-        operand = sign_extend(operand, bytes);
+        data_read = size_extend(data_read, bytes, (SizeExtension)dut.dcache_req_size_ext);
+        operand = size_extend(operand, bytes, (SizeExtension)dut.dcache_req_size_ext);
       }
 
       // Atomic data update.
@@ -138,12 +138,36 @@ protected:
 
 private:
 
+  // Zero-extend the lowest `bytes` of `original` to create a signed 64-bit
+  // integer.
+  int64_t zero_extend(uint64_t original, size_t bytes) {
+    int shift = 64 - (bytes * 8);
+    return (original << shift) >> shift;
+  }
+
+  // One-extend the lowest `bytes` of `original` to create a signed 64-bit
+  // integer.
+  int64_t one_extend(uint64_t original, size_t bytes) {
+    return ~zero_extend(~original, bytes);
+  }
+
   // Sign-extend the lowest `bytes` of `original` to create a signed 64-bit
   // integer.
   int64_t sign_extend(uint64_t original, size_t bytes) {
     int shift = 64 - (bytes * 8);
     int64_t result = original;
     return (result << shift) >> shift;
+  }
+
+  // Size-extend the lowest `bytes` of `original` to create a signed 64-bit
+  // integer.
+  int64_t size_extend(uint64_t original, size_t bytes, SizeExtension size_ext) {
+    switch (size_ext) {
+      case SIZE_EXT_ZERO: return zero_extend(original, bytes);
+      case SIZE_EXT_ONE: return one_extend(original, bytes);
+      case SIZE_EXT_SIGNED: return sign_extend(original, bytes);
+      default: assert(false); break;
+    }
   }
 
   uint64_t read_memory(MemoryOperation operation, uint log2_size,

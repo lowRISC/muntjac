@@ -20,6 +20,13 @@ typedef enum {
   MEM_FETCH = 100  // Not used in the Verilog
 } MemoryOperation;
 
+// Always ensure this matches size_ext_e in muntjac_pkg.sv
+typedef enum {
+  SIZE_EXT_ZERO   = 0,
+  SIZE_EXT_ONE    = 1,
+  SIZE_EXT_SIGNED = 2
+} SizeExtension;
+
 // From muntjac_pkg/RISC-V spec, with added EXC_CAUSE_NONE.
 typedef enum {
   EXC_CAUSE_IRQ_SOFTWARE_S     = 17,

@@ -71,7 +71,7 @@ module muntjac_decoder import muntjac_pkg::*; #(
     decoded_instr_o.op_type = OP_ALU;
 
     decoded_instr_o.size = 2'b11;
-    decoded_instr_o.zeroext = 1'b0;
+    decoded_instr_o.size_ext = SizeExtSigned;
 
     decoded_instr_o.alu_op = alu_op_e'('x);
     decoded_instr_o.shift_op = shift_op_e'('x);
@@ -165,7 +165,7 @@ module muntjac_decoder import muntjac_pkg::*; #(
       OPCODE_LOAD: begin
         decoded_instr_o.op_type = OP_MEM;
         decoded_instr_o.size = funct3[1:0];
-        decoded_instr_o.zeroext = funct3[2];
+        decoded_instr_o.size_ext = funct3[2] ? SizeExtZero : SizeExtSigned;
         decoded_instr_o.mem_op = MEM_LOAD;
         rd_enable = 1'b1;
         rs1_enable = 1'b1;
@@ -177,7 +177,7 @@ module muntjac_decoder import muntjac_pkg::*; #(
         if (RV64F != RV64FNone) begin
           decoded_instr_o.op_type = OP_MEM;
           decoded_instr_o.size = funct3[1:0];
-          decoded_instr_o.zeroext = funct3[2];
+          decoded_instr_o.size_ext = SizeExtOne;
           decoded_instr_o.mem_op = MEM_LOAD;
           rd_enable = 1'b1;
           rs1_enable = 1'b1;

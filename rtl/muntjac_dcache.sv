@@ -49,60 +49,62 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     endcase
   endfunction
 
+  function automatic logic [63:0] sext8(input logic [7:0] value, input size_ext_e size_ext);
+    unique case (size_ext)
+      SizeExtZero: return 64'(value);
+      SizeExtSigned: return 64'(signed'(value));
+      default: return 'x;
+    endcase
+  endfunction
+
+  function automatic logic [63:0] sext16(input logic [15:0] value, input size_ext_e size_ext);
+    unique case (size_ext)
+      SizeExtZero: return 64'(value);
+      SizeExtSigned: return 64'(signed'(value));
+      default: return 'x;
+    endcase
+  endfunction
+
+  function automatic logic [63:0] sext32(input logic [31:0] value, input size_ext_e size_ext);
+    unique case (size_ext)
+      SizeExtZero: return 64'(value);
+      SizeExtOne: return {32'hffffffff, value};
+      SizeExtSigned: return 64'(signed'(value));
+      default: return 'x;
+    endcase
+  endfunction
+
   function automatic logic [63:0] align_load (
       input logic [63:0] value,
       input logic [2:0]  addr,
       input logic [1:0]  size,
-      input logic        is_unsigned
+      input size_ext_e   size_ext
   );
-    unique case ({is_unsigned, size})
-      {1'b0, 2'b00}: unique case (addr[2:0])
-        3'h0: align_load = signed'(value[ 0 +: 8]);
-        3'h1: align_load = signed'(value[ 8 +: 8]);
-        3'h2: align_load = signed'(value[16 +: 8]);
-        3'h3: align_load = signed'(value[24 +: 8]);
-        3'h4: align_load = signed'(value[32 +: 8]);
-        3'h5: align_load = signed'(value[40 +: 8]);
-        3'h6: align_load = signed'(value[48 +: 8]);
-        3'h7: align_load = signed'(value[56 +: 8]);
+    unique case (size)
+      2'b00: unique case (addr[2:0])
+        3'h0: align_load = sext8(value[ 0 +: 8], size_ext);
+        3'h1: align_load = sext8(value[ 8 +: 8], size_ext);
+        3'h2: align_load = sext8(value[16 +: 8], size_ext);
+        3'h3: align_load = sext8(value[24 +: 8], size_ext);
+        3'h4: align_load = sext8(value[32 +: 8], size_ext);
+        3'h5: align_load = sext8(value[40 +: 8], size_ext);
+        3'h6: align_load = sext8(value[48 +: 8], size_ext);
+        3'h7: align_load = sext8(value[56 +: 8], size_ext);
         default: align_load = 'x;
       endcase
-      {1'b1, 2'b00}: unique case (addr[2:0])
-        3'h0: align_load = value[ 0 +: 8];
-        3'h1: align_load = value[ 8 +: 8];
-        3'h2: align_load = value[16 +: 8];
-        3'h3: align_load = value[24 +: 8];
-        3'h4: align_load = value[32 +: 8];
-        3'h5: align_load = value[40 +: 8];
-        3'h6: align_load = value[48 +: 8];
-        3'h7: align_load = value[56 +: 8];
+      2'b01: unique case (addr[2:1])
+        2'h0: align_load = sext16(value[ 0 +: 16], size_ext);
+        2'h1: align_load = sext16(value[16 +: 16], size_ext);
+        2'h2: align_load = sext16(value[32 +: 16], size_ext);
+        2'h3: align_load = sext16(value[48 +: 16], size_ext);
         default: align_load = 'x;
       endcase
-      {1'b0, 2'b01}: unique case (addr[2:1])
-        2'h0: align_load = signed'(value[ 0 +: 16]);
-        2'h1: align_load = signed'(value[16 +: 16]);
-        2'h2: align_load = signed'(value[32 +: 16]);
-        2'h3: align_load = signed'(value[48 +: 16]);
+      2'b10: unique case (addr[2])
+        1'h0: align_load = sext32(value[ 0 +: 32], size_ext);
+        1'h1: align_load = sext32(value[32 +: 32], size_ext);
         default: align_load = 'x;
       endcase
-      {1'b1, 2'b01}: unique case (addr[2:1])
-        2'h0: align_load = value[ 0 +: 16];
-        2'h1: align_load = value[16 +: 16];
-        2'h2: align_load = value[32 +: 16];
-        2'h3: align_load = value[48 +: 16];
-        default: align_load = 'x;
-      endcase
-      {1'b0, 2'b10}: unique case (addr[2])
-        1'h0: align_load = signed'(value[ 0 +: 32]);
-        1'h1: align_load = signed'(value[32 +: 32]);
-        default: align_load = 'x;
-      endcase
-      {1'b1, 2'b10}: unique case (addr[2])
-        1'h0: align_load = value[ 0 +: 32];
-        1'h1: align_load = value[32 +: 32];
-        default: align_load = 'x;
-      endcase
-      {1'b0, 2'b11}: align_load = value;
+      2'b11: align_load = value;
       default: align_load = 'x;
     endcase
   endfunction
@@ -191,7 +193,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   wire [63:0]     req_value    = cache_h2d_i.req_value;
   wire mem_op_e   req_op       = cache_h2d_i.req_op;
   wire [1:0]      req_size     = cache_h2d_i.req_size;
-  wire            req_unsigned = cache_h2d_i.req_unsigned;
+  wire size_ext_e req_size_ext = cache_h2d_i.req_size_ext;
   wire [6:0]      req_amo      = cache_h2d_i.req_amo;
   wire            req_prv      = cache_h2d_i.req_prv;
   wire            req_sum      = cache_h2d_i.req_sum;
@@ -1347,7 +1349,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [63:0] address_q, address_d;
   logic [63:0] value_q, value_d;
   logic [1:0]  size_q, size_d;
-  logic        is_unsigned_q, is_unsigned_d;
+  size_ext_e   size_ext_q, size_ext_d;
   mem_op_e     op_q, op_d;
   logic [6:0]  amo_q, amo_d;
 
@@ -1356,7 +1358,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       .value (hit_data),
       .addr (address_q[2:0]),
       .size (size_q),
-      .is_unsigned (is_unsigned_q)
+      .size_ext (size_ext_q)
   );
   wire [63:0] amo_result = do_amo_op(hit_data_aligned, value_q, size_q, amo_q);
 
@@ -1416,7 +1418,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     address_d = address_q;
     value_d = value_q;
     size_d = size_q;
-    is_unsigned_d = is_unsigned_q;
+    size_ext_d = size_ext_q;
     op_d = op_q;
     amo_d = amo_q;
     evict_way_d = evict_way_q;
@@ -1585,7 +1587,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
                 .value (mem_grant_data),
                 .addr (address_q[2:0]),
                 .size (size_q),
-                .is_unsigned (is_unsigned_q)
+                .size_ext (size_ext_q)
             );
             state_d = StateIdle;
           end
@@ -1610,7 +1612,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     if (req_valid) begin
       address_d = req_address;
       size_d = req_size;
-      is_unsigned_d = req_unsigned;
+      size_ext_d = req_size_ext;
       op_d = req_op;
       // Translate MEM_STORE/MEM_SC to AMOSWAP, so we can reuse the AMOALU.
       amo_d = !req_op[0] ? 7'b0000100 : req_amo;
@@ -1658,7 +1660,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       address_q <= '0;
       value_q <= 'x;
       size_q <= 'x;
-      is_unsigned_q <= 'x;
+      size_ext_q <= 'x;
       op_q <= mem_op_e'('x);
       amo_q <= 'x;
       evict_way_q <= 0;
@@ -1673,7 +1675,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       address_q <= address_d;
       value_q <= value_d;
       size_q <= size_d;
-      is_unsigned_q <= is_unsigned_d;
+      size_ext_q <= size_ext_d;
       op_q <= op_d;
       amo_q <= amo_d;
       evict_way_q <= evict_way_d;
