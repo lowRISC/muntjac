@@ -1028,7 +1028,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     .csr_op_en_i (sys_issue && de_ex_decoded.sys_op == SYS_CSR),
     .csr_rdata_o (csr_read),
 `ifdef TRACE_ENABLE
-    .csr_wdata_o(csr_wdata),
+    .csr_wdata_o (csr_wdata),
 `endif
     .irq_software_m_i (irq_software_m_i),
     .irq_timer_m_i (irq_timer_m_i),

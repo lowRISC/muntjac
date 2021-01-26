@@ -27,9 +27,9 @@ AccessFault::AccessFault(MemoryAddress address, string description) :
 exc_cause_e AccessFault::get_exception_code(MemoryOperation operation) const {
   switch (operation) {
     case MEM_LOAD:
-    case MEM_LR:
       return EXC_CAUSE_LOAD_ACCESS_FAULT;
 
+    case MEM_LR:
     case MEM_STORE:
     case MEM_SC:
     case MEM_AMO:
@@ -54,9 +54,10 @@ AlignmentFault::AlignmentFault(MemoryAddress address) :
 exc_cause_e AlignmentFault::get_exception_code(MemoryOperation operation) const {
   switch (operation) {
     case MEM_LOAD:
-    case MEM_LR:
       return EXC_CAUSE_LOAD_MISALIGN;
 
+
+    case MEM_LR:
     case MEM_STORE:
     case MEM_SC:
     case MEM_AMO:
@@ -79,9 +80,10 @@ PageFault::PageFault(MemoryAddress address, string description) :
 exc_cause_e PageFault::get_exception_code(MemoryOperation operation) const {
   switch (operation) {
     case MEM_LOAD:
-    case MEM_LR:
       return EXC_CAUSE_LOAD_PAGE_FAULT;
 
+
+    case MEM_LR:
     case MEM_STORE:
     case MEM_SC:
     case MEM_AMO:
