@@ -240,6 +240,7 @@ module muntjac_backend import muntjac_pkg::*; #(
     end
   end else begin: gen_fp_mem_no_fwd
     assign data_hazard_fp_mem = 1'b0;
+    assign ex_frs2 = '1;
   end
 
   if (RV64F == RV64FFull) begin: gen_fp_full_fwd
@@ -288,6 +289,8 @@ module muntjac_backend import muntjac_pkg::*; #(
     end
   end else begin
     assign data_hazard_fp_full = 1'b0;
+    assign ex_frs1 = '1;
+    assign ex_frs3 = '1;
   end
 
   assign data_hazard = data_hazard_int || data_hazard_fp_mem || data_hazard_fp_full;

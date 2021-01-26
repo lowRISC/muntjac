@@ -1660,7 +1660,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       address_q <= '0;
       value_q <= 'x;
       size_q <= 'x;
-      size_ext_q <= 'x;
+      size_ext_q <= size_ext_e'('x);
       op_q <= mem_op_e'('x);
       amo_q <= 'x;
       evict_way_q <= 0;
