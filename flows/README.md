@@ -3,7 +3,7 @@
 Muntjac supports the following synthesis flows:
 
  * Verilator (software)
- * ~~Vivado (FPGA)~~
+ * Vivado (FPGA)
  * ~~OpenROAD (ASIC, free)~~
  * ~~Synopsys (ASIC, commercial)~~
 

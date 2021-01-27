@@ -11,9 +11,10 @@ clean:
 	rm -rf build
 	rm -rf $(TARGET_DIR)
 
+# TODO: Lint the entire core when the caches have been tidied up.
 .PHONY: lint
 lint:
-	$(FUSESOC) --cores-root=. run --target=lint --tool=verilator lowrisc:muntjac:core:0.1
+	$(FUSESOC) --cores-root=. run --target=lint --tool=verilator lowrisc:muntjac:pipeline_tb:0.1
 
 # Currently valid for muntjac_pipeline and muntjac_core only.
 $(TARGET_DIR)/muntjac_%: FORCE | $(TARGET_DIR)

@@ -599,13 +599,16 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex1_select_q;
   logic [63:0] ex1_alu_data_q;
   logic [LogicSextAddrLen-1:0] ex1_pc_q;
-  instr_trace_t ex1_trace_q;
 
   func_unit_e ex2_select_q;
   logic [63:0] ex2_alu_data_q;
   logic [LogicSextAddrLen-1:0] ex2_pc_q;
-  instr_trace_t ex2_trace_q;
   logic ex2_squashed_q;
+
+`ifdef TRACE_ENABLE
+  instr_trace_t ex1_trace_q;
+  instr_trace_t ex2_trace_q;
+`endif
 
   always_comb begin
     unique case (ex1_select_q)
@@ -638,7 +641,6 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex1_select_d;
   logic [63:0] ex1_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex1_pc_d;
-  instr_trace_t ex1_trace_d;
   logic ex1_use_frd_d;
   logic [4:0] ex1_rd_d;
   logic [63:0] ex_expected_pc_d;
@@ -651,7 +653,6 @@ module muntjac_backend import muntjac_pkg::*; #(
     ex1_select_d = ex1_select_q;
     ex1_alu_data_d = ex1_alu_data_q;
     ex1_pc_d = ex1_pc_q;
-    ex1_trace_d = ex1_trace_q;
     ex1_use_frd_d = ex1_use_frd_q;
     ex1_rd_d = ex1_rd_q;
     ex_expected_pc_d = ex_expected_pc_q;
@@ -686,7 +687,6 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
-        ex1_trace_d = de_ex_decoded.trace;
         ex1_use_frd_d = de_ex_decoded.use_frd;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
@@ -732,7 +732,6 @@ module muntjac_backend import muntjac_pkg::*; #(
         ex1_pending_d = 1'b1;
         ex1_select_d = FU_ALU;
         ex1_pc_d = de_ex_decoded.pc[LogicSextAddrLen-1:0];
-        ex1_trace_d = de_ex_decoded.trace;
         ex1_use_frd_d = 1'b0;
         ex1_rd_d = de_ex_decoded.rd;
         ex1_alu_data_d = 'x;
@@ -746,13 +745,17 @@ module muntjac_backend import muntjac_pkg::*; #(
     endcase
   end
 
+`ifdef TRACE_ENABLE
+  instr_trace_t ex1_trace_d;
+
+  // This is a simplified version of the block above which only updates the
+  // trace information.
   always_comb begin
     if (ex_issue || sys_issue)
       ex1_trace_d = de_ex_decoded.trace;
     else
       ex1_trace_d = ex1_trace_q;
 
-`ifdef TRACE_ENABLE
     // These expressions match the inputs to the CSRs below.
     // Don't allow flags to be deasserted until the instruction is replaced.
     if (!ex1_trace_d.csr_written) begin
@@ -762,8 +765,8 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_trace_d.csr = csr_select;
     end
     ex1_trace_d.csr_data = csr_wdata;
-`endif
   end
+`endif
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -773,22 +776,26 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex1_rd_q <= '0;
       ex1_alu_data_q <= 'x;
       ex1_pc_q <= 'x;
-      ex1_trace_q <= 'x;
       ex_expected_pc_q <= '0;
       ex_branch_type_q <= BRANCH_NONE;
       ex1_compressed_q <= 1'b0;
+`ifdef TRACE_ENABLE
+      ex1_trace_q <= 'x;
+`endif
     end
     else begin
       ex1_pending_q <= ex1_pending_d;
       ex1_select_q <= ex1_select_d;
       ex1_alu_data_q <= ex1_alu_data_d;
       ex1_pc_q <= ex1_pc_d;
-      ex1_trace_q <= ex1_trace_d;
       ex1_use_frd_q <= ex1_use_frd_d;
       ex1_rd_q <= ex1_rd_d;
       ex_expected_pc_q <= ex_expected_pc_d;
       ex_branch_type_q <= ex_branch_type_d;
       ex1_compressed_q <= ex1_compressed_d;
+`ifdef TRACE_ENABLE
+      ex1_trace_q <= ex1_trace_d;
+`endif
     end
   end
 
@@ -825,20 +832,24 @@ module muntjac_backend import muntjac_pkg::*; #(
   func_unit_e ex2_select_d;
   logic [63:0] ex2_alu_data_d;
   logic [LogicSextAddrLen-1:0] ex2_pc_d;
-  instr_trace_t ex2_trace_d;
   logic ex2_use_frd_d;
   logic [4:0] ex2_rd_d;
   logic ex2_squashed_d;
+`ifdef TRACE_ENABLE
+  instr_trace_t ex2_trace_d;
+`endif
 
   always_comb begin
     ex2_pending_d = ex2_pending_q;
     ex2_select_d = ex2_select_q;
     ex2_alu_data_d = ex2_alu_data_q;
     ex2_pc_d = ex2_pc_q;
-    ex2_trace_d = ex2_trace_q;
     ex2_use_frd_d = ex2_use_frd_q;
     ex2_rd_d = ex2_rd_q;
     ex2_squashed_d = ex2_squashed_q;
+`ifdef TRACE_ENABLE
+    ex2_trace_d = ex2_trace_q;
+`endif
 
     // Reset to default values when committed, or when the MEM traps in EX2 stage.
     // Note that if the trap is in EX1 stage, current instruction in EX2 (if any)
@@ -874,11 +885,13 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_pending_d = 1'b1;
       ex2_select_d = ex1_select_q;
       ex2_pc_d = ex1_pc_q;
-      ex2_trace_d = ex1_trace_q;
       ex2_use_frd_d = ex1_use_frd_q;
       ex2_rd_d = ex1_rd_q;
       ex2_alu_data_d = 'x;
       ex2_squashed_d = 1'b0;
+`ifdef TRACE_ENABLE
+      ex2_trace_d = ex1_trace_q;
+`endif
 
       // If data is already valid, then move it to ALU register so that we don't wait
       // for it.
@@ -895,20 +908,24 @@ module muntjac_backend import muntjac_pkg::*; #(
       ex2_select_q <= FU_ALU;
       ex2_alu_data_q <= 'x;
       ex2_pc_q <= 'x;
-      ex2_trace_q <= 'x;
       ex2_use_frd_q <= 1'b0;
       ex2_rd_q <= '0;
       ex2_squashed_q <= 1'b0;
+`ifdef TRACE_ENABLE
+      ex2_trace_q <= 'x;
+`endif
     end
     else begin
       ex2_pending_q <= ex2_pending_d;
       ex2_select_q <= ex2_select_d;
       ex2_alu_data_q <= ex2_alu_data_d;
       ex2_pc_q <= ex2_pc_d;
-      ex2_trace_q <= ex2_trace_d;
       ex2_use_frd_q <= ex2_use_frd_d;
       ex2_rd_q <= ex2_rd_d;
       ex2_squashed_q <= ex2_squashed_d;
+`ifdef TRACE_ENABLE
+      ex2_trace_q <= ex2_trace_d;
+`endif
     end
   end
 
@@ -1095,15 +1112,14 @@ module muntjac_backend import muntjac_pkg::*; #(
 
   // Debug connections
   always_ff @(posedge clk_i) begin
+`ifdef TRACE_ENABLE
     if (ex2_pending_q && ex2_data_valid && !ex2_squashed_q) begin
       // Successful instruction commit.
       dbg_o <= ex2_trace_q;
 
-`ifdef TRACE_ENABLE
       dbg_o.gpr_written <= 1;
       dbg_o.gpr <= ex2_rd_q;
       dbg_o.gpr_data <= ex2_data;
-`endif
     end else if (mem_trap_valid) begin
       // Memory trap.
       dbg_o <= ex2_trace_q;
@@ -1111,6 +1127,9 @@ module muntjac_backend import muntjac_pkg::*; #(
       // Any other exception.
       dbg_o <= de_ex_decoded.trace;
     end
+`else
+    dbg_o.pc <= 64'(signed'(ex2_pc_q));
+`endif
   end
 
 endmodule

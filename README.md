@@ -10,7 +10,7 @@ Documentation is available [here](docs/README.md).
 Tested on Ubuntu >= 16.04.
 
 ### Setup
-We currently require new/non-standard versions of [Verilator](https://www.veripool.org/wiki/verilator), [FuseSoC](https://github.com/olofk/fusesoc) and [Edalize](https://github.com/olofk/edalize).
+We currently require newer versions of [Verilator](https://www.veripool.org/wiki/verilator), [FuseSoC](https://github.com/olofk/fusesoc) and [Edalize](https://github.com/olofk/edalize) than most package managers provide:
 
 ```
 curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
