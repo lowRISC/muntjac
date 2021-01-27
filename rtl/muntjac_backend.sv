@@ -94,6 +94,10 @@ module muntjac_backend import muntjac_pkg::*; #(
   logic de_csr_illegal;
   decoded_instr_t de_decoded;
 
+`ifdef TRACE_ENABLE
+  instr_trace_t de_ex_trace;
+`endif
+
   muntjac_decoder #(
     .RV64F (RV64F)
   ) decoder (
@@ -118,6 +122,9 @@ module muntjac_backend import muntjac_pkg::*; #(
       de_ex_decoded.ex_valid <= 1'b0;
       de_rs1_select <= 'x;
       de_rs2_select <= 'x;
+`ifdef TRACE_ENABLE
+      de_ex_trace <= 'x;
+`endif
     end
     else begin
       // New inbound data
@@ -136,6 +143,12 @@ module muntjac_backend import muntjac_pkg::*; #(
         // Regfile will read register into rs1_value and rs2_value
         de_rs1_select <= de_decoded.rs1;
         de_rs2_select <= de_decoded.rs2;
+
+`ifdef TRACE_ENABLE
+        de_ex_trace.pc <= de_decoded.pc;
+        de_ex_trace.instr_word <= fetch_instr_i.instr_word;
+        de_ex_trace.mode <= prv_o;
+`endif
       end
       // No new inbound data - deassert valid if ready is asserted.
       else if (de_ex_valid && de_ex_ready) begin
@@ -752,7 +765,7 @@ module muntjac_backend import muntjac_pkg::*; #(
   // trace information.
   always_comb begin
     if (ex_issue || sys_issue)
-      ex1_trace_d = de_ex_decoded.trace;
+      ex1_trace_d = de_ex_trace;
     else
       ex1_trace_d = ex1_trace_q;
 
@@ -1125,7 +1138,7 @@ module muntjac_backend import muntjac_pkg::*; #(
       dbg_o <= ex2_trace_q;
     end else if (exception_issue) begin
       // Any other exception.
-      dbg_o <= de_ex_decoded.trace;
+      dbg_o <= de_ex_trace;
     end
 `else
     dbg_o.pc <= 64'(signed'(ex2_pc_q));

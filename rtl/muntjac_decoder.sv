@@ -93,12 +93,6 @@ module muntjac_decoder import muntjac_pkg::*; #(
     // Forward these fields.
     decoded_instr_o.pc = fetched_instr_i.pc;
     decoded_instr_o.if_reason = fetched_instr_i.if_reason;
-    decoded_instr_o.trace.pc = fetched_instr_i.pc;
-
-`ifdef TRACE_ENABLE
-    decoded_instr_o.trace.instr_word = fetched_instr_i.instr_word;
-    decoded_instr_o.trace.mode = prv_i;
-`endif
 
     unique case (opcode)
 

@@ -569,9 +569,6 @@ typedef struct packed {
   // PC of this decoded instruction.
   logic [63:0] pc;
 
-  // Debug information used for tracing.
-  instr_trace_t trace;
-
   // Indicate the reason that this is fetched
   if_reason_e if_reason;
 
