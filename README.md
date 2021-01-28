@@ -4,7 +4,7 @@
 
 Muntjac is a minimal 64-bit RISC-V multicore processor that's easy to understand, verify, and extend. The focus is on having a clean, well-tested design which others can build upon and further customise. Performance is secondary to correctness, but the aim is to work towards a design point (considering power, performance and area) that maximises the value of Muntjac as a baseline design for educational, academic, or real-world use.
 
-Documentation is available [here](docs/README.md).
+Documentation is available [here](doc/README.md).
 
 ## Build
 Tested on Ubuntu >= 16.04.
@@ -22,7 +22,7 @@ pip3 install -r python-requirements.txt
 ```
 
 ### Linting
-If linting succeeds, the source should successfully build on any of the [supported platforms](flows/README.md).
+If linting succeeds, the source should successfully build on any of the [supported platforms](flows).
 
 ```
 make lint

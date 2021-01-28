@@ -31,19 +31,19 @@ Execute riscv-dv with the following command to use this extension. You may need 
 python3 run.py -cs=$MUNTJAC_ROOT/test/riscv_dv_extension/ --mabi=lp64 --isa=rv64imac -o=build
 ```
 
-RISC-V programs will be generated in `build/asm_tests`.
+RISC-V programs will be generated in `build/asm_test`.
 
 TODO: cov.py
 
 To generate a JUnit-style XML of test results (e.g. for continuous integration), use the provided Makefile:
 
 ```
-export TEST_DIR=riscv-dv/build/asm_tests
+export TEST_DIR=riscv-dv/build/asm_test
 export SPIKE_LOG_DIR=riscv-dv/build/spike_sim
 export MUNTJAC_SIM_DIR=$MUNTJAC_ROOT/bin
 export MUNTJAC_SCRIPT_DIR=$MUNTJAC_ROOT/test/riscv_dv_extension
 
-make -f $MUNTJAC_ROOT/test/riscv_dv_extension/Makefile
+make -f $MUNTJAC_SCRIPT_DIR/Makefile
 ```
 
 Alternatively, the individual steps are as follows.

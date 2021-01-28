@@ -33,7 +33,7 @@ jobs:
       - name: Run lint
         run: make lint
 
-  build-simulators:
+  simulator-build:
     runs-on: ubuntu-20.04
 
     strategy:
@@ -69,17 +69,8 @@ jobs:
           path: bin/${{ matrix.sim }}
           if-no-files-found: error
 
-  riscv-tests:
+  riscv-tests-build:
     runs-on: ubuntu-20.04
-    needs: build-simulators
-
-    strategy:
-      matrix:
-        include:
-          - name: pipeline
-            sim: muntjac_pipeline
-          - name: core
-            sim: muntjac_core
 
     steps:
       - uses: actions/checkout@v2
@@ -116,11 +107,42 @@ jobs:
           make -j$(nproc)
           rm *.dump
           rm rv64mi-p-breakpoint
+          tar -cjf ~/riscv-isa-tests.tar.xz *
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: riscv-isa-tests
+          path: ~/riscv-isa-tests.tar.xz
+          if-no-files-found: error
+
+  riscv-tests-run:
+    runs-on: ubuntu-20.04
+    needs: [simulator-build, riscv-tests-build]
+
+    strategy:
+      matrix:
+        include:
+          - name: pipeline
+            sim: muntjac_pipeline
+          - name: core
+            sim: muntjac_core
+
+    steps:
 
       - name: Get simulator
         uses: actions/download-artifact@v2
         with:
           name: ${{ matrix.sim }}
+
+      - name: Get tests
+        uses: actions/download-artifact@v2
+        with:
+          name: riscv-isa-tests
+
+      - name: Unpack tests
+        run: |
+          mkdir tests
+          tar -xf riscv-isa-tests.tar.xz -C tests
 
       # Create a summary of each test outcome in the JUnit XML format.
       - name: Run tests
@@ -129,7 +151,7 @@ jobs:
           echo "<testsuite>" > results.xml
 
           for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi; do
-            for test in riscv-tests/isa/$isa-*; do
+            for test in tests/$isa-*; do
               /usr/bin/time --quiet -o $test.time -f "%e" ./${{ matrix.sim }} $test --timeout=1000000 > $test.out 2> $test.err || true
 
               echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" >> results.xml
