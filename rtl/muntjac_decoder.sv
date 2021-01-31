@@ -19,7 +19,9 @@ module muntjac_decoder import muntjac_pkg::*; #(
   logic [31:0] instr;
   logic illegal_compressed;
 
-  muntjac_compressed_decoder decompressor (
+  muntjac_compressed_decoder #(
+    .RV64D (RV64F != RV64FNone)
+  ) decompressor (
     .instr_i (fetched_instr_i.instr_word),
     .instr_o (instr),
     .illegal_instr_o (illegal_compressed)
