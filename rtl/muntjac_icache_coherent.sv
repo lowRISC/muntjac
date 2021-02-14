@@ -1043,7 +1043,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         mem.a_opcode = AcquireBlock;
         mem.a_param = tl_pkg::NtoB;
         mem.a_size = 6;
-        mem.a_address = {address_phys[AddrLen-1:6], 6'd0};
+        mem.a_address = {address_phys[PhysAddrLen-1:6], 6'd0};
         mem.a_mask = '1;
         if (mem_req_ready) begin
           req_sent_d = 1'b1;
