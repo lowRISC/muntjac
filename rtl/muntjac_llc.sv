@@ -11,17 +11,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   parameter SourceWidth = 1,
   parameter int unsigned SinkWidth   = 1,
 
-  // Address property table.
-  // This table is used to determine if a given address range is cacheable or writable.
-  // 2'b00 -> Normal
-  // 2'b01 -> Readonly (e.g. ROM)
-  // 2'b10 -> I/O
-  // When ranges overlap, range that is specified with larger index takes priority.
-  // If no ranges match, the property is assumed to be normal.
-  parameter int unsigned NumAddressRange = 1,
-  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressBase = '0,
-  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressMask = '0,
-  parameter bit [NumAddressRange-1:0][1:0]           AddressProperty = '0,
+  parameter bit [SinkWidth-1:0] SinkBase = 0,
 
   // Source ID table for cacheable hosts.
   // These IDs are used for sending out Probe messages.
@@ -44,6 +34,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
   `TL_BIND_HOST_PORT(device, device);
 
+  // Registers host_a and host_c so its content will hold until we consumed it.
   tl_regslice #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
@@ -153,11 +144,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // We have two origins of A channel requests to device:
   // 0. Dirty data writeback
   // 1. Cache line refill
-  // 2. Uncached access
-  localparam ReqOrigins = 3;
+  localparam ReqOrigins = 2;
   localparam ReqIdxWb = 0;
   localparam ReqIdxRefill = 1;
-  localparam ReqIdxUncached = 2;
 
   // Grouped signals before multiplexing/arbitration
   req_t [ReqOrigins-1:0] device_req_mult;
@@ -220,14 +209,12 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
   typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) gnt_t;
 
-  // We have three origins of D channel response to host:
+  // We have 2 origins of D channel response to host:
   // 0. ReleaseAck response to host's Release
   // 1. Device D channel response
-  // 2. Uncached access
-  localparam GntOrigins = 3;
+  localparam GntOrigins = 2;
   localparam GntIdxRel = 0;
   localparam GntIdxReq = 1;
-  localparam GntIdxUncached = 2;
 
   // Grouped signals before multiplexing/arbitration
   gnt_t [GntOrigins-1:0] host_gnt_mult;
@@ -309,32 +296,16 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   localparam SourceRefill = 0;
   localparam SourceWriteback = 1;
   localparam SourceAccess = 2;
-  localparam SourceUncached = 3;
 
   wire device_gnt_valid_refill = device_d_valid && device_d.source == SourceRefill;
   wire device_gnt_valid_writeback = device_d_valid && device_d.source == SourceWriteback;
   wire device_gnt_valid_access = device_d_valid && device_d.source == SourceAccess;
-  wire device_gnt_valid_uncached = device_d_valid && device_d.source == SourceUncached;
 
   logic device_gnt_ready_refill;
   logic device_gnt_ready_writeback;
   logic device_gnt_ready_access;
-  logic device_gnt_ready_uncached;
   assign device_d_ready = device_gnt_valid_refill ? device_gnt_ready_refill :
-                          device_gnt_valid_writeback ? device_gnt_ready_writeback :
-                          device_gnt_ready_access ? device_gnt_ready_access : device_gnt_ready_uncached;
-
-  ///////////////////////////////////
-  // Host Channel E Demultiplexing //
-  ///////////////////////////////////
-
-  localparam SinkReq = 0;
-  localparam SinkUncached = 1;
-
-  wire host_ack_valid_req = host_e_valid && host_e.sink == SinkReq;
-  wire host_ack_valid_uncached = host_e_valid && host_e.sink == SinkUncached;
-
-  assign host_e_ready = 1'b1;
+                          device_gnt_valid_writeback ? device_gnt_ready_writeback : device_gnt_ready_access;
 
   //////////////////////////////
   // Cache access arbitration //
@@ -944,195 +915,6 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     end
   end
 
-  ///////////////////////////////
-  // Handle I/O and ROM memory //
-  ///////////////////////////////
-
-  logic [1:0] req_address_property;
-  always_comb begin
-    // Decode the property of the address requested.
-    req_address_property = 0;
-    for (int i = 0; i < NumAddressRange; i++) begin
-      if ((host_a.address &~ AddressMask[i]) == AddressBase[i]) begin
-        req_address_property = AddressProperty[i];
-      end
-    end
-  end
-
-  logic req_allowed;
-  always_comb begin
-    // Check if the request is allowed with the address property.
-    req_allowed = 1'b1;
-    case (host_a.opcode)
-      AcquireBlock, AcquirePerm: begin
-        if (req_address_property == 2) begin
-          req_allowed = 1'b0;
-        end else if (req_address_property == 1 && host_a.param != NtoB) begin
-          req_allowed = 1'b0;
-        end
-      end
-      PutPartialData, PutFullData: begin
-        if (req_address_property == 1) begin
-          req_allowed = 1'b0;
-        end
-      end
-    endcase
-  end
-
-  logic req_ready_ram;
-  logic req_ready_io;
-  assign host_a_ready = host_a_valid && req_address_property == 0 ? req_ready_ram : req_ready_io;
-
-  typedef enum logic [3:0] {
-    IoStateIdle,
-    IoStateActive,
-    IoStateException,
-    IoStateAckWait
-  } io_state_e;
-
-  io_state_e io_state_q, io_state_d;
-  tl_a_op_e io_opcode_q, io_opcode_d;
-  logic [2:0] io_param_q, io_param_d;
-  logic [SourceWidth-1:0] io_source_q, io_source_d;
-  logic io_req_sent_q, io_req_sent_d;
-  logic io_resp_sent_q, io_resp_sent_d;
-  logic [2:0] io_len_q, io_len_d;
-  logic io_ack_done_q, io_ack_done_d;
-
-  always_comb begin
-    device_req_valid_mult[ReqIdxUncached] = 1'b0;
-    device_req_mult[ReqIdxUncached] = req_t'('x);
-
-    host_gnt_valid_mult[GntIdxUncached] = 1'b0;
-    host_gnt_mult[GntIdxUncached] = gnt_t'('x);
-
-    device_gnt_ready_uncached = 1'b0;
-
-    req_ready_io = 1'b0;
-
-    io_state_d = io_state_q;
-    io_opcode_d = io_opcode_q;
-    io_param_d = io_param_q;
-    io_source_d = io_source_q;
-    io_req_sent_d = io_req_sent_q;
-    io_resp_sent_d = io_resp_sent_q;
-    io_len_d = io_len_q;
-    io_ack_done_d = io_ack_done_q;
-
-    if (host_ack_valid_uncached) io_ack_done_d = 1'b1;
-
-    unique case (io_state_q)
-      IoStateIdle: begin
-        if (host_a_valid && req_address_property != 0) begin
-          io_opcode_d = host_a.opcode;
-          io_param_d = host_a.param == NtoB ? toB : toT;
-          io_source_d = host_a.source;
-          io_req_sent_d = 1'b0;
-          io_resp_sent_d = 1'b0;
-          io_ack_done_d = !(host_a.opcode inside {AcquireBlock, AcquirePerm});
-
-          if (req_allowed) begin
-            io_state_d = IoStateActive;
-          end else begin
-            io_state_d = IoStateException;
-          end
-        end
-      end
-
-      IoStateActive: begin
-        device_req_valid_mult[ReqIdxUncached] = !io_req_sent_q && host_a_valid;
-        device_req_mult[ReqIdxUncached].opcode = io_opcode_q == AcquireBlock ? Get : io_opcode_q;
-        device_req_mult[ReqIdxUncached].param = 0;
-        device_req_mult[ReqIdxUncached].size = host_a.size;
-        device_req_mult[ReqIdxUncached].source = SourceUncached;
-        device_req_mult[ReqIdxUncached].address = host_a.address;
-        device_req_mult[ReqIdxUncached].mask = host_a.mask;
-        device_req_mult[ReqIdxUncached].corrupt = 1'b0;
-        device_req_mult[ReqIdxUncached].data = host_a.data;
-
-        req_ready_io = !io_req_sent_q && device_req_ready_mult[ReqIdxUncached];
-        if (host_a_valid && device_req_ready_mult[ReqIdxUncached] && host_req_last) begin
-          io_req_sent_d = 1'b1;
-        end
-
-        device_gnt_ready_uncached = !io_resp_sent_q && host_gnt_ready_mult[GntIdxUncached];
-        host_gnt_valid_mult[GntIdxUncached] = device_gnt_valid_uncached;
-        host_gnt_mult[GntIdxUncached].opcode = io_opcode_q == AcquireBlock ? GrantData : device_d.opcode;
-        host_gnt_mult[GntIdxUncached].param = io_param_q;
-        host_gnt_mult[GntIdxUncached].size = device_d.size;
-        host_gnt_mult[GntIdxUncached].source = io_source_q;
-        host_gnt_mult[GntIdxUncached].sink = SinkUncached;
-        host_gnt_mult[GntIdxUncached].denied = device_d.denied;
-        host_gnt_mult[GntIdxUncached].corrupt = device_d.corrupt;
-        host_gnt_mult[GntIdxUncached].data = device_d.data;
-
-        if (device_gnt_valid_uncached && host_gnt_ready_mult[GntIdxUncached] && device_gnt_last) begin
-          io_resp_sent_d = 1'b1;
-        end
-
-        if (io_req_sent_d && io_resp_sent_d && io_ack_done_d) begin
-          io_state_d = IoStateIdle;
-        end
-      end
-
-      IoStateException: begin
-        // If we haven't see last, we need to make sure the entire request is discarded,
-        // not just the first cycle of the burst.
-        if (!(host_a_valid && host_req_last)) begin
-          req_ready_io = 1'b1;
-        end else begin
-          host_gnt_valid_mult[GntIdxUncached] = 1'b1;
-          host_gnt_mult[GntIdxUncached].opcode = host_a.opcode == AcquireBlock ? Grant : (host_a.opcode == Get ? AccessAckData : AccessAck);
-          host_gnt_mult[GntIdxUncached].param = 0;
-          host_gnt_mult[GntIdxUncached].size = 6;
-          host_gnt_mult[GntIdxUncached].source = host_a.source;
-          host_gnt_mult[GntIdxUncached].sink = SinkUncached;
-          host_gnt_mult[GntIdxUncached].denied = 1'b1;
-          host_gnt_mult[GntIdxUncached].corrupt = host_a.opcode == Get ? 1'b1 : 1'b0;
-
-          if (host_gnt_ready_mult[GntIdxUncached]) begin
-            io_len_d = io_len_q + 1;
-            if (host_a.opcode != Get || io_len_q == 7) begin
-              req_ready_io = 1'b1;
-
-              io_state_d = IoStateAckWait;
-              io_len_d = 0;
-            end
-          end
-        end
-      end
-
-      IoStateAckWait: begin
-        if (io_ack_done_d) io_state_d = IoStateIdle;
-      end
-
-      default:;
-    endcase
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      io_state_q <= IoStateIdle;
-      io_opcode_q <= tl_a_op_e'('x);
-      io_param_q <= 'x;
-      io_source_q <= 'x;
-      io_req_sent_q <= 1'b0;
-      io_resp_sent_q <= 1'b0;
-      io_len_q <= 0;
-      io_ack_done_q <= 1'b0;
-    end
-    else begin
-      io_state_q <= io_state_d;
-      io_opcode_q <= io_opcode_d;
-      io_param_q <= io_param_d;
-      io_source_q <= io_source_d;
-      io_req_sent_q <= io_req_sent_d;
-      io_resp_sent_q <= io_resp_sent_d;
-      io_len_q <= io_len_d;
-      io_ack_done_q <= io_ack_done_d;
-    end
-  end
-
   ////////////////////////////
   // Request handling logic //
   ////////////////////////////
@@ -1189,6 +971,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
   logic [NumCachedHosts-1:0] prb_ack_pending_q, prb_ack_pending_d;
 
+  // We can always receive ACKs.
+  assign host_e_ready = 1'b1;
+
   always_comb begin
     probe_valid = '0;
     probe_mask = 'x;
@@ -1198,7 +983,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     host_gnt_valid_mult[GntIdxReq] = 1'b0;
     host_gnt_mult[GntIdxReq] = gnt_t'('x);
 
-    req_ready_ram = 1'b0;
+    host_a_ready = 1'b0;
 
     device_gnt_ready_access = 1'b0;
 
@@ -1240,12 +1025,12 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     access_lock_rel = 1'b0;
     access_tag_req = 1'b0;
 
-    if (host_ack_valid_req) ack_done_d = 1'b1;
+    if (host_e_valid) ack_done_d = 1'b1;
 
     unique case (state_q)
       StateIdle: begin
         access_tag_req = 1'b1;
-        access_lock_acq = host_a_valid && req_address_property == 0;
+        access_lock_acq = host_a_valid;
 
         if (access_locking) begin
           opcode_d = host_a.opcode;
@@ -1417,7 +1202,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
         host_gnt_mult[GntIdxReq].param = param_q;
         host_gnt_mult[GntIdxReq].size = host_a.size;
         host_gnt_mult[GntIdxReq].source = source_q;
-        host_gnt_mult[GntIdxReq].sink = SinkReq;
+        host_gnt_mult[GntIdxReq].sink = SinkBase;
         host_gnt_mult[GntIdxReq].denied = 1'b0;
         host_gnt_mult[GntIdxReq].corrupt = 1'b0;
         host_gnt_mult[GntIdxReq].data = data_rdata;
@@ -1429,7 +1214,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
           if (host_gnt_last) begin
             // Consume the request
-            req_ready_ram = 1'b1;
+            host_a_ready = 1'b1;
 
             access_lock_rel = 1'b1;
             state_d = StateAckWait;
@@ -1438,7 +1223,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       end
 
       StatePut: begin
-        req_ready_ram = 1'b1;
+        host_a_ready = 1'b1;
 
         access_data_req = host_a_valid;
         access_data_addr = address_q[3+:SetsWidth+3];
