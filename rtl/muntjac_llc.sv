@@ -6,8 +6,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // Number of ways is `2 ** WaysWidth`.
   parameter WaysWidth = 2,
 
-  parameter AddrWidth = 56,
   parameter DataWidth = 64,
+  parameter AddrWidth = 56,
   parameter SourceWidth = 1,
   parameter int unsigned SinkWidth   = 1,
 
@@ -30,14 +30,21 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   localparam NumWays = 2 ** WaysWidth;
   localparam MaxSize = 6;
 
+  // A cache line is 64 bytes
+  localparam LineWidth = 6;
+
+  localparam DataWidthInBytes = DataWidth / 8;
+  localparam NonBurstSize = $clog2(DataWidthInBytes);
+  localparam OffsetWidth = LineWidth - NonBurstSize;
+
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
   `TL_BIND_HOST_PORT(device, device);
 
   // Registers host_a and host_c so its content will hold until we consumed it.
   tl_regslice #(
-    .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
+    .AddrWidth (AddrWidth),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .RequestMode (2),
@@ -387,49 +394,49 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // Cache access multiplex //
   ////////////////////////////
 
-  logic                   wb_data_req;
-  logic [WaysWidth-1:0]   wb_data_way;
-  logic [SetsWidth+3-1:0] wb_data_addr;
+  logic                             wb_data_req;
+  logic [WaysWidth-1:0]             wb_data_way;
+  logic [SetsWidth+OffsetWidth-1:0] wb_data_addr;
 
-  logic                     access_tag_req;
-  logic [AddrWidth-3-1:0] access_tag_addr;
-  logic [WaysWidth-1:0]     access_tag_wway;
-  logic                     access_tag_write;
-  tag_t                     access_tag_wdata;
+  logic                              access_tag_req;
+  logic [AddrWidth-NonBurstSize-1:0] access_tag_addr;
+  logic [WaysWidth-1:0]              access_tag_wway;
+  logic                              access_tag_write;
+  tag_t                              access_tag_wdata;
 
-  logic                   access_data_req;
-  logic [WaysWidth-1:0]   access_data_way;
-  logic [SetsWidth+3-1:0] access_data_addr;
-  logic                   access_data_write;
-  logic [7:0]             access_data_wmask;
-  logic [63:0]            access_data_wdata;
+  logic                             access_data_req;
+  logic [WaysWidth-1:0]             access_data_way;
+  logic [SetsWidth+OffsetWidth-1:0] access_data_addr;
+  logic                             access_data_write;
+  logic [DataWidthInBytes-1:0]      access_data_wmask;
+  logic [DataWidth-1:0]             access_data_wdata;
 
-  logic                   refill_tag_req;
-  logic [SetsWidth+3-1:0] refill_tag_addr;
-  logic [WaysWidth-1:0]   refill_tag_wway;
-  tag_t                   refill_tag_wdata;
+  logic                             refill_tag_req;
+  logic [SetsWidth+OffsetWidth-1:0] refill_tag_addr;
+  logic [WaysWidth-1:0]             refill_tag_wway;
+  tag_t                             refill_tag_wdata;
 
-  logic                   refill_data_req;
-  logic [WaysWidth-1:0]   refill_data_way;
-  logic [SetsWidth+3-1:0] refill_data_addr;
-  logic [63:0]            refill_data_wdata;
+  logic                             refill_data_req;
+  logic [WaysWidth-1:0]             refill_data_way;
+  logic [SetsWidth+OffsetWidth-1:0] refill_data_addr;
+  logic [DataWidth-1:0]             refill_data_wdata;
 
-  logic                     release_tag_req;
-  logic [AddrWidth-3-1:0] release_tag_addr;
-  logic                     release_tag_write;
-  logic [WaysWidth-1:0]     release_tag_wway;
-  tag_t                     release_tag_wdata;
+  logic                              release_tag_req;
+  logic [AddrWidth-NonBurstSize-1:0] release_tag_addr;
+  logic                              release_tag_write;
+  logic [WaysWidth-1:0]              release_tag_wway;
+  tag_t                              release_tag_wdata;
 
-  logic                   release_data_req;
-  logic [WaysWidth-1:0]   release_data_way;
-  logic [SetsWidth+3-1:0] release_data_addr;
-  logic                   release_data_write;
-  logic [63:0]            release_data_wdata;
+  logic                             release_data_req;
+  logic [WaysWidth-1:0]             release_data_way;
+  logic [SetsWidth+OffsetWidth-1:0] release_data_addr;
+  logic                             release_data_write;
+  logic [DataWidth-1:0]             release_data_wdata;
 
-  logic                  flush_tag_req;
-  logic [SetsWidth-1:0]  flush_tag_set;
-  logic [NumWays-1:0]    flush_tag_wway;
-  tag_t                  flush_tag_wdata;
+  logic                 flush_tag_req;
+  logic [SetsWidth-1:0] flush_tag_set;
+  logic [NumWays-1:0]   flush_tag_wway;
+  tag_t                 flush_tag_wdata;
 
   logic                 tag_req;
   logic [SetsWidth-1:0] tag_set;
@@ -438,16 +445,16 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   tag_t                 tag_wdata;
   tag_t                 tag_rdata [NumWays];
 
-  logic [AddrWidth-6-1:0] tag_addr;
+  logic [AddrWidth-LineWidth-1:0] tag_addr;
 
-  logic                 data_req;
-  logic [WaysWidth-1:0] data_way;
-  logic [SetsWidth-1:0] data_set;
-  logic [2:0]           data_offset;
-  logic                 data_write;
-  logic [7:0]           data_wmask;
-  logic [63:0]          data_wdata;
-  logic [63:0]          data_rdata;
+  logic                        data_req;
+  logic [WaysWidth-1:0]        data_way;
+  logic [SetsWidth-1:0]        data_set;
+  logic [OffsetWidth-1:0]      data_offset;
+  logic                        data_write;
+  logic [DataWidthInBytes-1:0] data_wmask;
+  logic [DataWidth-1:0]        data_wdata;
+  logic [DataWidth-1:0]        data_rdata;
 
   always_comb begin
     tag_req = 1'b0;
@@ -469,7 +476,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     unique case (lock_holder_d)
       LockHolderRefill: begin
         tag_req = refill_tag_req;
-        tag_set = refill_tag_addr[SetsWidth+3-1:3];
+        tag_set = refill_tag_addr[OffsetWidth +: SetsWidth];
         tag_write = 1'b1;
         for (int i = 0; i < NumWays; i++) tag_wways[i] = refill_tag_wway == i;
         tag_wdata = refill_tag_wdata;
@@ -483,21 +490,21 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       end
       LockHolderRelease: begin
         tag_req = release_tag_req;
-        tag_set = release_tag_addr[SetsWidth+3-1:3];
+        tag_set = release_tag_addr[OffsetWidth +: SetsWidth];
         tag_write = release_tag_write;
         for (int i = 0; i < NumWays; i++) tag_wways[i] = release_tag_wway == i;
         tag_wdata = release_tag_wdata;
 
-        tag_addr = release_tag_addr[AddrWidth-3-1:3];
+        tag_addr = release_tag_addr[AddrWidth-NonBurstSize-1:OffsetWidth];
       end
       LockHolderAccess: begin
         tag_req = access_tag_req;
-        tag_set = access_tag_addr[SetsWidth+3-1:3];
+        tag_set = access_tag_addr[OffsetWidth +: SetsWidth];
         tag_write = access_tag_write;
         for (int i = 0; i < NumWays; i++) tag_wways[i] = access_tag_wway == i;
         tag_wdata = access_tag_wdata;
 
-        tag_addr = access_tag_addr[AddrWidth-3-1:3];
+        tag_addr = access_tag_addr[AddrWidth-NonBurstSize-1:OffsetWidth];
       end
       default:;
     endcase
@@ -507,8 +514,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       LockHolderRefill: begin
         data_req = refill_data_req;
         data_way = refill_data_way;
-        data_set = refill_data_addr[SetsWidth+3-1:3];
-        data_offset = refill_data_addr[2:0];
+        data_set = refill_data_addr[OffsetWidth +: SetsWidth];
+        data_offset = refill_data_addr[0 +: OffsetWidth];
         data_write = 1'b1;
         data_wmask = '1;
         data_wdata = refill_data_wdata;
@@ -516,14 +523,14 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       LockHolderWriteback: begin
         data_req = wb_data_req;
         data_way = wb_data_way;
-        data_set = wb_data_addr[SetsWidth+3-1:3];
-        data_offset = wb_data_addr[2:0];
+        data_set = wb_data_addr[OffsetWidth +: SetsWidth];
+        data_offset = wb_data_addr[0 +: OffsetWidth];
       end
       LockHolderRelease: begin
         data_req = release_data_req;
         data_way = release_data_way;
-        data_set = release_data_addr[SetsWidth+3-1:3];
-        data_offset = release_data_addr[2:0];
+        data_set = release_data_addr[OffsetWidth +: SetsWidth];
+        data_offset = release_data_addr[0 +: OffsetWidth];
         data_write = release_data_write;
         data_wmask = '1;
         data_wdata = release_data_wdata;
@@ -531,8 +538,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       LockHolderAccess: begin
         data_req = access_data_req;
         data_way = access_data_way;
-        data_set = access_data_addr[SetsWidth+3-1:3];
-        data_offset = access_data_addr[2:0];
+        data_set = access_data_addr[OffsetWidth +: SetsWidth];
+        data_offset = access_data_addr[0 +: OffsetWidth];
         data_write = access_data_write;
         data_wmask = access_data_wmask;
         data_wdata = access_data_wdata;
@@ -545,7 +552,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // Cache tag check //
   /////////////////////
 
-  logic [AddrWidth-6-1:0] tag_addr_q;
+  logic [AddrWidth-LineWidth-1:0] tag_addr_q;
 
   logic [NumWays-1:0] hit;
   logic [WaysWidth-1:0] hit_way_fallback;
@@ -556,7 +563,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     hit = '0;
     for (int i = 0; i < NumWays; i++) begin
       if (tag_rdata[i].valid &&
-          tag_rdata[i].tag == tag_addr[AddrWidth-6-1:SetsWidth]) begin
+          tag_rdata[i].tag == tag_addr[AddrWidth-LineWidth-1:SetsWidth]) begin
           hit[i] = 1'b1;
       end
     end
@@ -597,9 +604,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // SRAM Instantiation //
   ////////////////////////
 
-  logic [63:0] data_wmask_expanded;
+  logic [DataWidth-1:0] data_wmask_expanded;
   always_comb begin
-    for (int i = 0; i < 8; i++) begin
+    for (int i = 0; i < DataWidthInBytes; i++) begin
       data_wmask_expanded[i * 8 +: 8] = data_wmask[i] ? 8'hff : 8'h00;
     end
   end
@@ -621,8 +628,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   end
 
   prim_ram_1p #(
-    .Width           (64),
-    .Depth           (2 ** (WaysWidth + SetsWidth + 3)),
+    .Width           (DataWidth),
+    .Depth           (2 ** (WaysWidth + SetsWidth + OffsetWidth)),
     .DataBitsPerMask (8)
   ) data_ram (
     .clk_i   (clk_i),
@@ -645,16 +652,16 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     WbStateDone
   } wb_state_e;
 
-  logic                 wb_req_valid;
-  logic [WaysWidth-1:0] wb_req_way;
-  logic [AddrWidth-7:0] wb_req_address;
+  logic                           wb_req_valid;
+  logic [WaysWidth-1:0]           wb_req_way;
+  logic [AddrWidth-LineWidth-1:0] wb_req_address;
 
   logic wb_complete;
 
-  wb_state_e            wb_state_q, wb_state_d;
-  logic [WaysWidth-1:0] wb_way_q, wb_way_d;
-  logic [2:0]           wb_offset_q, wb_offset_d;
-  logic [AddrWidth-7:0] wb_address_q, wb_address_d;
+  wb_state_e                    wb_state_q, wb_state_d;
+  logic [WaysWidth-1:0]         wb_way_q, wb_way_d;
+  logic [OffsetWidth-1:0]       wb_offset_q, wb_offset_d;
+  logic [AddrWidth-LineWidth:0] wb_address_q, wb_address_d;
 
   always_comb begin
     wb_data_req = 1'b0;
@@ -672,9 +679,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     device_req_valid_mult[ReqIdxWb] = 1'b0;
     device_req_mult[ReqIdxWb].opcode = PutFullData;
     device_req_mult[ReqIdxWb].param = 0;
-    device_req_mult[ReqIdxWb].size = 6;
+    device_req_mult[ReqIdxWb].size = LineWidth;
     device_req_mult[ReqIdxWb].source = SourceWriteback;
-    device_req_mult[ReqIdxWb].address = {wb_address_q, 6'd0};
+    device_req_mult[ReqIdxWb].address = {wb_address_q, {LineWidth{1'b0}}};
     device_req_mult[ReqIdxWb].mask = '1;
     device_req_mult[ReqIdxWb].corrupt = 1'b0;
     device_req_mult[ReqIdxWb].data = data_rdata;
@@ -745,9 +752,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // Refill Logic //
   //////////////////
 
-  logic                 refill_req_valid;
-  logic [AddrWidth-7:0] refill_req_address;
-  logic [WaysWidth-1:0] refill_req_way;
+  logic                           refill_req_valid;
+  logic [AddrWidth-LineWidth-1:0] refill_req_address;
+  logic [WaysWidth-1:0]           refill_req_way;
 
   logic refill_complete;
 
@@ -759,10 +766,10 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
 
-  logic                 refill_req_sent_q, refill_req_sent_d;
-  logic [AddrWidth-7:0] refill_address_q, refill_address_d;
-  logic [WaysWidth-1:0] refill_way_q, refill_way_d;
-  logic [2:0]           refill_index_q, refill_index_d;
+  logic                           refill_req_sent_q, refill_req_sent_d;
+  logic [AddrWidth-LineWidth-1:0] refill_address_q, refill_address_d;
+  logic [WaysWidth-1:0]           refill_way_q, refill_way_d;
+  logic [OffsetWidth-1:0]         refill_index_q, refill_index_d;
 
   always_comb begin
     refill_tag_wway = 'x;
@@ -789,9 +796,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     device_req_valid_mult[ReqIdxRefill] = !refill_req_sent_q && refill_locked;
     device_req_mult[ReqIdxRefill].opcode = Get;
     device_req_mult[ReqIdxRefill].param = 0;
-    device_req_mult[ReqIdxRefill].size = 6;
+    device_req_mult[ReqIdxRefill].size = LineWidth;
     device_req_mult[ReqIdxRefill].source = SourceRefill;
-    device_req_mult[ReqIdxRefill].address = {refill_address_q, 6'd0};
+    device_req_mult[ReqIdxRefill].address = {refill_address_q, {LineWidth{1'b0}}};
     device_req_mult[ReqIdxRefill].mask = '1;
     device_req_mult[ReqIdxRefill].corrupt = 1'b0;
 
@@ -1061,7 +1068,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
         access_data_req = 1'b1;
         access_data_way = hit_way;
-        access_data_addr = address_q[AddrWidth-1:3];
+        access_data_addr = address_q[AddrWidth-1:NonBurstSize];
 
         if (|hit) begin
           case (opcode_q)
@@ -1135,12 +1142,12 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
             state_d = StateWb;
             wb_req_valid = 1'b1;
             wb_req_way = hit_way;
-            wb_req_address = hit_tag_addr[AddrWidth-1:6];
+            wb_req_address = hit_tag_addr[AddrWidth-1:LineWidth];
           end else begin
             state_d = StateFill;
             evict_d = evict_q + 1;
             refill_req_valid = 1'b1;
-            refill_req_address = address_q[AddrWidth-1:6];
+            refill_req_address = address_q[AddrWidth-1:LineWidth];
             refill_req_way = hit_way;
           end
         end
@@ -1182,7 +1189,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
         if (wb_complete) begin
           state_d = StateFill;
           refill_req_valid = 1'b1;
-          refill_req_address = address_q[AddrWidth-1:6];
+          refill_req_address = address_q[AddrWidth-1:LineWidth];
           refill_req_way = way_q;
         end
       end
@@ -1208,9 +1215,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
         host_gnt_mult[GntIdxReq].data = data_rdata;
 
         if (host_gnt_ready_mult[GntIdxReq]) begin
-          address_d = address_q + 8;
+          address_d = address_q + (2 ** NonBurstSize);
           access_data_req = 1'b1;
-          access_data_addr = address_d[AddrWidth-1:3];
+          access_data_addr = address_d[AddrWidth-1:NonBurstSize];
 
           if (host_gnt_last) begin
             // Consume the request
@@ -1226,13 +1233,13 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
         host_a_ready = 1'b1;
 
         access_data_req = host_a_valid;
-        access_data_addr = address_q[3+:SetsWidth+3];
+        access_data_addr = address_q[NonBurstSize+:SetsWidth+OffsetWidth];
         access_data_write = 1'b1;
         access_data_wmask = host_a.mask;
         access_data_wdata = host_a.data;
 
         if (host_a_valid) begin
-          address_d = address_q + 8;
+          address_d = address_q + (2 ** NonBurstSize);
         end
 
         if (host_a_valid && host_req_last) begin
@@ -1262,7 +1269,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
       end
     endcase
 
-    access_tag_addr = address_d[AddrWidth-1:3];
+    access_tag_addr = address_d[AddrWidth-1:NonBurstSize];
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
@@ -1306,7 +1313,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   assign host_b_valid = |probe_pending_q;
   assign host_b.opcode = ProbeBlock;
   assign host_b.param = probe_param_q;
-  assign host_b.size = 6;
+  assign host_b.size = LineWidth;
   assign host_b.address = probe_address_q;
   assign host_b.mask = '1;
   assign host_b.corrupt = 1'b0;
@@ -1400,7 +1407,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     release_data_wdata = 'x;
 
     release_tag_req = 1'b0;
-    release_tag_addr = host_c.address[AddrWidth-1:3];
+    release_tag_addr = host_c.address[AddrWidth-1:NonBurstSize];
 
     rel_state_d = rel_state_q;
     rel_addr_sent_d = rel_addr_sent_q;
@@ -1464,12 +1471,12 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
         release_data_req = host_c_valid && (host_c.opcode == ProbeAckData || host_c.opcode == ReleaseData);
         release_data_way = hit_way;
-        release_data_addr = rel_wptr_q[3+:SetsWidth+3];
+        release_data_addr = rel_wptr_q[NonBurstSize+:SetsWidth+OffsetWidth];
         release_data_write = 1'b1;
         release_data_wdata = host_c.data;
 
         if (host_c_valid) begin
-          rel_wptr_d = rel_wptr_q + 8;
+          rel_wptr_d = rel_wptr_q + (2 ** NonBurstSize);
         end
 
         if (host_c_valid && rel_last) begin
@@ -1485,7 +1492,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
         host_gnt_valid_mult[GntIdxRel] = 1'b1;
         host_gnt_mult[GntIdxRel].opcode = ReleaseAck;
         host_gnt_mult[GntIdxRel].param = 0;
-        host_gnt_mult[GntIdxRel].size = 6;
+        host_gnt_mult[GntIdxRel].size = LineWidth;
         host_gnt_mult[GntIdxRel].source = rel_source_q;
         host_gnt_mult[GntIdxRel].sink = 'x;
         host_gnt_mult[GntIdxRel].denied = 1'b0;
