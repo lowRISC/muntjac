@@ -14,6 +14,7 @@ filesets:
       - lowrisc:prim:fifo_sync
       - lowrisc:tl:common
       - lowrisc:tl:socket_m1
+      - lowrisc:tl:adapter
     files:
       - ../rtl/muntjac_core.sv
       - ../rtl/muntjac_ptw.sv
