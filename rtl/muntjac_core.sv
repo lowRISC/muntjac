@@ -84,27 +84,6 @@ module muntjac_core import muntjac_pkg::*; #(
     `TL_CONNECT_HOST_PORT(device, mem)
   );
 
-  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, dcache_mem);
-  tl_adapter #(
-    .HostDataWidth (64),
-    .DeviceDataWidth (DataWidth),
-    .HostAddrWidth (PhysAddrLen),
-    .DeviceAddrWidth (PhysAddrLen),
-    .HostSourceWidth (SourceWidth),
-    .DeviceSourceWidth (SourceWidth),
-    .HostSinkWidth (SinkWidth),
-    .DeviceSinkWidth (SinkWidth),
-    .HostMaxSize (6),
-    .DeviceMaxSize (6),
-    .HostFifo (1'b0),
-    .DeviceFifo (1'b0)
-  ) dcache_mem_adapter (
-    .clk_i,
-    .rst_ni,
-    `TL_CONNECT_DEVICE_PORT(host, dcache_mem),
-    `TL_CONNECT_HOST_PORT_IDX(device, ch, [0])
-  );
-
   `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, dcache_ptw);
   tl_adapter #(
     .HostDataWidth (64),
@@ -124,27 +103,6 @@ module muntjac_core import muntjac_pkg::*; #(
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT(host, dcache_ptw),
     `TL_CONNECT_HOST_PORT_IDX(device, ch, [2])
-  );
-
-  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, icache_mem);
-  tl_adapter #(
-    .HostDataWidth (64),
-    .DeviceDataWidth (DataWidth),
-    .HostAddrWidth (PhysAddrLen),
-    .DeviceAddrWidth (PhysAddrLen),
-    .HostSourceWidth (SourceWidth),
-    .DeviceSourceWidth (SourceWidth),
-    .HostSinkWidth (SinkWidth),
-    .DeviceSinkWidth (SinkWidth),
-    .HostMaxSize (6),
-    .DeviceMaxSize (6),
-    .HostFifo (1'b0),
-    .DeviceFifo (1'b0)
-  ) icache_mem_adapter (
-    .clk_i,
-    .rst_ni,
-    `TL_CONNECT_DEVICE_PORT(host, icache_mem),
-    `TL_CONNECT_HOST_PORT_IDX(device, ch, [1])
   );
 
   `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, icache_ptw);
@@ -169,6 +127,7 @@ module muntjac_core import muntjac_pkg::*; #(
   );
 
   muntjac_icache #(
+    .DataWidth (DataWidth),
     .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
@@ -179,11 +138,12 @@ module muntjac_core import muntjac_pkg::*; #(
     .rst_ni,
     .cache_h2d_i (icache_h2d),
     .cache_d2h_o (icache_d2h),
-    `TL_CONNECT_HOST_PORT(mem, icache_mem),
+    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [1]),
     `TL_CONNECT_HOST_PORT(mem_ptw, icache_ptw)
   );
 
   muntjac_dcache #(
+    .DataWidth (DataWidth),
     .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
@@ -194,7 +154,7 @@ module muntjac_core import muntjac_pkg::*; #(
     .rst_ni,
     .cache_h2d_i (dcache_h2d),
     .cache_d2h_o (dcache_d2h),
-    `TL_CONNECT_HOST_PORT(mem, dcache_mem),
+    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [0]),
     `TL_CONNECT_HOST_PORT(mem_ptw, dcache_ptw)
   );
 
