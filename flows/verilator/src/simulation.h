@@ -151,12 +151,7 @@ public:
     // exit
     else {
       MUNTJAC_LOG(0) << "Exiting with argument " << write_data << endl;
-
-      if (write_data == 1)
-        exit_code = 0;
-      else
-        exit_code = 1;
-
+      exit_code = write_data;
       Verilated::gotFinish(true);
     }
   }
