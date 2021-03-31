@@ -13,8 +13,8 @@ module tl_source_shifter #(
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
 );
 
   `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
