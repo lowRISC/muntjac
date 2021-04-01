@@ -5,8 +5,8 @@
 #include "common.h"
 
 // Communication with the host system.
-extern uint64_t tohost;
-extern uint64_t fromhost;
+extern volatile uint64_t tohost;
+extern volatile uint64_t fromhost;
 
 // Data to write to tohost to indicate the service being requested.
 // If the service takes an argument, the least significant byte will be used.

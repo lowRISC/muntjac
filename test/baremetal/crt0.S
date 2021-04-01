@@ -69,6 +69,10 @@ csr_init:
   la x10, simple_exc_handler
   csrw mtvec, x10
 
+  # Enable FPU if there is one
+  li a0, 0x6000
+  csrs mstatus, a0
+
 main_entry:
   # Jump to main program entry point (argc = argv = 0)
   addi x10, x0, 0
