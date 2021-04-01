@@ -83,9 +83,16 @@ typedef unsigned short ee_u16;
 typedef signed int ee_s32;
 typedef double ee_f32;
 typedef unsigned char ee_u8;
-typedef unsigned int ee_u32;
-typedef unsigned long ee_u64;
+
+// NOTE: defining u32 as signed. Leaving it as unsigned penalises 64-bit
+// architectures which often must use two additional shifts to zero-extend to
+// 32 bits.
+typedef signed int ee_u32;
+
+// Muntjac's pointer type.
+typedef unsigned long long ee_u64;
 typedef ee_u64 ee_ptr_int;
+
 typedef size_t ee_size_t;
 #define NULL ((void *)0)
 /* align_mem :

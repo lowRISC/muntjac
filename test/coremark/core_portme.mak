@@ -50,13 +50,14 @@ PORT_CFLAGS = -g -march=$(RISCV_ISA) -mabi=$(RISCV_ABI) -static -mcmodel=medany 
 	-DTOTAL_DATA_SIZE=2000 -DMAIN_HAS_NOARGC=1 \
 	-DPERFORMANCE_RUN=1
 
-FLAGS_STR = "$(PORT_CFLAGS) $(XCFLAGS) $(XLFLAGS) $(LFLAGS_END)"
 CFLAGS += $(PORT_CFLAGS) $(XCFLAGS) -I$(PORT_DIR) -I$(BAREMETAL_DIR) -I.
 
 # Flag : LFLAGS_END
 #	Define any libraries needed for linking or other flags that should come at the end of the link line (e.g. linker scripts).
 #	Note : On certain platforms, the default clock_gettime implementation is supported but requires linking of librt.
 LFLAGS_END = -T $(LINKER_SCRIPT) -lm -lgcc
+
+FLAGS_STR = "$(PORT_CFLAGS) $(XCFLAGS) $(XLFLAGS) $(LFLAGS_END)"
 
 #SEPARATE_COMPILE=1
 # Flag : SEPARATE_COMPILE

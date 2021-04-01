@@ -6,7 +6,7 @@ OUTPUT_ARCH( "riscv" )
 ENTRY(_start)
 
 /* System calls and I/O cannot be cached. This uncached address must match the
-   AddressBase parameter in the last-level cache and any relevant TileLink
+   AddressBase parameter in Muntjac's last-level cache and any relevant TileLink
    modules. */
 MEMORY
 {
@@ -20,7 +20,8 @@ SECTIONS
 
   .text.init : { *(.text.init) } > program
 
-  .text : {
+  .text :
+  {
     . = ALIGN(0x1000);
     *(.text)
     *(.text.*)
@@ -33,16 +34,17 @@ SECTIONS
     /* Small data before large data */
     *(.sdata)
     *(.sdata.*)
-    *(.data);
+    *(.data)
     *(.data.*)
   } > program
 
-  .rodata : {
+  .rodata :
+  {
     . = ALIGN(8);
     /* Small RO data before large RO data */
     *(.srodata)
     *(.srodata.*)
-    *(.rodata);
+    *(.rodata)
     *(.rodata.*)
   } > program
 
@@ -54,6 +56,7 @@ SECTIONS
     *(.sbss.*)
     *(.bss)
     *(.bss.*)
+    *(COMMON)
 
     . = ALIGN(8);
     __bss_end = .;
