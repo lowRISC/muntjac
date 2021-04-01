@@ -43,12 +43,13 @@ LD = $(RISCV_PREFIX)-ld
 AS = $(RISCV_PREFIX)-as
 # Flag : CFLAGS
 #	Use this flag to define compiler options. Note, you can add compiler options from the command line using XCFLAGS="other flags"
-PORT_CFLAGS = -g -march=$(RISCV_ISA) -mabi=$(RISCV_ABI) -static -mcmodel=medany -mtune=sifive-3-series \
-  -O3 -falign-functions=16 -funroll-all-loops \
-	-finline-functions -falign-jumps=4 \
+PORT_CFLAGS = -g -march=$(RISCV_ISA) -mabi=$(RISCV_ABI) -static -mcmodel=medany \
+  -O2 -fno-common -funroll-loops \
+  -finline-functions --param max-inline-insns-auto=20 \
+  -falign-functions=8 -falign-jumps=8 -falign-loops=8 \
   -nostdlib -nostartfiles -ffreestanding -mstrict-align \
-	-DTOTAL_DATA_SIZE=2000 -DMAIN_HAS_NOARGC=1 \
-	-DPERFORMANCE_RUN=1
+  -DTOTAL_DATA_SIZE=2000 -DMAIN_HAS_NOARGC=1 \
+  -DPERFORMANCE_RUN=1
 
 CFLAGS += $(PORT_CFLAGS) $(XCFLAGS) -I$(PORT_DIR) -I$(BAREMETAL_DIR) -I.
 
