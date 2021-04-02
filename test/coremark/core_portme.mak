@@ -44,7 +44,7 @@ AS = $(RISCV_PREFIX)-as
 # Flag : CFLAGS
 #	Use this flag to define compiler options. Note, you can add compiler options from the command line using XCFLAGS="other flags"
 PORT_CFLAGS = -g -march=$(RISCV_ISA) -mabi=$(RISCV_ABI) -static -mcmodel=medany \
-  -O2 -fno-common -funroll-loops \
+  -O2 -fno-common -funroll-loops -flto -funswitch-loops \
   -finline-functions --param max-inline-insns-auto=20 \
   -falign-functions=8 -falign-jumps=8 -falign-loops=8 \
   -nostdlib -nostartfiles -ffreestanding -mstrict-align \
