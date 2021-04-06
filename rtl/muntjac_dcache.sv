@@ -276,6 +276,112 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     end
   end
 
+  /////////////////////////////////
+  // Burst tracker instantiation //
+  /////////////////////////////////
+
+  wire mem_req_last;
+
+  tl_burst_tracker #(
+    .AddrWidth (PhysAddrLen),
+    .DataWidth (DataWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .MaxSize (6)
+  ) mem_burst_tracker (
+    .clk_i,
+    .rst_ni,
+    `TL_FORWARD_TAP_PORT_FROM_HOST(link, mem),
+    .req_len_o (),
+    .prb_len_o (),
+    .rel_len_o (),
+    .gnt_len_o (),
+    .req_idx_o (),
+    .prb_idx_o (),
+    .rel_idx_o (),
+    .gnt_idx_o (),
+    .req_left_o (),
+    .prb_left_o (),
+    .rel_left_o (),
+    .gnt_left_o (),
+    .req_first_o (),
+    .prb_first_o (),
+    .rel_first_o (),
+    .gnt_first_o (),
+    .req_last_o (mem_req_last),
+    .prb_last_o (),
+    .rel_last_o (),
+    .gnt_last_o ()
+  );
+
+  /////////////////////////////////
+  // Request channel arbitration //
+  /////////////////////////////////
+
+  typedef `TL_A_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) req_t;
+
+  // We have two origins of A channel requests to memory:
+  // 0. Request logic
+  // 1. Uncached memory access
+  localparam ReqOrigins = 2;
+  localparam ReqIdxRefill = 0;
+  localparam ReqIdxUncached = 1;
+
+  // Grouped signals before multiplexing/arbitration
+  req_t [ReqOrigins-1:0] mem_req_mult;
+  logic [ReqOrigins-1:0] mem_req_valid_mult;
+  logic [ReqOrigins-1:0] mem_req_ready_mult;
+
+  // Signals for arbitration
+  logic [ReqOrigins-1:0] mem_req_arb_grant;
+  logic                  mem_req_locked;
+  logic [ReqOrigins-1:0] mem_req_selected;
+
+  openip_round_robin_arbiter #(.WIDTH(ReqOrigins)) mem_req_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (mem_a_valid && mem_a_ready && !mem_req_locked),
+    .request (mem_req_valid_mult),
+    .grant   (mem_req_arb_grant)
+  );
+
+  // Perform arbitration, and make sure that until we encounter mem_req_last we keep the connection stable.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      mem_req_locked <= 1'b0;
+      mem_req_selected <= '0;
+    end
+    else begin
+      if (mem_a_valid && mem_a_ready) begin
+        if (!mem_req_locked) begin
+          mem_req_locked   <= 1'b1;
+          mem_req_selected <= mem_req_arb_grant;
+        end
+        if (mem_req_last) begin
+          mem_req_locked <= 1'b0;
+        end
+      end
+    end
+  end
+
+  wire [ReqOrigins-1:0] mem_req_select = mem_req_locked ? mem_req_selected : mem_req_arb_grant;
+
+  for (genvar i = 0; i < ReqOrigins; i++) begin
+    assign mem_req_ready_mult[i] = mem_req_select[i] && mem_a_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    mem_a = req_t'('x);
+    mem_a_valid = 1'b0;
+    for (int i = ReqOrigins - 1; i >= 0; i--) begin
+      if (mem_req_select[i]) begin
+        mem_a = mem_req_mult[i];
+        mem_a_valid = mem_req_valid_mult[i];
+      end
+    end
+  end
+
   //////////////////////////////////
   // MEM Channel D Demultiplexing //
   //////////////////////////////////
@@ -297,7 +403,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   prim_fifo_sync #(
     .Width ($bits(gnt_t)),
     .Pass  (1'b1),
-    .Depth (2 ** (LineWidth - NonBurstSize))
+    .Depth (2 ** (LineWidth - NonBurstSize) + 1)
   ) gnt_fifo (
     .clk_i,
     .rst_ni,
@@ -1365,6 +1471,139 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     end
   end
 
+  ///////////////////////////////////
+  // Cache-line Miss Acquire Logic //
+  ///////////////////////////////////
+
+  logic                             acq_req_valid;
+  logic [2:0]                       acq_req_param;
+  logic [PhysAddrLen-LineWidth-1:0] acq_req_address;
+
+  logic acq_resp_valid;
+  logic acq_resp_exception;
+
+  logic acq_pending_q, acq_pending_d;
+  logic acq_req_sent_q, acq_req_sent_d;
+
+  always_comb begin
+    acq_resp_valid = 1'b0;
+    acq_resp_exception = 1'b0;
+
+    mem_req_valid_mult[ReqIdxRefill] = 1'b0;
+    mem_req_mult[ReqIdxRefill] = 'x;
+
+    acq_pending_d = acq_pending_q;
+    acq_req_sent_d = acq_req_sent_q;
+
+    if (acq_pending_q) begin
+      mem_req_valid_mult[ReqIdxRefill] = !acq_req_sent_q;
+      mem_req_mult[ReqIdxRefill].opcode = AcquireBlock;
+      mem_req_mult[ReqIdxRefill].param = acq_req_param;
+      mem_req_mult[ReqIdxRefill].size = 6;
+      mem_req_mult[ReqIdxRefill].address = {acq_req_address, {LineWidth{1'b0}}};
+      mem_req_mult[ReqIdxRefill].source = SourceBase;
+      mem_req_mult[ReqIdxRefill].mask = '1;
+      mem_req_mult[ReqIdxRefill].corrupt = 1'b0;
+
+      if (mem_req_ready_mult[ReqIdxRefill]) begin
+        acq_req_sent_d = 1'b1;
+      end
+
+      if (mem_grant_last) begin
+        acq_pending_d = 1'b0;
+        acq_resp_valid = 1'b1;
+        if (mem_grant_denied) begin
+          acq_resp_exception = 1'b1;
+        end
+      end
+    end
+
+    if (acq_req_valid) begin
+      acq_pending_d = 1'b1;
+      acq_req_sent_d = 1'b0;
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      acq_pending_q <= 1'b0;
+      acq_req_sent_q <= 1'b0;
+    end else begin
+      acq_pending_q <= acq_pending_d;
+      acq_req_sent_q <= acq_req_sent_d;
+    end
+  end
+
+  //////////////////////////////////
+  // Uncached Memory Access Logic //
+  //////////////////////////////////
+
+  logic                   uncached_req_valid;
+  logic                   uncached_req_write;
+  logic [1:0]             uncached_req_size;
+  logic [PhysAddrLen-1:0] uncached_req_address;
+  logic [7:0]             uncached_req_mask;
+  logic [63:0]            uncached_req_data;
+
+  logic        uncached_resp_valid;
+  logic        uncached_resp_exception;
+  logic [63:0] uncached_resp_data;
+
+  logic uncached_pending_q, uncached_pending_d;
+  logic uncached_req_sent_q, uncached_req_sent_d;
+
+  always_comb begin
+    uncached_resp_valid = 1'b0;
+    uncached_resp_exception = 1'b0;
+    uncached_resp_data = 'x;
+
+    mem_req_valid_mult[ReqIdxUncached] = 1'b0;
+    mem_req_mult[ReqIdxUncached] = 'x;
+
+    uncached_pending_d = uncached_pending_q;
+    uncached_req_sent_d = uncached_req_sent_q;
+
+    if (uncached_pending_q) begin
+      mem_req_valid_mult[ReqIdxUncached] = !uncached_req_sent_q;
+      mem_req_mult[ReqIdxUncached].opcode = uncached_req_write ? PutFullData : Get;
+      mem_req_mult[ReqIdxUncached].param = 0;
+      mem_req_mult[ReqIdxUncached].size = uncached_req_size;
+      mem_req_mult[ReqIdxUncached].address = uncached_req_address;
+      mem_req_mult[ReqIdxUncached].source = SourceBase;
+      mem_req_mult[ReqIdxUncached].mask = tl_align_strb(uncached_req_mask, uncached_req_address[NonBurstSize-1:0]);
+      mem_req_mult[ReqIdxUncached].data = tl_align_store(uncached_req_data);
+
+      if (mem_req_ready_mult[ReqIdxUncached]) begin
+        uncached_req_sent_d = 1'b1;
+      end
+
+      if (mem_grant_valid_access) begin
+        uncached_pending_d = 1'b0;
+        uncached_resp_valid = 1'b1;
+        if (mem_grant_denied) begin
+          uncached_resp_exception = 1'b1;
+        end else begin
+          uncached_resp_data = tl_align_load(mem_grant_data, uncached_req_address[NonBurstSize-1:0]);
+        end
+      end
+    end
+
+    if (uncached_req_valid) begin
+      uncached_pending_d = 1'b1;
+      uncached_req_sent_d = 1'b0;
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      uncached_pending_q <= 1'b0;
+      uncached_req_sent_q <= 1'b0;
+    end else begin
+      uncached_pending_q <= uncached_pending_d;
+      uncached_req_sent_q <= uncached_req_sent_d;
+    end
+  end
+
   ////////////////
   // Main Logic //
   ////////////////
@@ -1374,8 +1613,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     StateFetch,
     StateReplay,
     StateWaitTLB,
-    StateEvict,
     StateFill,
+    StateReplayPre,
+    StateUncachedPre,
+    StateExceptionPre,
     StateUncached,
     StateExceptionLocked,
     StateException
@@ -1387,7 +1628,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   exc_cause_e ex_code_q, ex_code_d;
 
   // Fill-related logic
-  logic req_sent_q, req_sent_d;
+  logic evict_completed_q, evict_completed_d;
 
   // Helper signal to detect if req_address is a canonical address
   wire canonical_virtual  = ~|req_address[63:VirtAddrLen-1] | &req_address[63:VirtAddrLen-1];
@@ -1423,10 +1664,17 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     resp_value = 'x;
     ex_valid = 1'b0;
     ex_exception = exception_t'('x);
-    mem_a_valid = 1'b0;
-    mem_a = 'x;
-    mem_a.source = SourceBase;
-    mem_a.corrupt = 1'b0;
+
+    acq_req_valid = 1'b0;
+    acq_req_param = 'x;
+    acq_req_address = 'x;
+
+    uncached_req_valid = 1'b0;
+    uncached_req_write = 'x;
+    uncached_req_size = 'x;
+    uncached_req_address = 'x;
+    uncached_req_mask = 'x;
+    uncached_req_data = 'x;
 
     wb_rel_req_valid = 1'b0;
     wb_rel_req_way = 'x;
@@ -1464,11 +1712,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     evict_way_d = evict_way_q;
     way_d = way_q;
     ex_code_d = ex_code_q;
-    req_sent_d = req_sent_q;
+    evict_completed_d = evict_completed_q;
 
     reserved_d = reserved_q;
     reservation_d = reservation_q;
     reservation_failed_d = reservation_failed_q;
+
+    if (mem_grant_valid_rel_ack) begin
+      evict_completed_d = 1'b1;
+    end
 
     unique case (state_q)
       StateIdle: begin
@@ -1529,23 +1781,24 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             evict_way_d = evict_way_q + 1;
           end
 
-          req_sent_d = 1'b0;
+          evict_completed_d = 1'b1;
           state_d = StateFill;
+          acq_req_valid = 1'b1;
 
           if (hit_tag.valid &&
               hit_tag.writable) begin
-            state_d = StateEvict;
+            evict_completed_d = 1'b0;
 
             wb_rel_req_valid = 1'b1;
             wb_rel_req_way = way_d;
             wb_rel_req_address = {hit_tag.tag, address_q[6+:SetsWidth]};
             wb_rel_req_dirty = hit_tag.dirty;
             wb_rel_req_param = TtoN;
-
-            // Make tag invalid
-            access_write_req_tag = 1'b1;
-            access_write_tag.valid = 1'b0;
           end
+
+          // Make tag invalid
+          access_write_req_tag = 1'b1;
+          access_write_tag.valid = 1'b0;
         end
       end
 
@@ -1563,60 +1816,62 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
 
-      StateEvict: begin
-        if (mem_grant_valid_rel_ack) begin
-          state_d = StateFill;
-        end
-      end
-
       StateFill: begin
-        mem_a_valid = !req_sent_q;
-        mem_a.opcode = AcquireBlock;
-        mem_a.param = op_q != MEM_LOAD ? (|hit ? tl_pkg::BtoT : tl_pkg::NtoT) : tl_pkg::NtoB;
-        mem_a.size = 6;
-        mem_a.address = {address_phys[PhysAddrLen-1:6], 6'd0};
-        mem_a.mask = '1;
-        if (mem_a_ready) begin
-          req_sent_d = 1'b1;
-        end
+        acq_req_param = op_q != MEM_LOAD ? tl_pkg::NtoT : tl_pkg::NtoB;
+        acq_req_address = address_phys[PhysAddrLen-1:6];
 
-        if (mem_grant_last) begin
-          if (mem_grant_denied) begin
+        if (acq_resp_valid) begin
+          if (acq_resp_exception) begin
             // In case of denied, this can be:
             // * An actual access error
             // * The target just denies AcquireBlock
             // So if the op is MEM_LOAD or MEM_STORE, we try uncached access, otherwise it is an access error.
             case (op_q)
               MEM_LOAD, MEM_STORE: begin
-                req_sent_d = 1'b0;
-                state_d = StateUncached;
+                state_d = StateUncachedPre;
               end
               MEM_LR, MEM_SC, MEM_AMO: begin
                 ex_code_d = EXC_CAUSE_STORE_ACCESS_FAULT;
-                state_d = StateException;
+                state_d = StateExceptionPre;
               end
             endcase
           end else begin
             // Re-acquire lock that refiller released.
             // FIXME: Maybe should let refiller give lock back to us like I$.
-            state_d = StateReplay;
-            access_lock_acq = 1'b1;
+            state_d = StateReplayPre;
           end
         end
       end
 
-      StateUncached: begin
-        mem_a_valid = !req_sent_q;
-        mem_a.opcode = op_q[0] ? Get : PutFullData;
-        mem_a.param = 0;
-        mem_a.size = size_q;
-        mem_a.address = address_phys;
-        mem_a.mask = tl_align_strb(align_strb(address_q[2:0], size_q), address_q[NonBurstSize-1:0]);
-        mem_a.data = tl_align_store(align_store(value_q, address_q[2:0]));
-        if (mem_a_ready) req_sent_d = 1'b1;
+      StateReplayPre: begin
+        if (evict_completed_d) begin
+          state_d = StateReplay;
+          access_lock_acq = 1'b1;
+        end
+      end
 
-        if (mem_grant_valid_access) begin
-          if (mem_grant_denied) begin
+      StateUncachedPre: begin
+        if (evict_completed_d) begin
+          state_d = StateUncached;
+          uncached_req_valid = 1'b1;
+        end
+      end
+
+      StateExceptionPre: begin
+        if (evict_completed_d) begin
+          state_d = StateException;
+        end
+      end
+
+      StateUncached: begin
+        uncached_req_write = !op_q[0];
+        uncached_req_size = size_q;
+        uncached_req_address = address_phys;
+        uncached_req_mask = align_strb(address_q[2:0], size_q);
+        uncached_req_data = align_store(value_q, address_q[2:0]);
+
+        if (uncached_resp_valid) begin
+          if (uncached_resp_exception) begin
             state_d = StateException;
             ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
           end
@@ -1624,7 +1879,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             cache_d2h_o.req_ready = 1'b1;
             resp_valid = 1'b1;
             resp_value = align_load(
-                .value (tl_align_load(mem_grant_data, address_q[NonBurstSize-1:0])),
+                .value (uncached_resp_data),
                 .addr (address_q[2:0]),
                 .size (size_q),
                 .size_ext (size_ext_q)
@@ -1705,7 +1960,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       amo_q <= 'x;
       evict_way_q <= 0;
       way_q <= 'x;
-      req_sent_q <= '0;
+      evict_completed_q <= 1'b1;
       ex_code_q <= exc_cause_e'('x);
       reserved_q <= 1'b0;
       reservation_q <= 'x;
@@ -1720,7 +1975,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       amo_q <= amo_d;
       evict_way_q <= evict_way_d;
       way_q <= way_d;
-      req_sent_q <= req_sent_d;
+      evict_completed_q <= evict_completed_d;
       ex_code_q <= ex_code_d;
       reserved_q <= reserved_d;
       reservation_q <= reservation_d;
