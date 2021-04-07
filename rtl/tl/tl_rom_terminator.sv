@@ -1,58 +1,56 @@
 `include "tl_util.svh"
 
+// This module terminates a TL-C link and converts it to a TL-UH link.
+// It will deny all requests that need write permission. It will allow Get requests through and
+// convert readonly Acquire to Get.
 module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
-  parameter  int unsigned SourceWidth = 1,
+  parameter  int unsigned HostSourceWidth = 1,
+  parameter  int unsigned DeviceSourceWidth = 1,
   parameter  int unsigned SinkWidth   = 1,
   parameter  int unsigned MaxSize     = 6,
 
-  parameter  bit [SinkWidth-1:0] SinkBase = 0
+  parameter  bit [SinkWidth-1:0] SinkBase = 0,
+  parameter  bit [SinkWidth-1:0] SinkMask = 0
 ) (
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
 );
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
+  localparam SinkNums = SinkMask + 1;
+  localparam SinkBits = prim_util_pkg::vbits(SinkNums);
+
+  if (DeviceSourceWidth < HostSourceWidth + 1) begin
+    $fatal(1, "Not enough SourceWidth");
+  end
+
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  tl_regslice #(
-    .AddrWidth (AddrWidth),
-    .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth),
-    .RequestMode (2)
-  ) host_reg (
-    .clk_i,
-    .rst_ni,
-    `TL_FORWARD_DEVICE_PORT(host, host),
-    `TL_CONNECT_HOST_PORT(device, host)
-  );
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth) host_d_t;
 
-  /////////////////////////////////
-  // Burst tracker instantiation //
-  /////////////////////////////////
+  /////////////////////////////////////////
+  // #region Burst tracker instantiation //
 
-  wire host_req_last;
-  wire host_c_first;
+  wire host_d_first;
   wire host_d_last;
-  wire device_req_last;
-  wire device_gnt_last;
 
   tl_burst_tracker #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
+    .SourceWidth (HostSourceWidth),
     .SinkWidth (SinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,
     .rst_ni,
-    `TL_CONNECT_TAP_PORT(link, host),
+    `TL_FORWARD_TAP_PORT_FROM_DEVICE(link, host),
     .req_len_o (),
     .prb_len_o (),
     .rel_len_o (),
@@ -68,51 +66,21 @@ module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
     .req_first_o (),
     .prb_first_o (),
     .rel_first_o (),
-    .gnt_first_o (),
-    .req_last_o (host_req_last),
+    .gnt_first_o (host_d_first),
+    .req_last_o (),
     .prb_last_o (),
-    .rel_last_o (host_c_first),
+    .rel_last_o (),
     .gnt_last_o (host_d_last)
   );
 
-  tl_burst_tracker #(
-    .AddrWidth (AddrWidth),
-    .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth),
-    .MaxSize (MaxSize)
-  ) device_burst_tracker (
-    .clk_i,
-    .rst_ni,
-    `TL_FORWARD_TAP_PORT_FROM_HOST(link, device),
-    .req_len_o (),
-    .prb_len_o (),
-    .rel_len_o (),
-    .gnt_len_o (),
-    .req_idx_o (),
-    .prb_idx_o (),
-    .rel_idx_o (),
-    .gnt_idx_o (),
-    .req_left_o (),
-    .prb_left_o (),
-    .rel_left_o (),
-    .gnt_left_o (),
-    .req_first_o (),
-    .prb_first_o (),
-    .rel_first_o (),
-    .gnt_first_o (),
-    .req_last_o (device_req_last),
-    .prb_last_o (),
-    .rel_last_o (),
-    .gnt_last_o (device_gnt_last)
-  );
+  // #endregion
+  /////////////////////////////////////////
 
-  /////////////////////
-  // Unused channels //
-  /////////////////////
+  /////////////////////////////
+  // #region Unused channels //
 
-  assign host_b_valid   = 1'b0;
-  assign host_b         = 'x;
+  assign host_b_valid = 1'b0;
+  assign host_b       = 'x;
 
   assign device_b_ready = 1'b1;
 
@@ -122,252 +90,246 @@ module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
   assign device_e_valid = 1'b0;
   assign device_e       = 'x;
 
-  ///////////////////////////////
-  // Grant channel arbitration //
-  ///////////////////////////////
+  // #endregion
+  /////////////////////////////
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) gnt_t;
+  /////////////////////////////
+  // #region Sink Management //
 
-  // We have 2 origins of D channel response to host:
-  // 0. ReleaseAck response to host's Release
-  // 2. Device D channel response
-  localparam GntOrigins = 2;
-  localparam GntIdxRel = 0;
-  localparam GntIdxResp = 1;
+  // In this module we conceptually can handle infinite number of outstanding transactions, but
+  // as TileLink requires Sink identifiers to not be reused until a GrantAck is received, this
+  // logic keeps track of all available sink identifiers usable.
+  //
+  // All other logics in this module do not need to supply a plausible Sink. This logic will
+  // intercept all host's D channel messages and inject a free Sink id if necessary.
+
+  logic [SinkNums-1:0] sink_tracker_q, sink_tracker_d;
+  logic [SinkBits-1:0] sink_q, sink_d;
+  logic [SinkBits-1:0] sink_avail_idx;
+  logic                sink_avail;
+
+  host_d_t host_d_nosink;
+  logic    host_d_valid_nosink;
+  logic    host_d_ready_nosink;
+
+  always_comb begin
+    sink_avail = 1'b0;
+    sink_avail_idx = 'x;
+
+    for (int i = SinkNums - 1; i >=0 ; i--) begin
+      if (sink_tracker_q[i]) begin
+        sink_avail = 1'b1;
+        sink_avail_idx = i;
+      end
+    end
+  end
+
+  assign host_e_ready = 1'b1;
+
+  always_comb begin
+    sink_tracker_d = sink_tracker_q;
+    sink_d = sink_q;
+
+    host_d_ready_nosink = host_d_ready;
+    host_d_valid = host_d_valid_nosink;
+    host_d = host_d_nosink;
+    host_d.sink = sink_q;
+
+    if (host_d_valid_nosink && host_d_first && host_d.opcode inside {Grant, GrantData}) begin
+      host_d.sink = SinkBase | sink_avail_idx;
+      if (sink_avail) begin
+        // Allocate a new sink id.
+        if (host_d_ready) begin
+          sink_d = sink_avail_idx;
+          sink_tracker_d[sink_avail_idx] = 1'b0;
+        end
+      end else begin
+        // Block if no sink id is available.
+        host_d_ready_nosink = 1'b0;
+        host_d_valid = 1'b0;
+      end
+    end
+
+    if (host_e_valid) begin
+      // Free a sink id.
+      sink_tracker_d[host_e.sink & SinkMask] = 1'b1;
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      sink_tracker_q <= '1;
+      sink_q <= 'x;
+    end else begin
+      sink_tracker_q <= sink_tracker_d;
+      sink_q <= sink_d;
+    end
+  end
+
+  // #endregion
+  /////////////////////////////
+
+  ////////////////////////////////////////
+  // #region Host D Channel arbitration //
+
+  localparam HostDNums = 3;
+  localparam HostDIdxGnt = 0;
+  localparam HostDIdxAcq = 1;
+  localparam HostDIdxRel = 2;
 
   // Grouped signals before multiplexing/arbitration
-  gnt_t [GntOrigins-1:0] host_gnt_mult;
-  logic [GntOrigins-1:0] host_gnt_valid_mult;
-  logic [GntOrigins-1:0] host_gnt_ready_mult;
+  host_d_t [HostDNums-1:0] host_d_mult;
+  logic    [HostDNums-1:0] host_d_valid_mult;
+  logic    [HostDNums-1:0] host_d_ready_mult;
 
   // Signals for arbitration
-  logic [GntOrigins-1:0] host_gnt_arb_grant;
-  logic                  host_gnt_locked;
-  logic [GntOrigins-1:0] host_gnt_selected;
+  logic [HostDNums-1:0] host_d_arb_grant;
+  logic                 host_d_locked;
+  logic [HostDNums-1:0] host_d_selected;
 
-  openip_round_robin_arbiter #(.WIDTH(GntOrigins)) host_gnt_arb (
+  openip_round_robin_arbiter #(.WIDTH(HostDNums)) host_d_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (host_d_valid && host_d_ready && !host_gnt_locked),
-    .request (host_gnt_valid_mult),
-    .grant   (host_gnt_arb_grant)
+    .enable  (host_d_valid && host_d_ready && !host_d_locked),
+    .request (host_d_valid_mult),
+    .grant   (host_d_arb_grant)
   );
 
   // Perform arbitration, and make sure that until we encounter host_d_last we keep the connection stable.
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      host_gnt_locked <= 1'b0;
-      host_gnt_selected <= '0;
+      host_d_locked <= 1'b0;
+      host_d_selected <= '0;
     end
     else begin
       if (host_d_valid && host_d_ready) begin
-        if (!host_gnt_locked) begin
-          host_gnt_locked   <= 1'b1;
-          host_gnt_selected <= host_gnt_arb_grant;
+        if (!host_d_locked) begin
+          host_d_locked   <= 1'b1;
+          host_d_selected <= host_d_arb_grant;
         end
         if (host_d_last) begin
-          host_gnt_locked <= 1'b0;
+          host_d_locked <= 1'b0;
         end
       end
     end
   end
 
-  wire [GntOrigins-1:0] host_gnt_select = host_gnt_locked ? host_gnt_selected : host_gnt_arb_grant;
+  wire [HostDNums-1:0] host_d_select = host_d_locked ? host_d_selected : host_d_arb_grant;
 
-  for (genvar i = 0; i < GntOrigins; i++) begin
-    assign host_gnt_ready_mult[i] = host_gnt_select[i] && host_d_ready;
+  for (genvar i = 0; i < HostDNums; i++) begin
+    assign host_d_ready_mult[i] = host_d_select[i] && host_d_ready_nosink;
   end
 
   // Do the post-arbitration multiplexing
   always_comb begin
-    host_d = gnt_t'('x);
-    host_d_valid = 1'b0;
-    for (int i = GntOrigins - 1; i >= 0; i--) begin
-      if (host_gnt_select[i]) begin
-        host_d = host_gnt_mult[i];
-        host_d_valid = host_gnt_valid_mult[i];
+    host_d_nosink = 'x;
+    host_d_valid_nosink = 1'b0;
+    for (int i = HostDNums - 1; i >= 0; i--) begin
+      if (host_d_select[i]) begin
+        host_d_nosink = host_d_mult[i];
+        host_d_valid_nosink = host_d_valid_mult[i];
       end
     end
   end
 
-  ///////////////////////
-  // Handle ROM memory //
-  ///////////////////////
+  // #endregion
+  ////////////////////////////////////////
 
-  logic req_allowed;
+  logic host_a_allowed;
   always_comb begin
     case (host_a.opcode)
       AcquireBlock, AcquirePerm: begin
-        req_allowed = host_a.param == NtoB;
+        host_a_allowed = host_a.param == NtoB;
       end
       Get: begin
-        req_allowed = 1'b1;
+        host_a_allowed = 1'b1;
       end
       default: begin
-        req_allowed = 1'b0;
+        host_a_allowed = 1'b0;
       end
     endcase
   end
-
-  typedef enum logic [3:0] {
-    IoStateIdle,
-    IoStateActive,
-    IoStateException,
-    IoStateAckWait
-  } io_state_e;
-
-  io_state_e io_state_q, io_state_d;
-  tl_a_op_e io_opcode_q, io_opcode_d;
-  logic [2:0] io_param_q, io_param_d;
-  logic io_req_sent_q, io_req_sent_d;
-  logic io_resp_sent_q, io_resp_sent_d;
-  logic io_ack_done_q, io_ack_done_d;
-
-  assign host_e_ready = 1'b1;
 
   always_comb begin
+    host_a_ready = 1'b1;
     device_a_valid = 1'b0;
     device_a = 'x;
+    host_d_valid_mult[HostDIdxAcq] = 1'b0;
+    host_d_mult[HostDIdxAcq] = 'x;
 
-    host_gnt_valid_mult[GntIdxResp] = 1'b0;
-    host_gnt_mult[GntIdxResp] = 'x;
-
-    device_d_ready = 1'b0;
-
-    host_a_ready = 1'b0;
-
-    io_state_d = io_state_q;
-    io_opcode_d = io_opcode_q;
-    io_param_d = io_param_q;
-    io_req_sent_d = io_req_sent_q;
-    io_resp_sent_d = io_resp_sent_q;
-    io_ack_done_d = io_ack_done_q;
-
-    if (host_e_valid) io_ack_done_d = 1'b1;
-
-    unique case (io_state_q)
-      IoStateIdle: begin
-        if (host_a_valid) begin
-          io_opcode_d = host_a.opcode;
-          io_param_d = host_a.param == NtoB ? toB : toT;
-          io_req_sent_d = 1'b0;
-          io_resp_sent_d = 1'b0;
-          io_ack_done_d = !(host_a.opcode inside {AcquireBlock, AcquirePerm});
-
-          if (req_allowed) begin
-            io_state_d = IoStateActive;
-          end else begin
-            io_state_d = IoStateException;
-          end
-        end
-      end
-
-      IoStateActive: begin
-        device_a_valid = !io_req_sent_q && host_a_valid;
-        device_a.opcode = io_opcode_q == AcquireBlock ? Get : io_opcode_q;
+    if (host_a_valid) begin
+      if (!host_a_allowed) begin
+        // For a write request, we deny with a Grant immediately.
+        host_a_ready = host_d_ready_mult[HostDIdxAcq];
+        host_d_valid_mult[HostDIdxAcq] = 1'b1;
+        host_d_mult[HostDIdxAcq].opcode = host_a.opcode inside {AcquireBlock, AcquirePerm} ? Grant : AccessAck;
+        host_d_mult[HostDIdxAcq].param = host_a.opcode inside {AcquireBlock, AcquirePerm} ? toN : 0;
+        host_d_mult[HostDIdxAcq].size = host_a.size;
+        host_d_mult[HostDIdxAcq].source = host_a.source;
+        host_d_mult[HostDIdxAcq].denied = 1'b1;
+        host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+        host_d_mult[HostDIdxAcq].data = 'x;
+      end else begin
+        // For all other requests forward to device.
+        // For AcquireBlock transform it to Get, while GrantData will be transformed from AccessAckData.
+        host_a_ready = device_a_ready;
+        device_a_valid = 1'b1;
+        device_a.opcode = host_a.opcode inside {AcquireBlock, AcquirePerm} ? Get : host_a.opcode;
         device_a.param = 0;
         device_a.size = host_a.size;
-        device_a.source = host_a.source;
+        device_a.source = {host_a.opcode inside {AcquireBlock, AcquirePerm} ? 1'b1 : 1'b0, host_a.source};
         device_a.address = host_a.address;
         device_a.mask = host_a.mask;
-        device_a.corrupt = 1'b0;
+        device_a.corrupt = host_a.corrupt;
         device_a.data = host_a.data;
-
-        host_a_ready = !io_req_sent_q && device_a_ready;
-        if (host_a_valid && device_a_ready && host_req_last) begin
-          io_req_sent_d = 1'b1;
-        end
-
-        device_d_ready = !io_resp_sent_q && host_gnt_ready_mult[GntIdxResp];
-        host_gnt_valid_mult[GntIdxResp] = device_d_valid;
-        host_gnt_mult[GntIdxResp].opcode = io_opcode_q == AcquireBlock ? GrantData : device_d.opcode;
-        host_gnt_mult[GntIdxResp].param = io_param_q;
-        host_gnt_mult[GntIdxResp].size = device_d.size;
-        host_gnt_mult[GntIdxResp].source = device_d.source;
-        host_gnt_mult[GntIdxResp].sink = SinkBase;
-        host_gnt_mult[GntIdxResp].denied = device_d.denied;
-        host_gnt_mult[GntIdxResp].corrupt = device_d.corrupt;
-        host_gnt_mult[GntIdxResp].data = device_d.data;
-
-        if (device_d_valid && host_gnt_ready_mult[GntIdxResp] && device_gnt_last) begin
-          io_resp_sent_d = 1'b1;
-        end
-
-        if (io_req_sent_d && io_resp_sent_d && io_ack_done_d) begin
-          io_state_d = IoStateIdle;
-        end
       end
-
-      IoStateException: begin
-        // If we haven't see last, we need to make sure the entire request is discarded,
-        // not just the first cycle of the burst.
-        if (!(host_a_valid && host_req_last)) begin
-          host_a_ready = 1'b1;
-        end else begin
-          host_gnt_valid_mult[GntIdxResp] = 1'b1;
-          host_gnt_mult[GntIdxResp].opcode = host_a.opcode == AcquireBlock ? Grant : (host_a.opcode == Get ? AccessAckData : AccessAck);
-          host_gnt_mult[GntIdxResp].param = 0;
-          host_gnt_mult[GntIdxResp].size = host_a.size;
-          host_gnt_mult[GntIdxResp].source = host_a.source;
-          host_gnt_mult[GntIdxResp].sink = SinkBase;
-          host_gnt_mult[GntIdxResp].denied = 1'b1;
-          host_gnt_mult[GntIdxResp].corrupt = host_a.opcode == Get ? 1'b1 : 1'b0;
-
-          if (host_gnt_ready_mult[GntIdxResp]) begin
-            if (host_d_last) begin
-              host_a_ready = 1'b1;
-
-              io_state_d = IoStateAckWait;
-            end
-          end
-        end
-      end
-
-      IoStateAckWait: begin
-        if (io_ack_done_d) io_state_d = IoStateIdle;
-      end
-
-      default:;
-    endcase
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      io_state_q <= IoStateIdle;
-      io_opcode_q <= tl_a_op_e'('x);
-      io_param_q <= 'x;
-      io_req_sent_q <= 1'b0;
-      io_resp_sent_q <= 1'b0;
-      io_ack_done_q <= 1'b0;
-    end
-    else begin
-      io_state_q <= io_state_d;
-      io_opcode_q <= io_opcode_d;
-      io_param_q <= io_param_d;
-      io_req_sent_q <= io_req_sent_d;
-      io_resp_sent_q <= io_resp_sent_d;
-      io_ack_done_q <= io_ack_done_d;
     end
   end
 
-  //////////////////////////////
-  // Release channel handling //
-  //////////////////////////////
+  always_comb begin
+    host_c_ready = 1'b1;
+    host_d_valid_mult[HostDIdxRel] = 1'b0;
+    host_d_mult[HostDIdxRel] = 'x;
 
-  // This terminator backs ROM or IO memory. We never send out any Probe, so the only possible
-  // message on channel C is Release and since no dirty cache line writeback is possible we can
-  // just respond with ReleaseAck.
-  //
-  // We simply use combinational logic to respond: respond on the first beat of host_c message.
+    if (host_c_valid) begin
+      // The only C channel message we expect to receive is Release, just reply with a ReleaseAck.
+      host_c_ready = host_d_ready_mult[HostDIdxRel];
+      host_d_valid_mult[HostDIdxRel] = 1'b1;
+      host_d_mult[HostDIdxRel].opcode = ReleaseAck;
+      host_d_mult[HostDIdxRel].param = 0;
+      host_d_mult[HostDIdxRel].size = host_c.size;
+      host_d_mult[HostDIdxRel].source = host_c.source;
+      host_d_mult[HostDIdxRel].denied = 1'b0;
+      host_d_mult[HostDIdxRel].corrupt = 1'b0;
+      host_d_mult[HostDIdxRel].data = 'x;
+    end
+  end
 
-  assign host_c_ready = host_c_valid && host_c_first ? host_gnt_ready_mult[GntIdxRel] : 1'b1;
-  assign host_gnt_valid_mult[GntIdxRel] = host_c_valid && host_c_first;
-  assign host_gnt_mult[GntIdxRel].opcode = ReleaseAck;
-  assign host_gnt_mult[GntIdxRel].param = 0;
-  assign host_gnt_mult[GntIdxRel].source = host_c.source;
-  assign host_gnt_mult[GntIdxRel].sink = SinkBase;
-  assign host_gnt_mult[GntIdxRel].denied = 1'b0;
-  assign host_gnt_mult[GntIdxRel].corrupt = 1'b0;
-  assign host_gnt_mult[GntIdxRel].data = 'x;
+  always_comb begin
+    device_d_ready = 1'b0;
+    host_d_valid_mult[HostDIdxGnt] = 1'b0;
+    host_d_mult[HostDIdxGnt] = 'x;
+
+    if (device_d_valid) begin
+      device_d_ready = host_d_ready_mult[HostDIdxGnt];
+      host_d_valid_mult[HostDIdxGnt] = 1'b1;
+      unique case (device_d.source[HostSourceWidth+:1])
+        1'b0: begin
+          host_d_mult[HostDIdxGnt].opcode = device_d.opcode;
+          host_d_mult[HostDIdxGnt].param = 0;
+        end
+        1'b1: begin
+          host_d_mult[HostDIdxGnt].opcode = GrantData;
+          host_d_mult[HostDIdxGnt].param = toB;
+        end
+        default:;
+      endcase
+      host_d_mult[HostDIdxGnt].size = device_d.size;
+      host_d_mult[HostDIdxGnt].source = device_d.source[HostSourceWidth-1:0];
+      host_d_mult[HostDIdxGnt].denied = device_d.denied;
+      host_d_mult[HostDIdxGnt].corrupt = device_d.corrupt;
+      host_d_mult[HostDIdxGnt].data = device_d.data;
+    end
+  end
 
 endmodule
