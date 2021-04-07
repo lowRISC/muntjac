@@ -25,6 +25,10 @@ module tl_ram_terminator import tl_pkg::*; #(
   localparam SinkNums = SinkMask + 1;
   localparam SinkBits = prim_util_pkg::vbits(SinkNums);
 
+  if (DeviceSourceWidth < HostSourceWidth + 2) begin
+    $fatal(1, "Not enough SourceWidth");
+  end
+
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
   localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
 
@@ -64,7 +68,6 @@ module tl_ram_terminator import tl_pkg::*; #(
   wire host_d_first;
   wire host_d_last;
   wire device_a_last;
-  wire device_d_last;
 
   tl_burst_tracker #(
     .AddrWidth (AddrWidth),
@@ -127,7 +130,7 @@ module tl_ram_terminator import tl_pkg::*; #(
     .req_last_o (device_a_last),
     .prb_last_o (),
     .rel_last_o (),
-    .gnt_last_o (device_d_last)
+    .gnt_last_o ()
   );
 
   // #endregion
@@ -193,11 +196,13 @@ module tl_ram_terminator import tl_pkg::*; #(
     host_d.sink = sink_q;
 
     if (host_d_valid_nosink && host_d_first && host_d.opcode inside {Grant, GrantData}) begin
+      host_d.sink = SinkBase | sink_avail_idx;
       if (sink_avail) begin
         // Allocate a new sink id.
-        host_d.sink = SinkBase | sink_avail_idx;
-        sink_d = sink_avail_idx;
-        sink_tracker_d[sink_avail_idx] = 1'b0;
+        if (host_d_ready) begin
+          sink_d = sink_avail_idx;
+          sink_tracker_d[sink_avail_idx] = 1'b0;
+        end
       end else begin
         // Block if no sink id is available.
         host_d_ready_nosink = 1'b0;
