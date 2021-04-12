@@ -28,7 +28,7 @@ module muntjac_fpu_normalize_from_int #(
     .data_o (norm_sig)
   );
 
-  assign resp_exponent_o = (IntWidth - 1) - norm_shift;
+  assign resp_exponent_o = OutExpWidth'(IntWidth - 1) - OutExpWidth'(norm_shift);
   assign resp_significand_o = {norm_sig[IntWidth-2-:OutSigWidth-1], |norm_sig[IntWidth-2-OutSigWidth+1:0]};
 
 endmodule

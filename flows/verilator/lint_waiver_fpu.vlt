@@ -1,0 +1,20 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// Lint waivers for Verilator
+// See https://www.veripool.org/projects/verilator/wiki/Manual-verilator#CONFIGURATION-FILES
+// for documentation.
+//
+// Important: This file must included *before* any other Verilog file is read.
+// Otherwise, only global waivers are applied, but not file-specific waivers.
+
+`verilator_config
+
+// The MSB unused because these modules often normalize numbers so the first bit is always 1,
+// therefore omit it for output.
+lint_off -rule UNUSED -file "*/muntjac_fpu_normalize_from_int.sv" -match "*'norm_sig'[63]"
+lint_off -rule UNUSED -file "*/muntjac_fpu_add.sv" -match "*'resp_sig'[106]"
+
+// MSB is known to be 0 so not checked.
+lint_off -rule UNUSED -file "*/muntjac_fpu_add.sv" -match "*'neg_exponent_difference'[13]"

@@ -51,7 +51,7 @@ module muntjac_fpu_mul #(
   wire [InSigWidth*2+1:0] product_significand_ext = a_significand_ext * b_significand_ext;
 
   // Normalize to ensure significand fits in [1, 2) and truncate away the leading 1.
-  wire [InExpWidth:0] product_exp_norm = product_exp + product_significand_ext[InSigWidth*2+1];
+  wire [InExpWidth:0] product_exp_norm = product_exp + (InExpWidth+1)'(product_significand_ext[InSigWidth*2+1]);
   wire [InSigWidth*2:0] product_significand_norm = product_significand_ext[InSigWidth*2+1] ?
       product_significand_ext[InSigWidth*2:0] : {product_significand_ext[InSigWidth*2-1:0], 1'b0};
 

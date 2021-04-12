@@ -49,7 +49,7 @@ module muntjac_fpu_normalize_from_ieee #(
 
   // Flip the MSB and sign-extend for one bit.
   wire [IeeeExpWidth:0] widened_exponent = ieee_exponent - ExponentBias;
-  wire [IeeeExpWidth:0] normalized_exponent = widened_exponent - (is_exponent_zero ? subnormal_exponent_offset : 0);
+  wire [IeeeExpWidth:0] normalized_exponent = widened_exponent - (is_exponent_zero ? (IeeeExpWidth+1)'(subnormal_exponent_offset) : 0);
 
   assign sign_o = ieee_sign;
   assign exponent_o = OutExpWidth'(signed'(normalized_exponent));

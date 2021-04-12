@@ -12,6 +12,10 @@ module muntjac_fpu_right_shift #(
     assign residual[i] = |data_i[i:0];
   end
 
-  assign data_o = shift_i >= DataWidth ? 0 : {data_i[DataWidth-1:1] >> shift_i, residual[shift_i]};
+  wire [$clog2(DataWidth)-1:0] shift_bounded = shift_i[$clog2(DataWidth)-1:0];
+
+  assign data_o =
+    shift_i >= ShiftWidth'(DataWidth) ? {{(DataWidth-1){1'b0}}, residual[DataWidth-1]}
+                                      : {data_i[DataWidth-1:1] >> shift_bounded, residual[shift_bounded]};
 
 endmodule

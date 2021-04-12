@@ -42,7 +42,7 @@ module muntjac_fpu_round_to_int import muntjac_fpu_pkg::*; #(
     .roundup_o (roundup)
   );
 
-  wire [IntWidth:0] significand_rounded = int_significand[IntWidth+1:2] + roundup;
+  wire [IntWidth:0] significand_rounded = int_significand[IntWidth+1:2] + IntWidth'(roundup);
 
   // For a positive number, we can check if it overflows by determining from MSBs.
   wire positive_overflow = significand_rounded[IntWidth] || (signed_i && significand_rounded[IntWidth-1]);
@@ -68,7 +68,7 @@ module muntjac_fpu_round_to_int import muntjac_fpu_pkg::*; #(
       int_o = positive_max;
     end else if (is_zero_i) begin
       int_o = 0;
-    end else if (effective_exponent > 0) begin
+    end else if (is_inf_i || effective_exponent > 0) begin
       // Exponent is too large for significand to be any significant
       exception_o.invalid_operation = 1'b1;
       int_o = max_value;

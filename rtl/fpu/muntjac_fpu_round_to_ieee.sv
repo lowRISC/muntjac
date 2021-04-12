@@ -20,9 +20,9 @@ module muntjac_fpu_round_to_ieee import muntjac_fpu_pkg::*; #(
   output exception_flags_t exception_o
 );
 
-  localparam ExponentBias = 2 ** (IeeeExpWidth - 1) - 1;
-  localparam MinimumExponent = 1 - ExponentBias;
-  localparam MaximumExponent = 2 ** IeeeExpWidth - ExponentBias;
+  localparam signed [InExpWidth-1:0] ExponentBias = 2 ** (IeeeExpWidth - 1) - 1;
+  localparam signed [InExpWidth-1:0] MinimumExponent = 1 - ExponentBias;
+  localparam signed [InExpWidth-1:0] MaximumExponent = 2 ** IeeeExpWidth - ExponentBias;
 
   // For subnormal numbers, we will set the basis as MinimumExponent and shift accordingly.
   // Otherwise we don't perform any shifts (so set subnormal_shift to 0).
@@ -46,46 +46,18 @@ module muntjac_fpu_round_to_ieee import muntjac_fpu_pkg::*; #(
   wire [IeeeSigWidth+2:0] significand_to_round =
       {subnormal_significand[InSigWidth-:IeeeSigWidth+2], |subnormal_significand[InSigWidth-IeeeSigWidth-2:0]};
 
-  // Now perform the rounding. For rounding we only need to look at the last two bits.
-  // Let a be the first bit beyond target precision, and b be the second bit.
-  // In operations that cannot produce accurate result we use the last bit (b) to denote whether
-  // there are any remainder, so
-  // * If a=0, b=0, then the remainder is 0.
-  // * If a=0, b=1, then the remainder is in range (0, 0.5)
-  // * If a=1, b=0, then the remainder is 0.5.
-  // * If a=1, b=1, then the remainder is in range (0.5, 1).
-  // Combine a, b and target rounding mode we can therefore decide on how to round.
-
   logic inexact;
   logic roundup;
 
-  always_comb begin
-    inexact = 1'b0;
-    roundup = 1'b0;
+  muntjac_fpu_round rounder (
+    .rounding_mode_i,
+    .sign_i,
+    .significand_i (significand_to_round[2:0]),
+    .inexact_o (inexact),
+    .roundup_o (roundup)
+  );
 
-    if (significand_to_round[1:0] != 0) begin
-      inexact = 1'b1;
-
-      unique case (rounding_mode_i)
-        RoundTiesToEven: begin
-          roundup = significand_to_round[1:0] == 2'b11 || significand_to_round[2:0] == 3'b110;
-        end
-        RoundTowardZero:;
-        RoundTowardNegative: begin
-          roundup = sign_i && significand_to_round[1:0] != 2'b00;
-        end
-        RoundTowardPositive: begin
-          roundup = !sign_i && significand_to_round[1:0] != 2'b00;
-        end
-        RoundTiesToAway: begin
-          roundup = significand_to_round[1] == 1'b1;
-        end
-        default:;
-      endcase
-    end
-  end
-
-  wire [IeeeSigWidth+1:0] significand_rounded = significand_to_round[IeeeSigWidth+2:2] + roundup;
+  wire [IeeeSigWidth+1:0] significand_rounded = significand_to_round[IeeeSigWidth+2:2] + (IeeeSigWidth+1)'(roundup);
 
   // Our rounding may cause the numnber to bump from 1.111... to 10.000, so we need to take that into account.
   wire signed [InExpWidth-1:0] adjusted_exponent = significand_rounded[IeeeSigWidth+1] ? exponent_basis + 1 : exponent_basis;
@@ -134,7 +106,7 @@ module muntjac_fpu_round_to_ieee import muntjac_fpu_pkg::*; #(
         ieee_exponent = 0;
         ieee_significand = adjusted_significand[IeeeSigWidth-1:0];
       end else begin
-        ieee_exponent = adjusted_exponent + ExponentBias;
+        ieee_exponent = IeeeExpWidth'(adjusted_exponent + ExponentBias);
         ieee_significand = adjusted_significand[IeeeSigWidth-1:0];
       end
     end

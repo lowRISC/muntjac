@@ -27,7 +27,7 @@ module muntjac_fpu_normalize #(
   always_comb begin
     shift_o = '0;
     for (int i = 0; i < DataWidth; i++) begin
-      shift_o |= data_reversed_lsb[i] ? i : 0;
+      shift_o |= data_reversed_lsb[i] ? ShiftWidth'(i) : 0;
     end
   end
 

@@ -36,8 +36,8 @@ module muntjac_fpu_div_sqrt #(
   output logic resp_is_nan_o
 );
 
-  wire signed [OutExpWidth-1:0] a_exponent_ext = a_exponent_i;
-  wire signed [OutExpWidth-1:0] b_exponent_ext = b_exponent_i;
+  wire signed [OutExpWidth-1:0] a_exponent_ext = OutExpWidth'(a_exponent_i);
+  wire signed [OutExpWidth-1:0] b_exponent_ext = OutExpWidth'(b_exponent_i);
 
   wire signed [OutExpWidth-1:0] a_exponent_over_2 = a_exponent_ext >>> 1;
 
@@ -185,9 +185,9 @@ module muntjac_fpu_div_sqrt #(
 
   always_comb begin
     if (sqrt_q) begin
-      subtrahend = quotient_q << 1 | bit_q;
+      subtrahend = {quotient_q, 1'b0} | {1'b0, bit_q};
     end else begin
-      subtrahend = {1'b1, b_significand_q, {(OutSigWidth-InSigWidth-1){1'b0}}};
+      subtrahend = {2'b01, b_significand_q, {(OutSigWidth-InSigWidth-1){1'b0}}};
     end
     difference = remainder_q - subtrahend;
   end
@@ -221,16 +221,16 @@ module muntjac_fpu_div_sqrt #(
           exception_d = exception;
           quotient_sign_d = quotient_sign;
           quotient_exponent_d = sqrt_i ? a_exponent_over_2 :
-              a_exponent_ext - b_exponent_ext - (a_significand_i < b_significand_i);
+              a_exponent_ext - b_exponent_ext - OutExpWidth'(a_significand_i < b_significand_i);
           quotient_is_zero_d = special_is_zero;
           quotient_is_inf_d = special_is_inf;
           quotient_is_nan_d = special_is_nan;
 
           quotient_d = 0;
           if (sqrt_i ? a_exponent_ext[0] : a_significand_i < b_significand_i) begin
-            remainder_d = {1'b1, a_significand_i, {(OutSigWidth-InSigWidth){1'b0}}};
+            remainder_d = {2'b01, a_significand_i, {(OutSigWidth-InSigWidth){1'b0}}};
           end else begin
-            remainder_d = {1'b01, a_significand_i, {(OutSigWidth-InSigWidth-1){1'b0}}};
+            remainder_d = {3'b001, a_significand_i, {(OutSigWidth-InSigWidth-1){1'b0}}};
           end
           bit_d = {1'b1, {(OutSigWidth-1){1'b0}}};
         end
@@ -238,10 +238,10 @@ module muntjac_fpu_div_sqrt #(
 
       StateCompute: begin
         if (difference >= 0) begin
-          remainder_d = {difference, 1'b0};
+          remainder_d = {difference[OutSigWidth:0], 1'b0};
           quotient_d = quotient_q | bit_q;
         end else begin
-          remainder_d = {remainder_q, 1'b0};
+          remainder_d = {remainder_q[OutSigWidth:0], 1'b0};
         end
         bit_d = bit_q >> 1;
 
@@ -294,7 +294,7 @@ module muntjac_fpu_div_sqrt #(
   assign resp_divide_by_zero_o = exception_q && !quotient_is_nan_q;
   assign resp_sign_o = quotient_sign_q;
   assign resp_exponent_o = quotient_exponent_q;
-  assign resp_significand_o = {quotient_q, remainder_q != 0};
+  assign resp_significand_o = {quotient_q[OutSigWidth-2:0], remainder_q != 0};
   assign resp_is_zero_o = quotient_is_zero_q;
   assign resp_is_inf_o = quotient_is_inf_q;
   assign resp_is_nan_o = quotient_is_nan_q;

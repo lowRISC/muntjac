@@ -70,7 +70,7 @@ module muntjac_fpu_add #(
     .ShiftWidth(InExpWidth)
   ) a_shift (
     .data_i (a_significand_ext),
-    // The result is only used if neg_exponent_difference >= 0
+    // The result is only used if exponent_difference <= 0
     .shift_i (neg_exponent_difference[InExpWidth-1:0]),
     .data_o (a_significand_shifted)
   );
@@ -117,7 +117,7 @@ module muntjac_fpu_add #(
       norm_zero ? cancellation_zero_sign : (swap_operand ? b_sign_i : a_sign_i);
   assign resp_exponent_o =
       a_is_zero_i ? b_exponent_i :
-      b_is_zero_i ? a_exponent_i : (swap_operand ? b_exponent_i : a_exponent_i) + 1 - norm_shift;
+      b_is_zero_i ? a_exponent_i : (swap_operand ? b_exponent_i : a_exponent_i) + 1 - OutExpWidth'(norm_shift);
 
  assign resp_significand_o = {resp_sig[InternalSigWidth-:OutSigWidth-1], |resp_sig[InternalSigWidth-OutSigWidth+1:0]};
 
