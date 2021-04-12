@@ -43,9 +43,9 @@ module muntjac_fpu_compare #(
 
     if (a_is_zero_i && b_is_zero_i) begin
       ordered_eq = 1'b1;
-    end if (a_is_zero_i) begin
+    end else if (a_is_zero_i) begin
       ordered_lt = !b_sign_i;
-    end if (b_is_zero_i) begin
+    end else if (b_is_zero_i) begin
       ordered_lt = a_sign_i;
     end else if (a_sign_i != b_sign_i) begin
       ordered_lt = a_sign_i;
