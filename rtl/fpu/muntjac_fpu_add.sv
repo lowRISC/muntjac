@@ -45,13 +45,13 @@ module muntjac_fpu_add #(
 
   assign resp_is_nan_o = a_is_nan_i || b_is_nan_i;
   assign resp_is_inf_o = !resp_is_nan_o && (a_is_inf_i || b_is_inf_i);
-  assign resp_is_zero_o = a_is_zero_i && b_is_zero_i;
+  wire special_is_zero = a_is_zero_i && b_is_zero_i;
 
-  wire special = resp_is_nan_o || resp_is_inf_o || resp_is_zero_o;
+  wire special = resp_is_nan_o || resp_is_inf_o || special_is_zero;
   wire special_sign =
       a_is_inf_i ? a_sign_i :
       b_is_inf_i ? b_sign_i :
-      resp_is_zero_o ? (substract_magnitude ? cancellation_zero_sign : a_sign_i) : 1'b0;
+      special_is_zero ? (substract_magnitude ? cancellation_zero_sign : a_sign_i) : 1'b0;
 
   // Determine the order of the two operands.
   // We need to know which one is larger to align significand and ensure magnitude is positive.
@@ -110,6 +110,7 @@ module muntjac_fpu_add #(
       a_is_zero_i ? {b_significand_ext, 1'b0} :
       b_is_zero_i ? {a_significand_ext, 1'b0} : norm_sig;
 
+  assign resp_is_zero_o = special ? special_is_zero : norm_zero;
   assign resp_sign_o =
       special ? special_sign :
       a_is_zero_i ? b_sign_i :
