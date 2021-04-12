@@ -22,7 +22,7 @@ module muntjac_fpu_round_to_ieee import muntjac_fpu_pkg::*; #(
 
   localparam signed [InExpWidth-1:0] ExponentBias = 2 ** (IeeeExpWidth - 1) - 1;
   localparam signed [InExpWidth-1:0] MinimumExponent = 1 - ExponentBias;
-  localparam signed [InExpWidth-1:0] MaximumExponent = 2 ** IeeeExpWidth - ExponentBias;
+  localparam signed [InExpWidth-1:0] MaximumExponent = 2 ** IeeeExpWidth - 2 - ExponentBias;
 
   // For subnormal numbers, we will set the basis as MinimumExponent and shift accordingly.
   // Otherwise we don't perform any shifts (so set subnormal_shift to 0).
