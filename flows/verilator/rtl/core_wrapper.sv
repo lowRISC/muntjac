@@ -167,7 +167,8 @@ module core_wrapper import muntjac_pkg::*; #(
   
   muntjac_core #(
     .SourceWidth (4),
-    .SinkWidth (SinkWidth)
+    .SinkWidth (SinkWidth),
+    .RV64F (muntjac_pkg::RV64FFull)
   ) core (
     .clk_i (clk_i),
     .rst_ni (rst_ni),

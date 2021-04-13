@@ -143,7 +143,7 @@ jobs:
           chmod +x ${{ matrix.sim }}
           echo "<testsuite>" > results.xml
 
-          for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi; do
+          for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi rv64uf rv64ud; do
             for test in tests/$isa-*; do
               /usr/bin/time --quiet -o $test.time -f "%e" ./${{ matrix.sim }} $test --timeout=1000000 > $test.out 2> $test.err || true
 

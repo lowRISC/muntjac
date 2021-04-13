@@ -76,6 +76,7 @@ module pipeline_wrapper import muntjac_pkg::*; #(
   instr_trace_t dbg_o;
 
   muntjac_pipeline #(
+    .RV64F (muntjac_pkg::RV64FFull)
   ) pipeline (
       .clk_i (clk_i),
       .rst_ni (rst_ni),
