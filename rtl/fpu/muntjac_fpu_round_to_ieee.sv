@@ -106,6 +106,8 @@ module muntjac_fpu_round_to_ieee import muntjac_fpu_pkg::*; #(
         ieee_exponent = 0;
         ieee_significand = adjusted_significand[IeeeSigWidth-1:0];
       end else begin
+        exception_o.underflow = subnormal_exponent_difference > 0;
+
         ieee_exponent = IeeeExpWidth'(adjusted_exponent + ExponentBias);
         ieee_significand = adjusted_significand[IeeeSigWidth-1:0];
       end
