@@ -13,6 +13,7 @@ filesets:
       - ../rtl/fpu/muntjac_fpu_normalize_from_ieee.sv
       - ../rtl/fpu/muntjac_fpu_normalize_from_ieee_multi.sv
       - ../rtl/fpu/muntjac_fpu_normalize_from_int.sv
+      - ../rtl/fpu/muntjac_fpu_normalize_from_int_multi.sv
       - ../rtl/fpu/muntjac_fpu_round.sv
       - ../rtl/fpu/muntjac_fpu_round_to_ieee.sv
       - ../rtl/fpu/muntjac_fpu_round_to_ieee_multi.sv
@@ -24,6 +25,7 @@ filesets:
       - ../rtl/fpu/muntjac_fpu_mul_add.sv
       - ../rtl/fpu/muntjac_fpu_div_sqrt.sv
       - ../rtl/fpu/muntjac_fpu_compare.sv
+      - ../rtl/fpu/muntjac_fpu.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
