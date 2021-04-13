@@ -50,18 +50,21 @@ module muntjac_fpu_round_to_int_multi import muntjac_fpu_pkg::*; #(
           if (~&round_int[62:31]) begin
             int_o = 64'hffffffff_80000000;
             exception_o.invalid_operation = 1'b1;
+            exception_o.inexact = 1'b0;
           end
         end else begin
           // Positive value out of range, set to MAX
           if (|round_int[62:31]) begin
             int_o = 64'h00000000_7fffffff;
             exception_o.invalid_operation = 1'b1;
+            exception_o.inexact = 1'b0;
           end
         end
       end else begin
         if (|round_int[63:32]) begin
           int_o = 64'hffffffff_ffffffff;
           exception_o.invalid_operation = 1'b1;
+          exception_o.inexact = 1'b0;
         end
       end
     end
