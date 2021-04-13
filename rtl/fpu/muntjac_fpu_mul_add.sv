@@ -81,7 +81,10 @@ module muntjac_fpu_mul_add #(
     .rounding_mode_i,
     .a_sign_i (prod_sign),
     .a_exponent_i (prod_exponent),
-    .a_significand_i (prod_sig),
+    // If product is NaN, then make it seem like a quiet NaN for the adder, to avoid setting
+    // extra invalid operatio bit.
+    // TODO: Rethink about how we handle NaN payloads.
+    .a_significand_i ({prod_is_nan ? 1'b1 : prod_sig[InSigWidth*2], prod_sig[InSigWidth*2-1:0]}),
     .a_is_zero_i (prod_is_zero),
     .a_is_inf_i (prod_is_inf),
     .a_is_nan_i (prod_is_nan),
