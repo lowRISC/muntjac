@@ -1,4 +1,4 @@
-module muntjac_decoder import muntjac_pkg::*; #(
+module muntjac_decoder import muntjac_pkg::*; import muntjac_fpu_pkg::*; #(
   parameter rv64f_e RV64F = RV64FNone
 ) (
   input  fetched_instr_t fetched_instr_i,
@@ -402,6 +402,128 @@ module muntjac_decoder import muntjac_pkg::*; #(
           end
           default: illegal_instr = 1'b1;
         endcase
+      end
+
+      OPCODE_MADD,
+      OPCODE_MSUB,
+      OPCODE_NMSUB,
+      OPCODE_NMADD: begin
+        if (RV64F == RV64FFull) begin
+          rd_enable = 1'b1;
+          rs1_enable = 1'b1;
+          rs2_enable = 1'b1;
+
+          use_frd  = 1'b1;
+          use_frs1 = 1'b1;
+          use_frs2 = 1'b1;
+          use_frs3 = 1'b1;
+
+          unique case (funct7[1:0])
+            2'b00: decoded_instr_o.size = 2'b10;
+            2'b01: decoded_instr_o.size = 2'b11;
+            default: illegal_instr = 1'b1;
+          endcase
+
+          decoded_instr_o.op_type = OP_FP;
+          decoded_instr_o.fp_op.op_type = FP_OP_FMA;
+          decoded_instr_o.fp_op.param = opcode[3:2];
+
+          // Trigger illegal instruction if FS is set to off
+          if (status_i.fs == 2'b00) illegal_instr = 1'b1;
+        end else begin
+          illegal_instr = 1'b1;
+        end
+      end
+
+      OPCODE_OP_FP: begin
+        if (RV64F == RV64FFull) begin
+          decoded_instr_o.op_type = OP_FP;
+
+          rd_enable = 1'b1;
+          rs1_enable = 1'b1;
+          rs2_enable = 1'b1;
+
+          use_frd  = funct7 !=? 7'b1??0???;
+          use_frs1 = funct7 !=? 7'b1??1???;
+          use_frs2 = 1'b1;
+
+          // This bit determines whether its single or double.
+          decoded_instr_o.size = {1'b1, funct7[0]};
+
+          unique casez ({funct7, rs2, funct3})
+            {7'b000000?, 5'b?????, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_ADDSUB;
+              decoded_instr_o.fp_op.param = FP_PARAM_ADD;
+            end
+            {7'b000010?, 5'b?????, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_ADDSUB;
+              decoded_instr_o.fp_op.param = FP_PARAM_SUB;
+            end
+            {7'b000100?, 5'b?????, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_MUL;
+            end
+            {7'b000110?, 5'b?????, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_DIVSQRT;
+              decoded_instr_o.fp_op.param = FP_PARAM_DIV;
+            end
+            {7'b001000?, 5'b?????, 3'b000},
+            {7'b001000?, 5'b?????, 3'b001},
+            {7'b001000?, 5'b?????, 3'b010}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_SGNJ;
+              decoded_instr_o.fp_op.param = funct3[1:0];
+            end
+            {7'b010110?, 5'b00000, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_DIVSQRT;
+              decoded_instr_o.fp_op.param = FP_PARAM_SQRT;
+            end
+            {7'b001010?, 5'b?????, 3'b000},
+            {7'b001010?, 5'b?????, 3'b001}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_MINMAX;
+              decoded_instr_o.fp_op.param = funct3[1:0];
+            end
+            {7'b0100000, 5'b00001, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CVT_F2F;
+            end
+            {7'b0100001, 5'b00000, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CVT_F2F;
+            end
+            {7'b101000?, 5'b?????, 3'b000},
+            {7'b101000?, 5'b?????, 3'b001},
+            {7'b101000?, 5'b?????, 3'b010}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CMP;
+              decoded_instr_o.fp_op.param = funct3[1:0];
+            end
+            {7'b110000?, 5'b00000, 3'b???},
+            {7'b110000?, 5'b00001, 3'b???},
+            {7'b110000?, 5'b00010, 3'b???},
+            {7'b110000?, 5'b00011, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CVT_F2I;
+              decoded_instr_o.fp_op.param = rs2[1:0];
+            end
+            {7'b110100?, 5'b00000, 3'b???},
+            {7'b110100?, 5'b00001, 3'b???},
+            {7'b110100?, 5'b00010, 3'b???},
+            {7'b110100?, 5'b00011, 3'b???}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CVT_I2F;
+              decoded_instr_o.fp_op.param = rs2[1:0];
+            end
+            {7'b111000?, 5'b00000, 3'b000}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_MV_F2I;
+            end
+            {7'b111000?, 5'b00000, 3'b001}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_CLASS;
+            end
+            {7'b111100?, 5'b00000, 3'b000}: begin
+              decoded_instr_o.fp_op.op_type = FP_OP_MV_I2F;
+            end
+            default: illegal_instr = 1'b1;
+          endcase
+
+          // Trigger illegal instruction if FS is set to off
+          if (status_i.fs == 2'b00) illegal_instr = 1'b1;
+        end else begin
+          illegal_instr = 1'b1;
+        end
       end
 
       /////////////

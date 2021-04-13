@@ -397,6 +397,7 @@ typedef enum logic [3:0] {
   OP_MEM,
   OP_MUL,
   OP_DIV,
+  OP_FP,
   OP_SYSTEM
 } op_type_e;
 
@@ -560,6 +561,9 @@ typedef struct packed {
 
   // For division unit
   div_op_e div_op;
+
+  // For floating point unit
+  muntjac_fpu_pkg::fp_op_t fp_op;
 
   // For CSR
   csr_op_e csr_op;

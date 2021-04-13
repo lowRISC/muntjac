@@ -9,6 +9,7 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:prim_generic:ram_simple_2p
+      - lowrisc:muntjac:fpu
     files:
       - ../rtl/muntjac_pkg.sv
       - ../rtl/muntjac_alu.sv
@@ -22,6 +23,7 @@ filesets:
       - ../rtl/muntjac_ras.sv
       - ../rtl/muntjac_frontend.sv
       - ../rtl/muntjac_reg_file_fpga.sv
+      - ../rtl/muntjac_fp_reg_file_fpga.sv
       - ../rtl/muntjac_mul.sv
       - ../rtl/muntjac_mul_fast.sv
       - ../rtl/muntjac_div.sv

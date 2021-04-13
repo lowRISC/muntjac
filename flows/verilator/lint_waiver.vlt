@@ -23,6 +23,7 @@ lint_off -rule DECLFILENAME -file "*/rtl/muntjac_alu.sv" -match "Filename 'muntj
 // For generic/swappable components, the module name is intentionally generic,
 // while the filename matches a specific implementation.
 lint_off -rule DECLFILENAME -file "*/rtl/muntjac_reg_file_fpga.sv" -match "Filename 'muntjac_reg_file_fpga' does not match MODULE name: 'muntjac_reg_file'"
+lint_off -rule DECLFILENAME -file "*/rtl/muntjac_fp_reg_file_fpga.sv" -match "Filename 'muntjac_fp_reg_file_fpga' does not match MODULE name: 'muntjac_fp_reg_file'"
 
 // Invalid message as a signal declaration does not live within the same scope as
 // the instantiation of the module.
@@ -61,6 +62,7 @@ lint_off -rule UNUSED -file "*/rtl/muntjac_decoder.sv" -match "*'status_i'*"
 // implementation synthesises to flip-flops instead of RAMs if it uses the reset
 // signal.
 lint_off -rule UNUSED -file "*/rtl/muntjac_reg_file_fpga.sv" -match "*'rst_ni'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_fp_reg_file_fpga.sv" -match "*'rst_ni'"
 
 // The ALU code is easier to read if all operands are reported as the same
 // width.
