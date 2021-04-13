@@ -4,7 +4,6 @@ module muntjac_fpu_mul_add #(
   parameter OutExpWidth = 10,
   parameter OutSigWidth = 25
 ) (
-  input  logic [1:0] op_i,
   input  muntjac_fpu_pkg::rounding_mode_e rounding_mode_i,
 
   input  logic a_sign_i,
@@ -49,7 +48,7 @@ module muntjac_fpu_mul_add #(
     .InExpWidth (InExpWidth),
     .InSigWidth (InSigWidth)
   ) mul (
-    .a_sign_i (a_sign_i ^ op_i[1]),
+    .a_sign_i (a_sign_i),
     .a_exponent_i,
     .a_significand_i,
     .a_is_zero_i,
@@ -88,7 +87,7 @@ module muntjac_fpu_mul_add #(
     .a_is_zero_i (prod_is_zero),
     .a_is_inf_i (prod_is_inf),
     .a_is_nan_i (prod_is_nan),
-    .b_sign_i (c_sign_i ^ op_i[0]),
+    .b_sign_i (c_sign_i),
     .b_exponent_i ({c_exponent_i[InExpWidth-1], c_exponent_i}),
     .b_significand_i ({c_significand_i, {(InSigWidth + 1){1'b0}}}),
     .b_is_zero_i (c_is_zero_i),
