@@ -1,6 +1,20 @@
+`include "prim_assert.sv"
 `include "tl_util.svh"
 
-module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
+package tl_cache_pkg;
+
+typedef enum integer {
+  // A `Release` TileLink request is sent for all cache line evictions.
+  ReleaseAll = 0,
+  // A `Release` TileLink request is sent for exclusive cache line evictions.
+  ReleaseExclusive = 1,
+  // A `Release` TileLink request is sent only for dirty cache line evictions.
+  ReleaseDirty = 2
+} release_policy_e;
+
+endpackage
+
+module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg::*; #(
   // Number of sets is `2 ** SetsWidth`
   parameter SetsWidth = 8,
   // Number of ways is `2 ** WaysWidth`.
@@ -12,6 +26,14 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   parameter int unsigned SinkWidth   = 1,
 
   parameter bit [SinkWidth-1:0] SinkBase = 0,
+  parameter bit [SinkWidth-1:0] SinkMask = 0,
+
+  parameter bit [SourceWidth-1:0] DeviceSourceBase = 0,
+  parameter bit [SourceWidth-1:0] DeviceSourceMask = 0,
+
+  parameter tl_cache_pkg::release_policy_e ReleasePolicy = tl_cache_pkg::ReleaseDirty,
+  parameter int RelTrackerNum = 2,
+  parameter int AcqTrackerNum = 2,
 
   // Source ID table for cacheable hosts.
   // These IDs are used for sending out Probe messages.
@@ -27,6 +49,15 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
 );
 
+  localparam WbTrackerNum = 1;
+
+  localparam SinkNums = SinkMask + 1;
+  localparam SourceNums = DeviceSourceMask + 1;
+
+  if (WbTrackerNum > SourceNums || AcqTrackerNum > SourceNums || AcqTrackerNum > SinkNums) begin
+    $fatal(1, "Not enough source or sinks for all trackers");
+  end
+
   localparam NumWays = 2 ** WaysWidth;
   localparam MaxSize = 6;
 
@@ -39,7 +70,6 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
-  `TL_BIND_HOST_PORT(device, device);
 
   // Registers host_a and host_c so its content will hold until we consumed it.
   tl_regslice #(
@@ -48,7 +78,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .RequestMode (2),
-    .ReleaseMode (2)
+    .ReleaseMode (2),
+    .GrantMode (7)
   ) host_reg (
     .clk_i,
     .rst_ni,
@@ -56,15 +87,34 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     `TL_CONNECT_HOST_PORT(device, host)
   );
 
+  // Registers device_d so its content will hold until we consumed it.
+  tl_regslice #(
+    .DataWidth (DataWidth),
+    .AddrWidth (AddrWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .GrantMode (2),
+    .AckMode (2)
+  ) device_reg (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT(host, device),
+    `TL_FORWARD_HOST_PORT(device, device)
+  );
+
   /////////////////////////////////
   // Burst tracker instantiation //
   /////////////////////////////////
 
-  wire host_req_last;
-  wire rel_last;
-  wire host_gnt_last;
-  wire device_req_last;
-  wire device_gnt_last;
+  wire host_a_last;
+  wire host_c_last;
+  wire host_d_last;
+  wire device_a_last;
+  wire device_c_last;
+  wire device_d_last;
+
+  logic [OffsetWidth-1:0] host_c_idx;
+  logic [OffsetWidth-1:0] device_d_idx;
 
   tl_burst_tracker #(
     .AddrWidth (AddrWidth),
@@ -82,7 +132,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .gnt_len_o (),
     .req_idx_o (),
     .prb_idx_o (),
-    .rel_idx_o (),
+    .rel_idx_o (host_c_idx),
     .gnt_idx_o (),
     .req_left_o (),
     .prb_left_o (),
@@ -92,10 +142,10 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .prb_first_o (),
     .rel_first_o (),
     .gnt_first_o (),
-    .req_last_o (host_req_last),
+    .req_last_o (host_a_last),
     .prb_last_o (),
-    .rel_last_o (rel_last),
-    .gnt_last_o (host_gnt_last)
+    .rel_last_o (host_c_last),
+    .gnt_last_o (host_d_last)
   );
 
   tl_burst_tracker #(
@@ -107,7 +157,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   ) device_burst_tracker (
     .clk_i,
     .rst_ni,
-    `TL_FORWARD_TAP_PORT_FROM_HOST(link, device),
+    `TL_CONNECT_TAP_PORT(link, device),
     .req_len_o (),
     .prb_len_o (),
     .rel_len_o (),
@@ -115,7 +165,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .req_idx_o (),
     .prb_idx_o (),
     .rel_idx_o (),
-    .gnt_idx_o (),
+    .gnt_idx_o (device_d_idx),
     .req_left_o (),
     .prb_left_o (),
     .rel_left_o (),
@@ -124,159 +174,11 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .prb_first_o (),
     .rel_first_o (),
     .gnt_first_o (),
-    .req_last_o (device_req_last),
+    .req_last_o (device_a_last),
     .prb_last_o (),
-    .rel_last_o (),
-    .gnt_last_o (device_gnt_last)
+    .rel_last_o (device_c_last),
+    .gnt_last_o (device_d_last)
   );
-
-  /////////////////////
-  // Unused channels //
-  /////////////////////
-
-  assign device_b_ready = 1'b1;
-
-  assign device_c_valid = 1'b0;
-  assign device_c       = 'x;
-
-  assign device_e_valid = 1'b0;
-  assign device_e       = 'x;
-
-  /////////////////////////////////
-  // Request channel arbitration //
-  /////////////////////////////////
-
-  typedef `TL_A_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) req_t;
-
-  // We have two origins of A channel requests to device:
-  // 0. Dirty data writeback
-  // 1. Cache line refill
-  localparam ReqOrigins = 2;
-  localparam ReqIdxWb = 0;
-  localparam ReqIdxRefill = 1;
-
-  // Grouped signals before multiplexing/arbitration
-  req_t [ReqOrigins-1:0] device_req_mult;
-  logic [ReqOrigins-1:0] device_req_valid_mult;
-  logic [ReqOrigins-1:0] device_req_ready_mult;
-
-  // Signals for arbitration
-  logic [ReqOrigins-1:0] device_req_arb_grant;
-  logic                  device_req_locked;
-  logic [ReqOrigins-1:0] device_req_selected;
-
-  openip_round_robin_arbiter #(.WIDTH(ReqOrigins)) device_req_arb (
-    .clk     (clk_i),
-    .rstn    (rst_ni),
-    .enable  (device_a_valid && device_a_ready && !device_req_locked),
-    .request (device_req_valid_mult),
-    .grant   (device_req_arb_grant)
-  );
-
-  // Perform arbitration, and make sure that until we encounter device_req_last we keep the connection stable.
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      device_req_locked <= 1'b0;
-      device_req_selected <= '0;
-    end
-    else begin
-      if (device_a_valid && device_a_ready) begin
-        if (!device_req_locked) begin
-          device_req_locked   <= 1'b1;
-          device_req_selected <= device_req_arb_grant;
-        end
-        if (device_req_last) begin
-          device_req_locked <= 1'b0;
-        end
-      end
-    end
-  end
-
-  wire [ReqOrigins-1:0] device_req_select = device_req_locked ? device_req_selected : device_req_arb_grant;
-
-  for (genvar i = 0; i < ReqOrigins; i++) begin
-    assign device_req_ready_mult[i] = device_req_select[i] && device_a_ready;
-  end
-
-  // Do the post-arbitration multiplexing
-  always_comb begin
-    device_a = req_t'('x);
-    device_a_valid = 1'b0;
-    for (int i = ReqOrigins - 1; i >= 0; i--) begin
-      if (device_req_select[i]) begin
-        device_a = device_req_mult[i];
-        device_a_valid = device_req_valid_mult[i];
-      end
-    end
-  end
-
-  ///////////////////////////////
-  // Grant channel arbitration //
-  ///////////////////////////////
-
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) gnt_t;
-
-  // We have 2 origins of D channel response to host:
-  // 0. ReleaseAck response to host's Release
-  // 1. Device D channel response
-  localparam GntOrigins = 2;
-  localparam GntIdxRel = 0;
-  localparam GntIdxReq = 1;
-
-  // Grouped signals before multiplexing/arbitration
-  gnt_t [GntOrigins-1:0] host_gnt_mult;
-  logic [GntOrigins-1:0] host_gnt_valid_mult;
-  logic [GntOrigins-1:0] host_gnt_ready_mult;
-
-  // Signals for arbitration
-  logic [GntOrigins-1:0] host_gnt_arb_grant;
-  logic                  host_gnt_locked;
-  logic [GntOrigins-1:0] host_gnt_selected;
-
-  openip_round_robin_arbiter #(.WIDTH(GntOrigins)) host_gnt_arb (
-    .clk     (clk_i),
-    .rstn    (rst_ni),
-    .enable  (host_d_valid && host_d_ready && !host_gnt_locked),
-    .request (host_gnt_valid_mult),
-    .grant   (host_gnt_arb_grant)
-  );
-
-  // Perform arbitration, and make sure that until we encounter host_gnt_last we keep the connection stable.
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      host_gnt_locked <= 1'b0;
-      host_gnt_selected <= '0;
-    end
-    else begin
-      if (host_d_valid && host_d_ready) begin
-        if (!host_gnt_locked) begin
-          host_gnt_locked   <= 1'b1;
-          host_gnt_selected <= host_gnt_arb_grant;
-        end
-        if (host_gnt_last) begin
-          host_gnt_locked <= 1'b0;
-        end
-      end
-    end
-  end
-
-  wire [GntOrigins-1:0] host_gnt_select = host_gnt_locked ? host_gnt_selected : host_gnt_arb_grant;
-
-  for (genvar i = 0; i < GntOrigins; i++) begin
-    assign host_gnt_ready_mult[i] = host_gnt_select[i] && host_d_ready;
-  end
-
-  // Do the post-arbitration multiplexing
-  always_comb begin
-    host_d = gnt_t'('x);
-    host_d_valid = 1'b0;
-    for (int i = GntOrigins - 1; i >= 0; i--) begin
-      if (host_gnt_select[i]) begin
-        host_d = host_gnt_mult[i];
-        host_d_valid = host_gnt_valid_mult[i];
-      end
-    end
-  end
 
   /////////////////////
   // Type definition //
@@ -292,101 +194,628 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     logic [NumCachedHosts-1:0] mask;
     // Whether this cache line has been modified.
     logic dirty;
+    // Whether we have been granted write permission to this cache line.
+    logic writable;
     // Whether this cache line is valid at all.
     logic valid;
   } tag_t;
+
+  //////////////
+  // Trackers //
+  //////////////
+
+  // Tracker for a Release operation in progress.
+  typedef struct packed {
+    logic valid;
+    logic [AddrWidth-LineWidth-1:0] address;
+  } rel_tracker_t;
+
+  rel_tracker_t [RelTrackerNum-1:0] rel_tracker;
+
+  // Tracker for a writeback operation in progress.
+  typedef struct packed {
+    logic valid;
+    logic [AddrWidth-LineWidth-1:0] address;
+  } wb_tracker_t;
+
+  wb_tracker_t [WbTrackerNum-1:0] wb_tracker;
+
+  // Tracker for a Acquire operation in progress.
+  typedef struct packed {
+    logic valid;
+    logic [AddrWidth-LineWidth-1:0] address;
+    logic refilling;
+  } acq_tracker_t;
+
+  acq_tracker_t [AcqTrackerNum-1:0] acq_tracker;
+
+  //////////////////////////////////
+  // Device A Channel arbitration //
+  //////////////////////////////////
+
+  typedef `TL_A_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) device_a_t;
+
+  localparam DeviceANums = AcqTrackerNum;
+  localparam DeviceAIdxAcqBase = 0;
+
+  // Grouped signals before multiplexing/arbitration
+  device_a_t [DeviceANums-1:0] device_a_mult;
+  logic      [DeviceANums-1:0] device_a_valid_mult;
+  logic      [DeviceANums-1:0] device_a_ready_mult;
+
+  // Signals for arbitration
+  logic [DeviceANums-1:0] device_a_arb_grant;
+  logic                   device_a_locked;
+  logic [DeviceANums-1:0] device_a_selected;
+
+  openip_round_robin_arbiter #(.WIDTH(DeviceANums)) device_a_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (device_a_valid && device_a_ready && !device_a_locked),
+    .request (device_a_valid_mult),
+    .grant   (device_a_arb_grant)
+  );
+
+  // Perform arbitration, and make sure that until we encounter device_a_last we keep the connection stable.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      device_a_locked <= 1'b0;
+      device_a_selected <= '0;
+    end
+    else begin
+      if (device_a_valid && device_a_ready) begin
+        if (!device_a_locked) begin
+          device_a_locked   <= 1'b1;
+          device_a_selected <= device_a_arb_grant;
+        end
+        if (device_a_last) begin
+          device_a_locked <= 1'b0;
+        end
+      end
+    end
+  end
+
+  wire [DeviceANums-1:0] device_a_select = device_a_locked ? device_a_selected : device_a_arb_grant;
+
+  for (genvar i = 0; i < DeviceANums; i++) begin
+    assign device_a_ready_mult[i] = device_a_select[i] && device_a_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    device_a = 'x;
+    device_a_valid = 1'b0;
+    for (int i = DeviceANums - 1; i >= 0; i--) begin
+      if (device_a_select[i]) begin
+        device_a = device_a_mult[i];
+        device_a_valid = device_a_valid_mult[i];
+      end
+    end
+  end
+
+  //////////////////////////////////
+  // Device C channel arbitration //
+  //////////////////////////////////
+
+  typedef `TL_C_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) device_c_t;
+
+  localparam DeviceCNums = WbTrackerNum;
+  localparam DeviceCIdxWbBase = 0;
+
+  // Grouped signals before multiplexing/arbitration
+  device_c_t [DeviceCNums-1:0] device_c_mult;
+  logic      [DeviceCNums-1:0] device_c_valid_mult;
+  logic      [DeviceCNums-1:0] device_c_ready_mult;
+
+  device_c_t [DeviceCNums-1:0] device_c_mult_reg;
+  logic      [DeviceCNums-1:0] device_c_valid_mult_reg;
+  logic      [DeviceCNums-1:0] device_c_ready_mult_reg;
+
+  // Add register slices to break combinational loop of ready signal.
+  for (genvar i = 0; i < DeviceCNums; i++) begin: device_c_mult_regslice
+    openip_regslice #(
+      .TYPE (device_c_t),
+      .FORWARD          (1'b0),
+      .REVERSE          (1'b1),
+      .HIGH_PERFORMANCE (1'b0)
+    ) regslice (
+      .clk     (clk_i),
+      .rstn    (rst_ni),
+      .w_valid (device_c_valid_mult[i]),
+      .w_ready (device_c_ready_mult[i]),
+      .w_data  (device_c_mult[i]),
+      .r_valid (device_c_valid_mult_reg[i]),
+      .r_ready (device_c_ready_mult_reg[i]),
+      .r_data  (device_c_mult_reg[i])
+    );
+  end
+
+  // Signals for arbitration
+  logic [DeviceCNums-1:0] device_c_arb_grant;
+  logic                   device_c_locked;
+  logic [DeviceCNums-1:0] device_c_selected;
+
+  openip_round_robin_arbiter #(.WIDTH(DeviceCNums)) device_c_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (device_c_valid && device_c_ready && !device_c_locked),
+    .request (device_c_valid_mult_reg),
+    .grant   (device_c_arb_grant)
+  );
+
+  // Perform arbitration, and make sure that until we encounter device_c_last we keep the connection stable.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      device_c_locked <= 1'b0;
+      device_c_selected <= '0;
+    end
+    else begin
+      if (device_c_valid && device_c_ready) begin
+        if (!device_c_locked) begin
+          device_c_locked   <= 1'b1;
+          device_c_selected <= device_c_arb_grant;
+        end
+        if (device_c_last) begin
+          device_c_locked <= 1'b0;
+        end
+      end
+    end
+  end
+
+  wire [DeviceCNums-1:0] device_c_select = device_c_locked ? device_c_selected : device_c_arb_grant;
+
+  for (genvar i = 0; i < DeviceCNums; i++) begin
+    assign device_c_ready_mult_reg[i] = device_c_select[i] && device_c_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    device_c = 'x;
+    device_c_valid = 1'b0;
+    for (int i = DeviceCNums - 1; i >= 0; i--) begin
+      if (device_c_select[i]) begin
+        device_c = device_c_mult_reg[i];
+        device_c_valid = device_c_valid_mult_reg[i];
+      end
+    end
+  end
+
+  //////////////////////////////////
+  // Device E channel arbitration //
+  //////////////////////////////////
+
+  typedef `TL_E_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) device_e_t;
+
+  localparam DeviceENums = AcqTrackerNum;
+  localparam DeviceEIdxAcqBase = 0;
+
+  // Grouped signals before multiplexing/arbitration
+  device_e_t [DeviceENums-1:0] device_e_mult;
+  logic      [DeviceENums-1:0] device_e_valid_mult;
+  logic      [DeviceENums-1:0] device_e_ready_mult;
+
+  device_e_t [DeviceENums-1:0] device_e_mult_reg;
+  logic      [DeviceENums-1:0] device_e_valid_mult_reg;
+  logic      [DeviceENums-1:0] device_e_ready_mult_reg;
+
+  // Add register slices to break combinational loop of ready signal.
+  for (genvar i = 0; i < DeviceENums; i++) begin: device_e_mult_regslice
+    openip_regslice #(
+      .TYPE (device_e_t),
+      .FORWARD          (1'b0),
+      .REVERSE          (1'b1),
+      .HIGH_PERFORMANCE (1'b0)
+    ) regslice (
+      .clk     (clk_i),
+      .rstn    (rst_ni),
+      .w_valid (device_e_valid_mult[i]),
+      .w_ready (device_e_ready_mult[i]),
+      .w_data  (device_e_mult[i]),
+      .r_valid (device_e_valid_mult_reg[i]),
+      .r_ready (device_e_ready_mult_reg[i]),
+      .r_data  (device_e_mult_reg[i])
+    );
+  end
+
+  // Signals for arbitration
+  logic [DeviceENums-1:0] device_e_arb_grant;
+
+  openip_round_robin_arbiter #(.WIDTH(DeviceENums)) device_e_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (device_e_valid && device_e_ready),
+    .request (device_e_valid_mult_reg),
+    .grant   (device_e_arb_grant)
+  );
+
+  for (genvar i = 0; i < DeviceENums; i++) begin
+    assign device_e_ready_mult_reg[i] = device_e_arb_grant[i] && device_e_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    device_e = 'x;
+    device_e_valid = 1'b0;
+    for (int i = DeviceENums - 1; i >= 0; i--) begin
+      if (device_e_arb_grant[i]) begin
+        device_e = device_e_mult_reg[i];
+        device_e_valid = device_e_valid_mult_reg[i];
+      end
+    end
+  end
+
+  ////////////////////////////////
+  // Host D channel arbitration //
+  ////////////////////////////////
+
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) host_d_t;
+
+  localparam HostDNums = RelTrackerNum + WbTrackerNum + AcqTrackerNum;
+  localparam HostDIdxRelBase = 0;
+  localparam HostDIdxWbBase = RelTrackerNum;
+  localparam HostDIdxAcqBase = RelTrackerNum + WbTrackerNum;
+
+  host_d_t [HostDNums-1:0] host_d_mult;
+  logic    [HostDNums-1:0] host_d_valid_mult;
+  logic    [HostDNums-1:0] host_d_ready_mult;
+
+  host_d_t [HostDNums-1:0] host_d_mult_reg;
+  logic    [HostDNums-1:0] host_d_valid_mult_reg;
+  logic    [HostDNums-1:0] host_d_ready_mult_reg;
+
+  // Add register slices to break combinational loop of ready signal.
+  for (genvar i = 0; i < HostDNums; i++) begin: host_d_mult_regslice
+    openip_regslice #(
+      .TYPE (host_d_t),
+      .FORWARD          (1'b0),
+      .REVERSE          (1'b1),
+      .HIGH_PERFORMANCE (1'b0)
+    ) regslice (
+      .clk     (clk_i),
+      .rstn    (rst_ni),
+      .w_valid (host_d_valid_mult[i]),
+      .w_ready (host_d_ready_mult[i]),
+      .w_data  (host_d_mult[i]),
+      .r_valid (host_d_valid_mult_reg[i]),
+      .r_ready (host_d_ready_mult_reg[i]),
+      .r_data  (host_d_mult_reg[i])
+    );
+  end
+
+  // Signals for arbitration
+  logic [HostDNums-1:0] host_d_arb_grant;
+  logic                 host_d_locked;
+  logic [HostDNums-1:0] host_d_selected;
+
+  openip_round_robin_arbiter #(.WIDTH(HostDNums)) host_d_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (host_d_valid && host_d_ready && !host_d_locked),
+    .request (host_d_valid_mult_reg),
+    .grant   (host_d_arb_grant)
+  );
+
+  // Perform arbitration, and make sure that until we encounter host_d_last we keep the connection stable.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      host_d_locked <= 1'b0;
+      host_d_selected <= '0;
+    end
+    else begin
+      if (host_d_valid && host_d_ready) begin
+        if (!host_d_locked) begin
+          host_d_locked   <= 1'b1;
+          host_d_selected <= host_d_arb_grant;
+        end
+        if (host_d_last) begin
+          host_d_locked <= 1'b0;
+        end
+      end
+    end
+  end
+
+  wire [HostDNums-1:0] host_d_select = host_d_locked ? host_d_selected : host_d_arb_grant;
+
+  for (genvar i = 0; i < HostDNums; i++) begin
+    assign host_d_ready_mult_reg[i] = host_d_select[i] && host_d_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    host_d = 'x;
+    host_d_valid = 1'b0;
+    for (int i = HostDNums - 1; i >= 0; i--) begin
+      if (host_d_select[i]) begin
+        host_d = host_d_mult_reg[i];
+        host_d_valid = host_d_valid_mult_reg[i];
+      end
+    end
+  end
+
+  ////////////////////////////////////
+  // Writeback Request Multiplexing //
+  ////////////////////////////////////
+  // #region
+
+  localparam WbSources = AcqTrackerNum + 1;
+  localparam WbIdxProbe = 0;
+  localparam WbIdxAcqBase = 1;
+  localparam WbSourceBits = vbits(WbSources);
+
+  logic [WbSources-1:0]                          wb_req_valid_mult;
+  logic [WbSources-1:0]                          wb_req_ready_mult;
+  logic [WbSources-1:0]                          wb_req_release_mult;
+  logic [WbSources-1:0][2:0]                     wb_req_param_mult;
+  logic [WbSources-1:0][AddrWidth-LineWidth-1:0] wb_req_address_mult;
+  logic [WbSources-1:0]                          wb_resp_valid_mult;
+
+  logic                           wb_req_valid;
+  logic                           wb_req_ready;
+  logic                           wb_req_release;
+  logic [2:0]                     wb_req_param;
+  logic [AddrWidth-LineWidth-1:0] wb_req_address;
+  logic [WbSourceBits-1:0]        wb_req_idx;
+  logic                           wb_resp_valid;
+  logic [WbSourceBits-1:0]        wb_resp_idx;
+
+  // Arbitrate multiple writeback requests and route responses
+  always_comb begin
+    wb_req_ready_mult = 0;
+    wb_req_valid = 1'b0;
+    wb_req_release = 1'bx;
+    wb_req_param = 'x;
+    wb_req_address = 'x;
+    wb_req_idx = 'x;
+    for (int i = 0; i < WbSources; i++) begin
+      if (wb_req_valid_mult[i]) begin
+        wb_req_ready_mult = 0;
+        wb_req_ready_mult[i] = wb_req_ready;
+        wb_req_valid = 1'b1;
+        wb_req_release = wb_req_release_mult[i];
+        wb_req_param = wb_req_param_mult[i];
+        wb_req_address = wb_req_address_mult[i];
+        wb_req_idx = i;
+      end
+    end
+
+    wb_resp_valid_mult = 0;
+    if (wb_resp_valid) begin
+      wb_resp_valid_mult[wb_resp_idx] = 1'b1;
+    end
+  end
+
+  logic wb_req_blocked;
+
+  always_comb begin
+    wb_req_blocked = 1'b0;
+
+    for (int i = 0; i < AcqTrackerNum; i++) begin
+      // If a Acquire tracker exists for a given address, we must not accept a writeback request
+      // unless the Acquire tracker is refilling.
+      //
+      // This wouldn't cause a deadlock because:
+      // * If the Acquire logic can serve the request, it will work on channel D which has higher
+      //   priority.
+      // * If the Acquire logic needs to probe before serving the request, it will work on channel
+      //   B which has the same priority.
+      // * If the Acquire logic needs to refill/upgrade, we can accept the request.
+      if (acq_tracker[i].valid && !acq_tracker[i].refilling && acq_tracker[i].address == wb_req_address) begin
+        wb_req_blocked = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < WbTrackerNum; i++) begin
+      // If a writeback tracker exists for a given address, we must not accept a new one.
+      if (wb_tracker[i].valid && wb_tracker[i].address == wb_req_address) begin
+        wb_req_blocked = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < RelTrackerNum; i++) begin
+      // If a Release tracker exists for a given address, we must not accept a writeback request
+      // message to prevent a conflict.
+      if (rel_tracker[i].valid && rel_tracker[i].address == wb_req_address) begin
+        wb_req_blocked = 1'b1;
+      end
+    end
+
+    // If a Release message if valid on C channel, we must not accept a writeback reqeust
+    // for the same address to prevent a conflict.
+    if (host_c_valid && host_c.address[AddrWidth-1:LineWidth] == wb_req_address) begin
+      wb_req_blocked = 1'b1;
+    end
+  end
+
+  // #endregion
+  ///////////////////////////////////
+  // Host A Channel Demultiplexing //
+  ///////////////////////////////////
+  // #region
+
+  logic [AcqTrackerNum-1:0] host_a_valid_mult;
+  logic [AcqTrackerNum-1:0] host_a_ready_mult;
+
+  logic [AcqTrackerNum-1:0] host_a_tracker_match;
+  logic [AcqTrackerNum-1:0] host_a_tracker_avail;
+  logic host_a_blocked;
+
+  always_comb begin
+    host_a_tracker_match = '0;
+    host_a_tracker_avail = '0;
+    host_a_blocked = 1'b0;
+
+    for (int i = 0; i < AcqTrackerNum; i++) begin
+      // If a Acquire tracker exists for the same set, we must not accept a new A channel
+      // message to prevent a potential capacity conflict, in cases where both accesses
+      // misses in the cache and cause a refill to the same set and same way.
+      if (acq_tracker[i].valid && acq_tracker[i].address[SetsWidth-1:0] == host_a.address[LineWidth+:SetsWidth]) begin
+        // This means a conflicting but non-matching beat is routed to the tracker as well,
+        // but it's okay since each allocated tracker will only process one request at a time.
+        host_a_tracker_match[i] = 1'b1;
+      end
+
+      if (!acq_tracker[i].valid) begin
+        host_a_tracker_avail[i] = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < WbTrackerNum; i++) begin
+      // If a writeback tracker exists for a given address, we must not accept a new A channel
+      // message to prevent a conflict.
+      if (wb_tracker[i].valid && wb_tracker[i].address == host_a.address[AddrWidth-1:LineWidth]) begin
+        host_a_blocked = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < RelTrackerNum; i++) begin
+      // If a Release tracker exists for a given address, we must not accept a new A channel
+      // message to prevent a conflict.
+      if (rel_tracker[i].valid && rel_tracker[i].address == host_a.address[AddrWidth-1:LineWidth]) begin
+        host_a_blocked = 1'b1;
+      end
+    end
+
+    // If a writeback request is pending, we must not accept a new A channel message for the same
+    // address to prevent a conflict.
+    if (wb_req_valid && wb_req_address == host_a.address[AddrWidth-1:LineWidth]) begin
+      host_a_blocked = 1'b1;
+    end
+
+    // If a Release message if valid on C channel, we must not accept a new A channel message
+    // for the same address to prevent a conflict.
+    if (host_c_valid && host_c.address[AddrWidth-1:LineWidth] == host_a.address[AddrWidth-1:LineWidth]) begin
+      host_a_blocked = 1'b1;
+    end
+  end
+
+  always_comb begin
+    if (|host_a_tracker_match) begin
+      // If any of the trackers matches a beat, it will be routed to that tracker.
+      host_a_ready = |(host_a_ready_mult & host_a_tracker_match);
+      host_a_valid_mult = {AcqTrackerNum{host_a_valid}} & host_a_tracker_match;
+    end else if (host_a_blocked) begin
+      // Prevent tracker allocation if it's blocked by a conflicting transaction.
+      host_a_ready = 1'b0;
+      host_a_valid_mult = '0;
+    end else begin
+      // Route to any available tracker.
+      host_a_ready = |(host_a_ready_mult & host_a_tracker_avail);
+      host_a_valid_mult = '0;
+      for (int i = 0; i < AcqTrackerNum; i++) begin
+        if (host_a_tracker_avail[i]) begin
+          host_a_valid_mult = host_a_valid << i;
+        end
+      end
+    end
+  end
+
+  // #endregion
+  ///////////////////////////////////
+  // Host C Channel Demultiplexing //
+  ///////////////////////////////////
+
+  localparam HostCNums = RelTrackerNum + WbTrackerNum + AcqTrackerNum;
+  localparam HostCIdxRelBase = 0;
+  localparam HostCIdxWbBase = RelTrackerNum;
+  localparam HostCIdxAcqBase = RelTrackerNum + WbTrackerNum;
+
+  logic [HostCNums-1:0] host_c_valid_mult;
+  logic [HostCNums-1:0] host_c_ready_mult;
+
+  logic [HostCNums-1:0] host_c_tracker_match;
+  logic [RelTrackerNum-1:0] host_c_tracker_avail;
+
+  always_comb begin
+    host_c_tracker_match = '0;
+    host_c_tracker_avail = '0;
+
+    for (int i = 0; i < AcqTrackerNum; i++) begin
+      // If a Acquire tracker exists for a given address, we must not accept a new C channel
+      // message to prevent a conflict.
+      //
+      // This wouldn't cause a deadlock because:
+      // * If the Acquire logic can serve the request, it will work on channel D which has higher
+      //   priority.
+      // * If the Acquire logic needs to probe before serving the request, it will be able to
+      //   accept the Release message itself.
+      // * If the Acquire logic needs to refill/upgrade, for the upgrade case it must be triggered
+      //   by a write so it will probe first; for the refill case no host can have the address.
+      if (acq_tracker[i].valid && acq_tracker[i].address == host_c.address[AddrWidth-1:LineWidth]) begin
+        host_c_tracker_match[HostCIdxAcqBase + i] = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < WbTrackerNum; i++) begin
+      // If a writeback tracker exists for a given address, we must not accept a new C channel
+      // message to prevent a conflict.
+      //
+      // This wouldn't cause a deadlock because the writeback logic can accept the Release message
+      // itself.
+      if (wb_tracker[i].valid && wb_tracker[i].address == host_c.address[AddrWidth-1:LineWidth]) begin
+        host_c_tracker_match[HostCIdxWbBase + i] = 1'b1;
+      end
+    end
+
+    for (int i = 0; i < RelTrackerNum; i++) begin
+      // If a Release tracker exists for a given address, we must not accept a new C channel
+      // message to prevent a conflict.
+      if (rel_tracker[i].valid && rel_tracker[i].address == host_c.address[AddrWidth-1:LineWidth]) begin
+        host_c_tracker_match[HostCIdxRelBase + i] = 1'b1;
+      end
+
+      if (!rel_tracker[i].valid) begin
+        host_c_tracker_avail[i] = 1'b1;
+      end
+    end
+  end
+
+  always_comb begin
+    if (|host_c_tracker_match) begin
+      host_c_ready = |(host_c_ready_mult & host_c_tracker_match);
+      host_c_valid_mult = {HostCNums{host_c_valid}} & host_c_tracker_match;
+    end else begin
+      host_c_ready = |(host_c_ready_mult[HostCIdxRelBase +: RelTrackerNum] & host_c_tracker_avail);
+      host_c_valid_mult = '0;
+      for (int i = 0; i < RelTrackerNum; i++) begin
+        if (host_c_tracker_avail[i]) begin
+          host_c_valid_mult = host_c_valid << (HostCIdxRelBase + i);
+        end
+      end
+    end
+  end
+
+  // Decode the host sending the request.
+  logic [NumCachedHosts-1:0] host_c_selected;
+  for (genvar i = 0; i < NumCachedHosts; i++) begin
+    assign host_c_selected[i] = (host_c.source &~ SourceMask[i]) == SourceBase[i];
+  end
 
   //////////////////////////////////
   // MEM Channel D Demultiplexing //
   //////////////////////////////////
 
-  localparam SourceRefill = 0;
-  localparam SourceWriteback = 1;
-  localparam SourceAccess = 2;
+  logic [AcqTrackerNum-1:0] device_d_gnt_valid_mult;
+  logic [AcqTrackerNum-1:0] device_d_gnt_ready_mult;
+  logic [WbTrackerNum-1:0]  device_d_ack_valid_mult;
+  logic [WbTrackerNum-1:0]  device_d_ack_ready_mult;
 
-  wire device_gnt_valid_refill = device_d_valid && device_d.source == SourceRefill;
-  wire device_gnt_valid_writeback = device_d_valid && device_d.source == SourceWriteback;
-  wire device_gnt_valid_access = device_d_valid && device_d.source == SourceAccess;
-
-  logic device_gnt_ready_refill;
-  logic device_gnt_ready_writeback;
-  logic device_gnt_ready_access;
-  assign device_d_ready = device_gnt_valid_refill ? device_gnt_ready_refill :
-                          device_gnt_valid_writeback ? device_gnt_ready_writeback : device_gnt_ready_access;
-
-  //////////////////////////////
-  // Cache access arbitration //
-  //////////////////////////////
-
-  logic refill_lock_acq;
-  logic refill_lock_rel;
-  logic wb_lock_move;
-  logic wb_lock_rel;
-  logic access_lock_acq;
-  logic access_lock_rel;
-  logic release_lock_acq;
-  logic release_lock_rel;
-  logic flush_lock_acq;
-  logic flush_lock_rel;
-
-  typedef enum logic [2:0] {
-    LockHolderNone,
-    LockHolderRefill,
-    LockHolderWriteback,
-    LockHolderAccess,
-    LockHolderRelease,
-    LockHolderFlush
-  } lock_holder_e;
-
-  logic flush_lock_acq_pending_q, flush_lock_acq_pending_d;
-  lock_holder_e lock_holder_q, lock_holder_d;
-
-  wire refill_locked  = lock_holder_q == LockHolderRefill;
-  wire access_locking = lock_holder_d == LockHolderAccess;
-  wire access_locked = lock_holder_q == LockHolderAccess;
-  wire release_locking  = lock_holder_d == LockHolderRelease;
-  wire flush_locking  = lock_holder_d == LockHolderFlush;
-
-  // Arbitrate on the new holder of the lock
   always_comb begin
-    lock_holder_d = lock_holder_q;
-    flush_lock_acq_pending_d = flush_lock_acq_pending_q || flush_lock_acq;
+    device_d_ready = 1'b0;
+    device_d_gnt_valid_mult = '0;
+    device_d_ack_valid_mult = '0;
 
-    if (refill_lock_rel || wb_lock_rel || access_lock_rel || release_lock_rel || flush_lock_rel) begin
-      lock_holder_d = LockHolderNone;
+    for (int i = 0; i < AcqTrackerNum; i++) begin
+      if (device_d_valid && device_d.source == DeviceSourceBase + i && device_d.opcode != ReleaseAck) begin
+        device_d_gnt_valid_mult[i] = 1'b1;
+        device_d_ready = device_d_gnt_ready_mult[i];
+      end
     end
 
-    if (wb_lock_move) begin
-      lock_holder_d = LockHolderWriteback;
-    end
-
-    if (lock_holder_d == LockHolderNone) begin
-      priority case (1'b1)
-        refill_lock_acq: begin
-          lock_holder_d = LockHolderRefill;
-        end
-        flush_lock_acq_pending_d: begin
-          lock_holder_d = LockHolderFlush;
-          flush_lock_acq_pending_d = 1'b0;
-        end
-        release_lock_acq: begin
-          lock_holder_d = LockHolderRelease;
-        end
-        access_lock_acq: begin
-          lock_holder_d = LockHolderAccess;
-        end
-        default:;
-      endcase
-    end
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      flush_lock_acq_pending_q <= 1'b0;
-      lock_holder_q <= LockHolderFlush;
-    end else begin
-      flush_lock_acq_pending_q <= flush_lock_acq_pending_d;
-      lock_holder_q <= lock_holder_d;
+    for (int i = 0; i < WbTrackerNum; i++) begin
+      if (device_d_valid && device_d.source == DeviceSourceBase + i && device_d.opcode == ReleaseAck) begin
+        device_d_ack_valid_mult[i] = 1'b1;
+        device_d_ready = device_d_ack_ready_mult[i];
+      end
     end
   end
 
@@ -394,49 +823,36 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   // Cache access multiplex //
   ////////////////////////////
 
-  logic                             wb_data_req;
-  logic [WaysWidth-1:0]             wb_data_way;
-  logic [SetsWidth+OffsetWidth-1:0] wb_data_addr;
+  localparam TagArbNums = RelTrackerNum + WbTrackerNum + AcqTrackerNum;
+  localparam TagArbIdxRelBase = 0;
+  localparam TagArbIdxWbBase = RelTrackerNum;
+  localparam TagArbIdxAcqBase = RelTrackerNum + WbTrackerNum;
 
-  logic                              access_tag_req;
-  logic [AddrWidth-NonBurstSize-1:0] access_tag_addr;
-  logic [WaysWidth-1:0]              access_tag_wway;
-  logic                              access_tag_write;
-  tag_t                              access_tag_wdata;
-
-  logic                             access_data_req;
-  logic [WaysWidth-1:0]             access_data_way;
-  logic [SetsWidth+OffsetWidth-1:0] access_data_addr;
-  logic                             access_data_write;
-  logic [DataWidthInBytes-1:0]      access_data_wmask;
-  logic [DataWidth-1:0]             access_data_wdata;
-
-  logic                             refill_tag_req;
-  logic [SetsWidth+OffsetWidth-1:0] refill_tag_addr;
-  logic [WaysWidth-1:0]             refill_tag_wway;
-  tag_t                             refill_tag_wdata;
-
-  logic                             refill_data_req;
-  logic [WaysWidth-1:0]             refill_data_way;
-  logic [SetsWidth+OffsetWidth-1:0] refill_data_addr;
-  logic [DataWidth-1:0]             refill_data_wdata;
-
-  logic                              release_tag_req;
-  logic [AddrWidth-NonBurstSize-1:0] release_tag_addr;
-  logic                              release_tag_write;
-  logic [WaysWidth-1:0]              release_tag_wway;
-  tag_t                              release_tag_wdata;
-
-  logic                             release_data_req;
-  logic [WaysWidth-1:0]             release_data_way;
-  logic [SetsWidth+OffsetWidth-1:0] release_data_addr;
-  logic                             release_data_write;
-  logic [DataWidth-1:0]             release_data_wdata;
+  localparam DataArbNums = RelTrackerNum + WbTrackerNum + AcqTrackerNum;
+  localparam DataArbIdxRelBase = 0;
+  localparam DataArbIdxWbBase = RelTrackerNum;
+  localparam DataArbIdxAcqBase = RelTrackerNum + WbTrackerNum;
 
   logic                 flush_tag_req;
   logic [SetsWidth-1:0] flush_tag_set;
   logic [NumWays-1:0]   flush_tag_wway;
   tag_t                 flush_tag_wdata;
+
+  logic [TagArbNums-1:0]                             tag_arb_req;
+  logic [TagArbNums-1:0]                             tag_arb_gnt;
+  logic [TagArbNums-1:0][AddrWidth-NonBurstSize-1:0] tag_arb_addr;
+  logic [TagArbNums-1:0][WaysWidth-1:0]              tag_arb_wway;
+  tag_t [TagArbNums-1:0]                             tag_arb_write;
+  tag_t [TagArbNums-1:0]                             tag_arb_wdata;
+  logic [TagArbNums-1:0][WaysWidth-1:0]              tag_arb_way_fallback;
+
+  logic [DataArbNums-1:0]                            data_arb_req;
+  logic [DataArbNums-1:0]                            data_arb_gnt;
+  logic [DataArbNums-1:0][WaysWidth-1:0]             data_arb_way;
+  logic [DataArbNums-1:0][SetsWidth+OffsetWidth-1:0] data_arb_addr;
+  tag_t [DataArbNums-1:0]                            data_arb_write;
+  logic [DataArbNums-1:0][DataWidthInBytes-1:0]      data_arb_wmask;
+  logic [DataArbNums-1:0][DataWidth-1:0]             data_arb_wdata;
 
   logic                 tag_req;
   logic [SetsWidth-1:0] tag_set;
@@ -446,6 +862,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   tag_t                 tag_rdata [NumWays];
 
   logic [AddrWidth-LineWidth-1:0] tag_addr;
+  logic [WaysWidth-1:0]           tag_way_fallback;
 
   logic                        data_req;
   logic [WaysWidth-1:0]        data_way;
@@ -457,13 +874,40 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   logic [DataWidth-1:0]        data_rdata;
 
   always_comb begin
+    tag_arb_gnt = '0;
     tag_req = 1'b0;
     tag_set = 'x;
     tag_write = 1'b0;
     tag_wways = '0;
     tag_wdata = tag_t'('x);
     tag_addr = 0;
+    tag_way_fallback = 'x;
 
+    // Arbitrate tag memory access. Flushing always takes priority.
+    if (flush_tag_req) begin
+      tag_req = 1'b1;
+      tag_set = flush_tag_set;
+      tag_write = 1'b1;
+      tag_wways = flush_tag_wway;
+      tag_wdata = flush_tag_wdata;
+    end else begin
+      for (int i = 0; i < TagArbNums; i++) begin
+        if (tag_arb_req[i]) begin
+          tag_arb_gnt = 0;
+          tag_arb_gnt[i] = 1'b1;
+          tag_req = 1'b1;
+          tag_set = tag_arb_addr[i][OffsetWidth +: SetsWidth];
+          tag_write = tag_arb_write[i];
+          for (int j = 0; j < NumWays; j++) tag_wways[j] = tag_arb_wway[i] == j;
+          tag_wdata = tag_arb_wdata[i];
+
+          tag_addr = tag_arb_addr[i][AddrWidth-NonBurstSize-1:OffsetWidth];
+          tag_way_fallback = tag_arb_way_fallback[i];
+        end
+      end
+    end
+
+    data_arb_gnt = '0;
     data_req = 1'b0;
     data_way = 'x;
     data_set = 'x;
@@ -472,80 +916,20 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     data_wdata = 'x;
     data_wmask = 'x;
 
-    // Tag memory access
-    unique case (lock_holder_d)
-      LockHolderRefill: begin
-        tag_req = refill_tag_req;
-        tag_set = refill_tag_addr[OffsetWidth +: SetsWidth];
-        tag_write = 1'b1;
-        for (int i = 0; i < NumWays; i++) tag_wways[i] = refill_tag_wway == i;
-        tag_wdata = refill_tag_wdata;
+    // Arbitrate data memory access.
+    for (int i = 0; i < DataArbNums; i++) begin
+      if (data_arb_req[i]) begin
+        data_arb_gnt = 0;
+        data_arb_gnt[i] = 1'b1;
+        data_req = 1'b1;
+        data_way = data_arb_way[i];
+        data_set = data_arb_addr[i][OffsetWidth +: SetsWidth];
+        data_offset = data_arb_addr[i][0 +: OffsetWidth];
+        data_write = data_arb_write[i];
+        data_wmask = data_arb_wmask[i];
+        data_wdata = data_arb_wdata[i];
       end
-      LockHolderFlush: begin
-        tag_req = flush_tag_req;
-        tag_set = flush_tag_set;
-        tag_write = 1'b1;
-        tag_wways = flush_tag_wway;
-        tag_wdata = flush_tag_wdata;
-      end
-      LockHolderRelease: begin
-        tag_req = release_tag_req;
-        tag_set = release_tag_addr[OffsetWidth +: SetsWidth];
-        tag_write = release_tag_write;
-        for (int i = 0; i < NumWays; i++) tag_wways[i] = release_tag_wway == i;
-        tag_wdata = release_tag_wdata;
-
-        tag_addr = release_tag_addr[AddrWidth-NonBurstSize-1:OffsetWidth];
-      end
-      LockHolderAccess: begin
-        tag_req = access_tag_req;
-        tag_set = access_tag_addr[OffsetWidth +: SetsWidth];
-        tag_write = access_tag_write;
-        for (int i = 0; i < NumWays; i++) tag_wways[i] = access_tag_wway == i;
-        tag_wdata = access_tag_wdata;
-
-        tag_addr = access_tag_addr[AddrWidth-NonBurstSize-1:OffsetWidth];
-      end
-      default:;
-    endcase
-
-    // Data memory access
-    unique case (lock_holder_d)
-      LockHolderRefill: begin
-        data_req = refill_data_req;
-        data_way = refill_data_way;
-        data_set = refill_data_addr[OffsetWidth +: SetsWidth];
-        data_offset = refill_data_addr[0 +: OffsetWidth];
-        data_write = 1'b1;
-        data_wmask = '1;
-        data_wdata = refill_data_wdata;
-      end
-      LockHolderWriteback: begin
-        data_req = wb_data_req;
-        data_way = wb_data_way;
-        data_set = wb_data_addr[OffsetWidth +: SetsWidth];
-        data_offset = wb_data_addr[0 +: OffsetWidth];
-      end
-      LockHolderRelease: begin
-        data_req = release_data_req;
-        data_way = release_data_way;
-        data_set = release_data_addr[OffsetWidth +: SetsWidth];
-        data_offset = release_data_addr[0 +: OffsetWidth];
-        data_write = release_data_write;
-        data_wmask = '1;
-        data_wdata = release_data_wdata;
-      end
-      LockHolderAccess: begin
-        data_req = access_data_req;
-        data_way = access_data_way;
-        data_set = access_data_addr[OffsetWidth +: SetsWidth];
-        data_offset = access_data_addr[0 +: OffsetWidth];
-        data_write = access_data_write;
-        data_wmask = access_data_wmask;
-        data_wdata = access_data_wdata;
-      end
-      default:;
-    endcase
+    end
   end
 
   /////////////////////
@@ -553,9 +937,9 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   /////////////////////
 
   logic [AddrWidth-LineWidth-1:0] tag_addr_q;
+  logic [WaysWidth-1:0]           tag_way_fallback_q;
 
   logic [NumWays-1:0] hit;
-  logic [WaysWidth-1:0] hit_way_fallback;
   logic [WaysWidth-1:0] hit_way;
 
   always_comb begin
@@ -563,13 +947,13 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     hit = '0;
     for (int i = 0; i < NumWays; i++) begin
       if (tag_rdata[i].valid &&
-          tag_rdata[i].tag == tag_addr[AddrWidth-LineWidth-1:SetsWidth]) begin
+          tag_rdata[i].tag == tag_addr_q[AddrWidth-LineWidth-1:SetsWidth]) begin
           hit[i] = 1'b1;
       end
     end
 
     // Fallback to a way specified by miss handlinglogic
-    hit_way = hit_way_fallback;
+    hit_way = tag_way_fallback_q;
 
     // Empty way fallback
     for (int i = NumWays - 1; i >= 0; i--) begin
@@ -593,9 +977,11 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       tag_addr_q <= 0;
+      tag_way_fallback_q <= 'x;
     end else begin
       if (tag_req) begin
         tag_addr_q <= tag_addr;
+        tag_way_fallback_q <= tag_way_fallback;
       end
     end
   end
@@ -641,671 +1027,50 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     .rdata_o (data_rdata)
   );
 
-  ////////////////////////////////
-  // Dirty Data Writeback Logic //
-  ////////////////////////////////
+  /////////////////////
+  // Probe Sequencer //
+  /////////////////////
 
-  typedef enum logic [1:0] {
-    WbStateIdle,
-    WbStateInit,
-    WbStateProgress,
-    WbStateDone
-  } wb_state_e;
+  // There are multiple situation that we need to send Probe messages to hosts,
+  // and in many cases these are broadcasts. Therefore instead of having each sender
+  // do the sequencing and track valid/ready signals themselves we have a single probe
+  // sequencer that sends out Probe messages.
 
-  logic                           wb_req_valid;
-  logic [WaysWidth-1:0]           wb_req_way;
-  logic [AddrWidth-LineWidth-1:0] wb_req_address;
+  localparam ProbeOrigins = WbTrackerNum + AcqTrackerNum;
+  localparam ProbeIdxWbBase = 0;
+  localparam ProbeIdxAcqBase = WbTrackerNum;
 
-  logic wb_complete;
+  logic [ProbeOrigins-1:0]                     probe_ready_mult;
+  logic [ProbeOrigins-1:0]                     probe_valid_mult;
+  logic [ProbeOrigins-1:0][NumCachedHosts-1:0] probe_mask_mult;
+  logic [ProbeOrigins-1:0][2:0]                probe_param_mult;
+  logic [ProbeOrigins-1:0][AddrWidth-1:0]      probe_address_mult;
 
-  wb_state_e                    wb_state_q, wb_state_d;
-  logic [WaysWidth-1:0]         wb_way_q, wb_way_d;
-  logic [OffsetWidth-1:0]       wb_offset_q, wb_offset_d;
-  logic [AddrWidth-LineWidth:0] wb_address_q, wb_address_d;
-
-  always_comb begin
-    wb_data_req = 1'b0;
-    wb_data_way = 'x;
-    wb_data_addr = 'x;
-
-    wb_lock_move = 1'b0;
-    wb_lock_rel = 1'b0;
-
-    wb_state_d = wb_state_q;
-    wb_offset_d = wb_offset_q;
-    wb_way_d = wb_way_q;
-    wb_address_d = wb_address_q;
-
-    device_req_valid_mult[ReqIdxWb] = 1'b0;
-    device_req_mult[ReqIdxWb].opcode = PutFullData;
-    device_req_mult[ReqIdxWb].param = 0;
-    device_req_mult[ReqIdxWb].size = LineWidth;
-    device_req_mult[ReqIdxWb].source = SourceWriteback;
-    device_req_mult[ReqIdxWb].address = {wb_address_q, {LineWidth{1'b0}}};
-    device_req_mult[ReqIdxWb].mask = '1;
-    device_req_mult[ReqIdxWb].corrupt = 1'b0;
-    device_req_mult[ReqIdxWb].data = data_rdata;
-
-    device_gnt_ready_writeback = 1'b1;
-    wb_complete = device_gnt_valid_writeback;
-
-    unique case (wb_state_q)
-      WbStateIdle:;
-
-      WbStateInit: begin
-        wb_lock_move = 1'b1;
-        wb_data_req = 1'b1;
-        wb_data_way = wb_way_q;
-        wb_data_addr = {wb_address_q[SetsWidth-1:0], wb_offset_q};
-        wb_offset_d = wb_offset_q + 1;
-        wb_state_d = WbStateProgress;
-      end
-
-      WbStateProgress: begin
-        device_req_valid_mult[ReqIdxWb] = 1'b1;
-
-        wb_data_way = wb_way_q;
-        wb_data_addr = {wb_address_q[SetsWidth-1:0], wb_offset_q};
-
-        if (device_req_ready_mult[ReqIdxWb]) begin
-          wb_offset_d = wb_offset_q + 1;
-
-          if (wb_offset_q == 0) begin
-            wb_state_d = WbStateDone;
-          end else begin
-            wb_data_req = 1'b1;
-          end
-        end
-      end
-
-      WbStateDone: begin
-        wb_lock_rel = 1'b1;
-        wb_state_d = WbStateIdle;
-      end
-
-      default:;
-    endcase
-
-    if (wb_req_valid) begin
-      wb_state_d = WbStateInit;
-      wb_offset_d = 0;
-      wb_way_d = wb_req_way;
-      wb_address_d = wb_req_address;
-    end
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      wb_state_q <= WbStateIdle;
-      wb_offset_q <= 0;
-      wb_way_q <= 0;
-      wb_address_q <= 'x;
-    end else begin
-      wb_state_q <= wb_state_d;
-      wb_offset_q <= wb_offset_d;
-      wb_way_q <= wb_way_d;
-      wb_address_q <= wb_address_d;
-    end
-  end
-
-  //////////////////
-  // Refill Logic //
-  //////////////////
-
-  logic                           refill_req_valid;
-  logic [AddrWidth-LineWidth-1:0] refill_req_address;
-  logic [WaysWidth-1:0]           refill_req_way;
-
-  logic refill_complete;
-
-  typedef enum logic [1:0] {
-    RefillStateIdle,
-    RefillStateProgress,
-    RefillStateComplete
-  } refill_state_e;
-
-  refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
-
-  logic                           refill_req_sent_q, refill_req_sent_d;
-  logic [AddrWidth-LineWidth-1:0] refill_address_q, refill_address_d;
-  logic [WaysWidth-1:0]           refill_way_q, refill_way_d;
-  logic [OffsetWidth-1:0]         refill_index_q, refill_index_d;
-
-  always_comb begin
-    refill_tag_wway = 'x;
-    refill_tag_addr = 'x;
-    refill_tag_req = 1'b0;
-    refill_tag_wdata = tag_t'('x);
-
-    refill_data_req = 1'b0;
-    refill_data_way = 'x;
-    refill_data_addr = 'x;
-    refill_data_wdata = 'x;
-
-    refill_lock_acq = !refill_locked && !refill_req_sent_q;
-    refill_lock_rel = 1'b0;
-    device_gnt_ready_refill = 1'b0;
-    refill_complete = 1'b0;
-
-    refill_state_d = refill_state_q;
-    refill_req_sent_d = refill_req_sent_q;
-    refill_address_d = refill_address_q;
-    refill_way_d = refill_way_q;
-    refill_index_d = refill_index_q;
-
-    device_req_valid_mult[ReqIdxRefill] = !refill_req_sent_q && refill_locked;
-    device_req_mult[ReqIdxRefill].opcode = Get;
-    device_req_mult[ReqIdxRefill].param = 0;
-    device_req_mult[ReqIdxRefill].size = LineWidth;
-    device_req_mult[ReqIdxRefill].source = SourceRefill;
-    device_req_mult[ReqIdxRefill].address = {refill_address_q, {LineWidth{1'b0}}};
-    device_req_mult[ReqIdxRefill].mask = '1;
-    device_req_mult[ReqIdxRefill].corrupt = 1'b0;
-
-    if (device_req_ready_mult[ReqIdxRefill]) refill_req_sent_d = 1'b1;
-
-    if (refill_req_valid) begin
-      refill_req_sent_d = 1'b0;
-      refill_address_d = refill_req_address;
-      refill_way_d = refill_req_way;
-      refill_index_d = 0;
-    end
-
-    unique case (refill_state_q)
-      RefillStateIdle: begin
-        if (device_gnt_valid_refill) begin
-          refill_state_d = RefillStateProgress;
-        end
-      end
-      RefillStateProgress: begin
-        device_gnt_ready_refill = refill_locked;
-        refill_tag_wway = refill_way_q;
-        refill_tag_addr = {refill_address_q[SetsWidth-1:0], refill_index_q};
-
-        refill_data_way = refill_way_q;
-        refill_data_addr = {refill_address_q[SetsWidth-1:0], refill_index_q};
-
-        refill_data_req = device_gnt_valid_refill && device_d.opcode == AccessAckData && !device_d.denied;
-        refill_data_wdata = device_d.data;
-
-        // Update the metadata. This should only be done once, we can do it in either time.
-        refill_tag_req = device_gnt_valid_refill && &refill_index_q && !device_d.denied;
-        refill_tag_wdata = tag_t'('x);
-        refill_tag_wdata.tag = refill_address_q[AddrWidth-7:SetsWidth];
-        refill_tag_wdata.owned = 1'b0;
-        refill_tag_wdata.mask = '0;
-        refill_tag_wdata.dirty = 1'b0;
-        refill_tag_wdata.valid = 1'b1;
-
-        if (device_gnt_valid_refill && device_gnt_ready_refill) begin
-          refill_index_d = refill_index_q + 1;
-          if (device_gnt_last) begin
-            refill_state_d = RefillStateComplete;
-            refill_complete = 1'b1;
-          end
-        end
-      end
-      RefillStateComplete: begin
-        refill_lock_rel = 1'b1;
-        refill_state_d = RefillStateIdle;
-      end
-    endcase
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      refill_state_q <= RefillStateIdle;
-      refill_req_sent_q <= 1'b1;
-      refill_address_q <= 'x;
-      refill_way_q <= 'x;
-      refill_index_q <= 0;
-    end else begin
-      refill_state_q <= refill_state_d;
-      refill_req_sent_q <= refill_req_sent_d;
-      refill_address_q <= refill_address_d;
-      refill_way_q <= refill_way_d;
-      refill_index_q <= refill_index_d;
-    end
-  end
-
-  /////////////////
-  // Flush Logic //
-  /////////////////
-
-  typedef enum logic [2:0] {
-    FlushStateReset,
-    FlushStateIdle
-  } flush_state_e;
-
-  flush_state_e flush_state_q = FlushStateReset, flush_state_d;
-  logic [SetsWidth-1:0] flush_index_q, flush_index_d;
-
-  always_comb begin
-    flush_tag_wway = 'x;
-    flush_tag_set = 'x;
-    flush_tag_req = 1'b0;
-    flush_tag_wdata = tag_t'('x);
-
-    flush_lock_acq = 1'b0;
-    flush_lock_rel = 1'b0;
-
-    flush_state_d = flush_state_q;
-    flush_index_d = flush_index_q;
-
-    unique case (flush_state_q)
-      // Reset all states to invalid, discard changes if any.
-      FlushStateReset: begin
-        flush_tag_wway = '1;
-        flush_tag_set = flush_index_q;
-        flush_tag_req = 1'b1;
-        flush_tag_wdata.valid = 1'b0;
-
-        flush_index_d = flush_index_q + 1;
-
-        if (&flush_index_q) begin
-          flush_lock_rel = 1'b1;
-          flush_state_d = FlushStateIdle;
-        end
-      end
-
-      FlushStateIdle:;
-    endcase
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      flush_state_q <= FlushStateReset;
-      flush_index_q <= '0;
-    end else begin
-      flush_state_q <= flush_state_d;
-      flush_index_q <= flush_index_d;
-    end
-  end
-
-  ////////////////////////////
-  // Request handling logic //
-  ////////////////////////////
-
-  // Decode the host sending the request.
-  logic [NumCachedHosts-1:0] req_selected;
-  for (genvar i = 0; i < NumCachedHosts; i++) begin
-    assign req_selected[i] = (host_a.source &~ SourceMask[i]) == SourceBase[i];
-  end
-
-  typedef enum logic [3:0] {
-    StateIdle,
-
-    StateLookup,
-    StateGet,
-    StatePut,
-    StatePutAck,
-
-    StateInv,
-    StateWb,
-    StateFill,
-    StateReplay,
-
-    StateAckWait
-  } state_e;
-
-  state_e state_q = StateIdle, state_d;
-
-  tl_a_op_e opcode_q, opcode_d;
-  logic [2:0] param_q, param_d;
-  logic [2:0] size_q, size_d;
-  logic [AddrWidth-1:0] address_q, address_d;
-  logic [SourceWidth-1:0] source_q, source_d;
-
-  logic ack_done_q, ack_done_d;
-
-  // Interfacing with probe sequencer
   logic                      probe_ready;
   logic                      probe_valid;
   logic [NumCachedHosts-1:0] probe_mask;
   logic [2:0]                probe_param;
   logic [AddrWidth-1:0]      probe_address;
 
-  logic [NumCachedHosts-1:0] probe_ack_complete;
-
-  // Currently we don't bother to implement PLRU, so just use a round-robin fashion to choose line to evict.
-  logic [WaysWidth-1:0] evict_q, evict_d;
-  logic [WaysWidth-1:0] way_q, way_d;
-
-  assign hit_way_fallback = evict_q;
-
-  // The state to enter after invalidation has completed.
-  state_e post_inv_q, post_inv_d;
-
-  logic [NumCachedHosts-1:0] prb_ack_pending_q, prb_ack_pending_d;
-
-  // We can always receive ACKs.
-  assign host_e_ready = 1'b1;
-
+  // Arbitrate multiple probe signals
   always_comb begin
-    probe_valid = '0;
+    probe_ready_mult = 0;
+    probe_valid = 1'b0;
     probe_mask = 'x;
     probe_param = 'x;
     probe_address = 'x;
-
-    host_gnt_valid_mult[GntIdxReq] = 1'b0;
-    host_gnt_mult[GntIdxReq] = gnt_t'('x);
-
-    host_a_ready = 1'b0;
-
-    device_gnt_ready_access = 1'b0;
-
-    access_tag_wdata = tag_t'('x);
-    access_tag_write = 1'b0;
-    access_tag_wway = '0;
-
-    access_data_req = 1'b0;
-    access_data_way = way_q;
-    access_data_addr = 'x;
-    access_data_write = 1'b0;
-    access_data_wmask = 'x;
-    access_data_wdata = 'x;
-
-    ack_done_d = ack_done_q;
-
-    state_d = state_q;
-    opcode_d = opcode_q;
-    param_d = param_q;
-    size_d = size_q;
-    address_d = address_q;
-    source_d = source_q;
-
-    evict_d = evict_q;
-    way_d = way_q;
-    post_inv_d = post_inv_q;
-
-    prb_ack_pending_d = prb_ack_pending_q;
-
-    refill_req_valid = 1'b0;
-    refill_req_address = 'x;
-    refill_req_way = 'x;
-
-    wb_req_valid = 1'b0;
-    wb_req_way = 'x;
-    wb_req_address = 'x;
-
-    access_lock_acq = 1'b0;
-    access_lock_rel = 1'b0;
-    access_tag_req = 1'b0;
-
-    if (host_e_valid) ack_done_d = 1'b1;
-
-    unique case (state_q)
-      StateIdle: begin
-        access_tag_req = 1'b1;
-        access_lock_acq = host_a_valid;
-
-        if (access_locking) begin
-          opcode_d = host_a.opcode;
-          param_d = host_a.param == NtoB ? toB : toT;
-          source_d = host_a.source;
-          size_d = host_a.size;
-          address_d = host_a.address;
-          ack_done_d = !(host_a.opcode inside {AcquireBlock, AcquirePerm});
-          state_d = StateLookup;
-        end
+    for (int i = 0; i < ProbeOrigins; i++) begin
+      if (probe_valid_mult[i]) begin
+        probe_ready_mult = 0;
+        probe_ready_mult[i] = probe_ready;
+        probe_valid = 1'b1;
+        probe_mask = probe_mask_mult[i];
+        probe_param = probe_param_mult[i];
+        probe_address = probe_address_mult[i];
       end
-
-      StateReplay: begin
-        access_tag_req = 1'b1;
-        access_lock_acq = 1'b1;
-
-        if (access_locking) begin
-          state_d = StateLookup;
-        end
-      end
-
-      StateLookup: begin
-        way_d = hit_way;
-
-        access_tag_req = 1'b1;
-        access_tag_wdata = hit_tag;
-        access_tag_wway = hit_way;
-
-        access_data_req = 1'b1;
-        access_data_way = hit_way;
-        access_data_addr = address_q[AddrWidth-1:NonBurstSize];
-
-        if (|hit) begin
-          case (opcode_q)
-            AcquireBlock, AcquirePerm: begin
-              state_d = StateGet;
-
-              // Case A: Not shared by anyone, most trivial case.
-              if (hit_tag.mask == 0) begin
-                // Make the caching client own the cahce line (i.e. E state in MESI)
-                access_tag_wdata.owned = 1'b1;
-                param_d = toT;
-                access_tag_wdata.mask = req_selected[NumCachedHosts-1:0];
-                access_tag_write = 1'b1;
-              end
-              // Case B: Move into owned state
-              else if (param_q == toT) begin
-                // Upgrade into owned state
-                if (hit_tag.mask == req_selected[NumCachedHosts-1:0]) begin
-                  access_tag_wdata.owned = 1'b1;
-                  access_tag_write = 1'b1;
-                end
-                else begin
-                  probe_valid = 1'b1;
-                  probe_param = toN;
-                end
-              end
-              // Case C: Currently owned
-              else if (hit_tag.owned) begin
-                probe_valid = 1'b1;
-                probe_param = toB;
-              end
-              // Case D: Shared
-              else begin
-                // For non-caching clients this will keep mask 0.
-                access_tag_wdata.mask = hit_tag.mask | req_selected[NumCachedHosts-1:0];
-                access_tag_write = 1'b1;
-              end
-            end
-            Get, PutFullData, PutPartialData: begin
-              state_d = opcode_q == Get ? StateGet : StatePut;
-
-              // Case A: Not shared by anyone, most trivial case.
-              if (hit_tag.mask == 0) begin
-                if (opcode_q != Get) begin
-                  access_tag_wdata.dirty = 1'b1;
-                  access_tag_write = 1'b1;
-                end
-              end
-              // Case B: Write
-              else if (opcode_q != Get) begin
-                probe_valid = 1'b1;
-                probe_param = toN;
-              end
-              // Case C: Currently owned
-              else if (hit_tag.owned) begin
-                probe_valid = 1'b1;
-                probe_param = toB;
-              end
-              // Case D: Read unowned
-              else begin
-                // Nothing to be done
-              end
-            end
-          endcase
-        end
-        else begin
-          if (hit_tag.valid && hit_tag.mask != 0) begin
-            probe_valid = 1'b1;
-            probe_param = toN;
-          end else if (hit_tag.valid && hit_tag.dirty) begin
-            state_d = StateWb;
-            wb_req_valid = 1'b1;
-            wb_req_way = hit_way;
-            wb_req_address = hit_tag_addr[AddrWidth-1:LineWidth];
-          end else begin
-            state_d = StateFill;
-            evict_d = evict_q + 1;
-            refill_req_valid = 1'b1;
-            refill_req_address = address_q[AddrWidth-1:LineWidth];
-            refill_req_way = hit_way;
-          end
-        end
-
-        // Filling extra probe parameters.
-        probe_mask = hit_tag.mask;
-        probe_address = hit_tag_addr;
-
-        if (probe_valid) begin
-          access_tag_wdata.owned = 1'b0;
-          if (probe_param == toN) access_tag_wdata.mask = 0;
-          access_tag_write = 1'b1;
-
-          prb_ack_pending_d = hit_tag.mask;
-          post_inv_d = StateLookup;
-          state_d = StateInv;
-        end
-      end
-
-      // Wait for the invalidation ack to reach us.
-      StateInv: begin
-        access_tag_req = 1'b1;
-        access_lock_rel = access_locked;
-
-        if (|probe_ack_complete) begin
-          prb_ack_pending_d = prb_ack_pending_q &~ probe_ack_complete;
-        end
-
-        if (prb_ack_pending_d == 0) begin
-          access_lock_acq = 1'b1;
-        end
-
-        if (access_locking) begin
-          state_d = post_inv_q;
-        end
-      end
-
-      StateWb: begin
-        if (wb_complete) begin
-          state_d = StateFill;
-          refill_req_valid = 1'b1;
-          refill_req_address = address_q[AddrWidth-1:LineWidth];
-          refill_req_way = way_q;
-        end
-      end
-
-      StateFill: begin
-        // Release access lock if held.
-        access_lock_rel = access_locked;
-
-        if (refill_complete) begin
-          state_d = StateReplay;
-        end
-      end
-
-      StateGet: begin
-        host_gnt_valid_mult[GntIdxReq] = 1'b1;
-        host_gnt_mult[GntIdxReq].opcode = opcode_q == AcquireBlock ? GrantData : AccessAckData;
-        host_gnt_mult[GntIdxReq].param = param_q;
-        host_gnt_mult[GntIdxReq].size = host_a.size;
-        host_gnt_mult[GntIdxReq].source = source_q;
-        host_gnt_mult[GntIdxReq].sink = SinkBase;
-        host_gnt_mult[GntIdxReq].denied = 1'b0;
-        host_gnt_mult[GntIdxReq].corrupt = 1'b0;
-        host_gnt_mult[GntIdxReq].data = data_rdata;
-
-        if (host_gnt_ready_mult[GntIdxReq]) begin
-          address_d = address_q + (2 ** NonBurstSize);
-          access_data_req = 1'b1;
-          access_data_addr = address_d[AddrWidth-1:NonBurstSize];
-
-          if (host_gnt_last) begin
-            // Consume the request
-            host_a_ready = 1'b1;
-
-            access_lock_rel = 1'b1;
-            state_d = StateAckWait;
-          end
-        end
-      end
-
-      StatePut: begin
-        host_a_ready = 1'b1;
-
-        access_data_req = host_a_valid;
-        access_data_addr = address_q[NonBurstSize+:SetsWidth+OffsetWidth];
-        access_data_write = 1'b1;
-        access_data_wmask = host_a.mask;
-        access_data_wdata = host_a.data;
-
-        if (host_a_valid) begin
-          address_d = address_q + (2 ** NonBurstSize);
-        end
-
-        if (host_a_valid && host_req_last) begin
-          state_d = StatePutAck;
-        end
-      end
-
-      StatePutAck: begin
-        host_gnt_valid_mult[GntIdxReq] = 1'b1;
-        host_gnt_mult[GntIdxReq].opcode = AccessAck;
-        host_gnt_mult[GntIdxReq].param = 0;
-        host_gnt_mult[GntIdxReq].size = size_q;
-        host_gnt_mult[GntIdxReq].source = source_q;
-        host_gnt_mult[GntIdxReq].sink = 'x;
-        host_gnt_mult[GntIdxReq].denied = 1'b0;
-        host_gnt_mult[GntIdxReq].corrupt = 1'b0;
-        host_gnt_mult[GntIdxReq].data = 'x;
-
-        if (host_gnt_ready_mult[GntIdxReq]) begin
-          access_lock_rel = 1'b1;
-          state_d = StateIdle;
-        end
-      end
-
-      StateAckWait: begin
-        if (ack_done_d) state_d = StateIdle;
-      end
-    endcase
-
-    access_tag_addr = address_d[AddrWidth-1:NonBurstSize];
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      state_q <= StateIdle;
-      opcode_q <= tl_a_op_e'('x);
-      param_q <= 'x;
-      source_q <= 'x;
-      address_q <= 'x;
-      size_q <= '0;
-      evict_q <= '0;
-      way_q <= 'x;
-      post_inv_q <= state_e'('x);
-      prb_ack_pending_q <= 'x;
-      ack_done_q <= 1'b0;
-    end
-    else begin
-      state_q <= state_d;
-      opcode_q <= opcode_d;
-      param_q <= param_d;
-      size_q <= size_d;
-      address_q <= address_d;
-      source_q <= source_d;
-      evict_q <= evict_d;
-      way_q <= way_d;
-      post_inv_q <= post_inv_d;
-      prb_ack_pending_q <= prb_ack_pending_d;
-      ack_done_q <= ack_done_d;
     end
   end
 
-  ////////////////////////////
-  // Probe channel handling //
-  ////////////////////////////
-
-  // Probes yet to be sent.
   logic [NumCachedHosts-1:0] probe_pending_q, probe_pending_d;
   logic [2:0]                probe_param_q, probe_param_d;
   logic [AddrWidth-1:0]      probe_address_q, probe_address_d;
@@ -1346,7 +1111,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     end
 
     // New probing request
-    if (probe_valid) begin
+    if (probe_valid && probe_ready) begin
       probe_pending_d = probe_mask;
       probe_param_d = probe_param;
       probe_address_d = probe_address;
@@ -1365,153 +1130,365 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
     end
   end
 
-  //////////////////////////////
-  // Release channel handling //
-  //////////////////////////////
+  ////////////////////////////
+  // Handle B Channel Probe //
+  ////////////////////////////
 
-  // Decode the host sending the request.
-  logic [NumCachedHosts-1:0] rel_selected;
-  for (genvar i = 0; i < NumCachedHosts; i++) begin
-    assign rel_selected[i] = (host_c.source &~ SourceMask[i]) == SourceBase[i];
-  end
+  assign device_b_ready = wb_req_ready_mult[WbIdxProbe];
+  assign wb_req_valid_mult[WbIdxProbe] = device_b_valid;
+  assign wb_req_release_mult[WbIdxProbe] = 1'b0;
+  assign wb_req_param_mult[WbIdxProbe] = device_b.param;
+  assign wb_req_address_mult[WbIdxProbe] = device_b.address[AddrWidth-1:LineWidth];
+
+  ////////////////////////////////
+  // Dirty Data Writeback Logic //
+  ////////////////////////////////
 
   typedef enum logic [2:0] {
-    RelStateIdle,
-    RelStateLookup,
-    RelStateDo,
-    RelStateReleaseAck,
-    RelStateComplete,
-    RelStateError
-  } rel_state_e;
+    WbStateIdle,
+    WbStateProbe,
+    WbStateReadTag,
+    WbStateCheckTag,
+    WbStateDoData,
+    WbStateDo,
+    WbStateUpdateTag,
+    WbStateDone
+  } wb_state_e;
 
-  rel_state_e rel_state_q, rel_state_d;
-  logic rel_addr_sent_q, rel_addr_sent_d;
-  logic [AddrWidth-1:0] rel_wptr_q, rel_wptr_d;
-  logic [SourceWidth-1:0] rel_source_q, rel_source_d;
-  logic [NumCachedHosts-1:0] rel_selected_q, rel_selected_d;
+  wb_state_e                      wb_state_q, wb_state_d;
+  logic [WaysWidth-1:0]           wb_way_q, wb_way_d;
+  logic [OffsetWidth-1:0]         wb_offset_q, wb_offset_d;
+  logic [AddrWidth-LineWidth-1:0] wb_address_q, wb_address_d;
+  logic                           wb_release_q, wb_release_d;
+  logic [2:0]                     wb_param_q, wb_param_d;
+  tag_t                           wb_tag_q, wb_tag_d;
+  logic [WbSourceBits-1:0]        wb_idx_q, wb_idx_d;
+
+  logic                           wb_probe_sent_q, wb_probe_sent_d;
+  logic                           wb_data_sent_q, wb_data_sent_d;
+  logic                           wb_acked_q, wb_acked_d;
+
+  logic wb_beat_written_q, wb_beat_written_d;
+  logic wb_beat_forwarded_q, wb_beat_forwarded_d;
+  logic wb_beat_acked_q, wb_beat_acked_d;
+
+  logic                           wb_rdata_valid_q, wb_rdata_valid_d;
+
+  logic [DataWidth-1:0] wb_data_skid;
+  logic [DataWidth-1:0] wb_data_skid_valid;
+
+  localparam SourceWb = DeviceSourceBase;
 
   always_comb begin
-    host_gnt_valid_mult[GntIdxRel] = 1'b0;
-    host_gnt_mult[GntIdxRel] = gnt_t'('x);
+    tag_arb_req[TagArbIdxWbBase] = 1'b0;
+    tag_arb_addr[TagArbIdxWbBase] = 'x;
+    tag_arb_write[TagArbIdxWbBase] = 1'b0;
+    tag_arb_wway[TagArbIdxWbBase] = '0;
+    tag_arb_wdata[TagArbIdxWbBase] = tag_t'('x);
+    tag_arb_way_fallback[TagArbIdxWbBase] = 'x;
 
-    host_c_ready = 1'b0;
+    data_arb_req[DataArbIdxWbBase] = 1'b0;
+    data_arb_way[DataArbIdxWbBase] = 'x;
+    data_arb_addr[DataArbIdxWbBase] = 'x;
+    data_arb_write[DataArbIdxWbBase] = 1'b0;
+    data_arb_wmask[DataArbIdxWbBase] = 'x;
+    data_arb_wdata[DataArbIdxWbBase] = 'x;
 
-    release_tag_wdata = tag_t'('x);
-    release_tag_write = 1'b0;
-    release_tag_wway = '0;
+    wb_tracker[0].valid = wb_state_q != WbStateIdle;
+    wb_tracker[0].address = wb_address_q;
 
-    release_data_req = 1'b0;
-    release_data_way = 'x;
-    release_data_addr = 'x;
-    release_data_write = 1'b0;
-    release_data_wdata = 'x;
+    wb_req_ready = 1'b0;
 
-    release_tag_req = 1'b0;
-    release_tag_addr = host_c.address[AddrWidth-1:NonBurstSize];
+    wb_state_d = wb_state_q;
+    wb_offset_d = wb_offset_q;
+    wb_way_d = wb_way_q;
+    wb_address_d = wb_address_q;
+    wb_release_d = wb_release_q;
+    wb_param_d = wb_param_q;
+    wb_tag_d = wb_tag_q;
+    wb_idx_d = wb_idx_q;
 
-    rel_state_d = rel_state_q;
-    rel_addr_sent_d = rel_addr_sent_q;
-    rel_wptr_d = rel_wptr_q;
-    rel_source_d = rel_source_q;
-    rel_selected_d = rel_selected_q;
+    wb_probe_sent_d = wb_probe_sent_q;
+    wb_data_sent_d = wb_data_sent_q;
+    wb_acked_d = wb_acked_q;
 
-    release_lock_acq = 1'b0;
-    release_lock_rel = 1'b0;
+    wb_beat_written_d = wb_beat_written_q;
+    wb_beat_forwarded_d = wb_beat_forwarded_q;
+    wb_beat_acked_d = wb_beat_acked_q;
 
-    probe_ack_complete = '0;
+    wb_rdata_valid_d = wb_rdata_valid_q;
 
-    unique case (rel_state_q)
-      RelStateIdle: begin
-        release_tag_req = 1'b1;
+    device_c_valid_mult[DeviceCIdxWbBase] = 1'b0;
+    device_c_mult[DeviceCIdxWbBase] = 'x;
 
-        if (host_c_valid) begin
-          release_lock_acq = 1'b1;
-        end
+    host_d_valid_mult[HostDIdxWbBase] = 1'b0;
+    host_d_mult[HostDIdxWbBase] = 'x;
 
-        if (release_locking) begin
-          rel_wptr_d = host_c.address;
-          rel_source_d = host_c.source;
-          rel_selected_d = rel_selected;
+    host_c_ready_mult[HostCIdxWbBase] = 1'b0;
 
-          if (host_c.param == NtoN) begin
-            // In this case physical address supplied is invalid.
-            rel_state_d = RelStateDo;
-          end else begin
-            rel_state_d = RelStateLookup;
-          end
+    probe_valid_mult[ProbeIdxWbBase] = 1'b0;
+    probe_mask_mult[ProbeIdxWbBase] = 'x;
+    probe_param_mult[ProbeIdxWbBase] = 'x;
+    probe_address_mult[ProbeIdxWbBase] = 'x;
+
+    device_d_ack_ready_mult[0] = 1'b1;
+    wb_resp_valid = 1'b0;
+    wb_resp_idx = 'x;
+
+    if (device_d_ack_valid_mult[0]) wb_acked_d = 1'b1;
+
+    unique case (wb_state_q)
+      WbStateIdle: begin
+        wb_req_ready = !wb_req_blocked;
+        if (wb_req_valid && !wb_req_blocked) begin
+          wb_offset_d = 0;
+          wb_address_d = wb_req_address;
+          wb_release_d = wb_req_release;
+          wb_param_d = wb_req_param;
+          wb_idx_d = wb_req_idx;
+
+          wb_probe_sent_d = 1'b0;
+          wb_data_sent_d = 1'b0;
+          wb_acked_d = !wb_req_release;
+
+          wb_beat_written_d = 1'b0;
+          wb_beat_forwarded_d = 1'b0;
+          wb_beat_acked_d = 1'b0;
+
+          // Even though the acquire logic will have accessed the tag and obtained both the tag
+          // and the way information to send us the request, that information is not up-to-date.
+          // Since when the writeback is trigger, acquire logic is working on a different address,
+          // so it wouldn't block the Release logic from touching this address, which may
+          // potentially changed the dirtiness of the tag.
+          wb_state_d = WbStateReadTag;
         end
       end
 
-      RelStateLookup: begin
-        // Cache valid
-        if (|hit) begin
-          release_tag_write = 1'b1;
-          release_tag_wdata = hit_tag;
-          release_tag_wway = hit_way;
+      WbStateReadTag: begin
+        tag_arb_req[TagArbIdxWbBase] = 1'b1;
+        tag_arb_addr[TagArbIdxWbBase] = {wb_address_q, {OffsetWidth{1'b0}}};
 
-          if (host_c.opcode inside {ProbeAckData, ReleaseData}) begin
-            release_tag_req = 1'b1;
-            release_tag_wdata.dirty = 1'b1;
+        if (tag_arb_gnt[TagArbIdxWbBase]) begin
+          wb_state_d = WbStateCheckTag;
+        end
+      end
+
+      WbStateCheckTag: begin
+        wb_way_d = hit_way;
+        wb_tag_d = hit_tag;
+
+        if (~|hit) begin
+          wb_param_d = NtoN;
+          wb_state_d = WbStateDo;
+
+          // We don't need a NtoN voluntary Release message.
+          if (wb_release_q) begin
+            wb_acked_d = 1'b1;
+            wb_state_d = WbStateDone;
           end
-
-          if (host_c.param inside {TtoN, BtoN, NtoN}) begin
-            release_tag_req = 1'b1;
-            release_tag_wdata.mask = hit_tag.mask &~ rel_selected;
-            if (!release_tag_wdata.mask) release_tag_wdata.owned = 1'b0;
-          end
-
-          rel_state_d = RelStateDo;
         end else begin
-          rel_state_d = RelStateError;
-        end
-      end
-
-      RelStateDo: begin
-        host_c_ready = 1'b1;
-
-        release_data_req = host_c_valid && (host_c.opcode == ProbeAckData || host_c.opcode == ReleaseData);
-        release_data_way = hit_way;
-        release_data_addr = rel_wptr_q[NonBurstSize+:SetsWidth+OffsetWidth];
-        release_data_write = 1'b1;
-        release_data_wdata = host_c.data;
-
-        if (host_c_valid) begin
-          rel_wptr_d = rel_wptr_q + (2 ** NonBurstSize);
-        end
-
-        if (host_c_valid && rel_last) begin
-          if (host_c.opcode inside {ProbeAckData, ProbeAck}) begin
-            rel_state_d = RelStateComplete;
+          if (hit_tag.writable) begin
+            wb_param_d = wb_param_q == toN ? TtoN : TtoB;
           end else begin
-            rel_state_d = RelStateReleaseAck;
+            wb_param_d = wb_param_q == toN ? BtoN : BtoB;
+          end
+
+          if (wb_param_q == toN ? hit_tag.mask != 0 : hit_tag.owned) begin
+            wb_state_d = WbStateProbe;
+          end else if (hit_tag.dirty) begin
+            wb_state_d = WbStateDoData;
+          end else begin
+            wb_state_d = WbStateDo;
+
+            // In this case our cache line is not dirty. If the writeback is not initiated by a
+            // Probe we may omit the Release message depending on our Release policy.
+            if (wb_release_q && (ReleasePolicy == tl_cache_pkg::ReleaseDirty ||
+                                 ReleasePolicy == tl_cache_pkg::ReleaseExclusive && !hit_tag.writable)) begin
+              wb_acked_d = 1'b1;
+              wb_state_d = WbStateDone;
+            end
           end
         end
       end
 
-      RelStateReleaseAck: begin
-        host_gnt_valid_mult[GntIdxRel] = 1'b1;
-        host_gnt_mult[GntIdxRel].opcode = ReleaseAck;
-        host_gnt_mult[GntIdxRel].param = 0;
-        host_gnt_mult[GntIdxRel].size = LineWidth;
-        host_gnt_mult[GntIdxRel].source = rel_source_q;
-        host_gnt_mult[GntIdxRel].sink = 'x;
-        host_gnt_mult[GntIdxRel].denied = 1'b0;
-        host_gnt_mult[GntIdxRel].corrupt = 1'b0;
-        host_gnt_mult[GntIdxRel].data = 'x;
+      WbStateProbe: begin
+        // Send out a Probe message to all sharers if we haven't done so.
+        probe_valid_mult[ProbeIdxWbBase] = !wb_probe_sent_q;
+        probe_mask_mult[ProbeIdxWbBase] = wb_tag_q.mask;
+        probe_param_mult[ProbeIdxWbBase] = wb_param_q == TtoB ? toB : toN;
+        probe_address_mult[ProbeIdxWbBase] = {wb_address_q, {LineWidth{1'b0}}};
+        if (probe_ready_mult[ProbeIdxWbBase]) wb_probe_sent_d = 1'b1;
 
-        if (host_gnt_ready_mult[GntIdxRel]) begin
-          release_lock_rel = 1'b1;
-          rel_state_d = RelStateIdle;
+        if (host_c_valid_mult[HostCIdxWbBase]) begin
+          host_c_ready_mult[HostCIdxWbBase] = 1'b1;
+
+          // If the beat contains data and we are not moving to N state, write it back.
+          if (!wb_beat_written_q && host_c.opcode inside {ReleaseData, ProbeAckData} && wb_param_q == TtoB) begin
+            data_arb_req[DataArbIdxWbBase] = 1'b1;
+            data_arb_way[DataArbIdxWbBase] = wb_way_q;
+            data_arb_addr[DataArbIdxWbBase] = {wb_address_q, host_c_idx};
+            data_arb_write[DataArbIdxWbBase] = 1'b1;
+            data_arb_wmask[DataArbIdxWbBase] = '1;
+            data_arb_wdata[DataArbIdxWbBase] = host_c.data;
+
+            // Hold the beat until written back.
+            if (data_arb_gnt[DataArbIdxWbBase]) begin
+              wb_beat_written_d = 1'b1;
+            end else begin
+              host_c_ready_mult[HostCIdxWbBase] = 1'b0;
+            end
+          end
+
+          // If the beat contains data, forward it.
+          if (!wb_beat_forwarded_q && host_c.opcode inside {ReleaseData, ProbeAckData}) begin
+            device_c_valid_mult[DeviceCIdxWbBase] = 1'b1;
+            device_c_mult[DeviceCIdxWbBase].opcode = wb_release_q ? ReleaseData : ProbeAckData;
+            device_c_mult[DeviceCIdxWbBase].param = wb_param_q;
+            device_c_mult[DeviceCIdxWbBase].size = LineWidth;
+            device_c_mult[DeviceCIdxWbBase].source = SourceWb;
+            device_c_mult[DeviceCIdxWbBase].address = {wb_address_q, {LineWidth{1'b0}}};
+            device_c_mult[DeviceCIdxWbBase].corrupt = 1'b0;
+            device_c_mult[DeviceCIdxWbBase].data = host_c.data;
+
+            // Hold the beat until forwarded.
+            if (device_c_ready_mult[DeviceCIdxWbBase]) begin
+              wb_beat_forwarded_d = 1'b1;
+            end else begin
+              host_c_ready_mult[HostCIdxWbBase] = 1'b0;
+            end
+          end
+
+          // If the beat is the last beat and it's a Release message, send back an ack.
+          if (!wb_beat_acked_q && host_c.opcode inside {Release, ReleaseData} && host_c_last) begin
+            host_d_valid_mult[HostDIdxWbBase] = 1'b1;
+            host_d_mult[HostDIdxWbBase].opcode = ReleaseAck;
+            host_d_mult[HostDIdxWbBase].param = 0;
+            host_d_mult[HostDIdxWbBase].size = LineWidth;
+            host_d_mult[HostDIdxWbBase].source = host_c.source;
+            host_d_mult[HostDIdxWbBase].sink = 'x;
+            host_d_mult[HostDIdxWbBase].denied = 1'b0;
+            host_d_mult[HostDIdxWbBase].corrupt = 1'b0;
+            host_d_mult[HostDIdxWbBase].data = 'x;
+
+            // Hold the beat until acknowledge is sent.
+            if (host_d_ready_mult[HostDIdxWbBase]) begin
+              wb_beat_acked_d = 1'b1;
+            end else begin
+              host_c_ready_mult[HostCIdxWbBase] = 1'b0;
+            end
+          end
+
+          // Bookkeeping when the beat is consumed.
+          if (host_c_ready_mult[HostCIdxWbBase]) begin
+            wb_beat_written_d = 1'b0;
+            wb_beat_forwarded_d = 1'b0;
+            wb_beat_acked_d = 1'b0;
+
+            if (host_c_last) begin
+              if (host_c.opcode inside {ReleaseData, ProbeAckData}) begin
+                wb_data_sent_d = 1'b1;
+              end
+
+              if (host_c.opcode inside {ProbeAck, ProbeAckData}) begin
+                wb_tag_d.owned = 1'b0;
+                if (host_c.param inside {TtoN, BtoN, NtoN}) begin
+                  wb_tag_d.mask = wb_tag_q.mask &~ host_c_selected;
+                end
+              end
+
+              if (wb_param_q == TtoB ? !wb_tag_d.owned : wb_tag_d.mask == 0) begin
+                if (wb_data_sent_d) begin
+                  wb_state_d = WbStateUpdateTag;
+                end else if (wb_tag_q.dirty) begin
+                  wb_state_d = WbStateDoData;
+                end else begin
+                  wb_state_d = WbStateDo;
+
+                  if (wb_release_q && (ReleasePolicy == tl_cache_pkg::ReleaseDirty ||
+                                      ReleasePolicy == tl_cache_pkg::ReleaseExclusive && !wb_tag_q.writable)) begin
+                    wb_acked_d = 1'b1;
+                    wb_state_d = WbStateDone;
+                  end
+                end
+              end
+            end
+          end
         end
       end
 
-      RelStateComplete: begin
-        probe_ack_complete = rel_selected_q;
-        release_lock_rel = 1'b1;
-        rel_state_d = RelStateIdle;
+      WbStateDoData: begin
+        device_c_valid_mult[DeviceCIdxWbBase] = 1'b0;
+        device_c_mult[DeviceCIdxWbBase].opcode = wb_release_q ? ReleaseData : ProbeAckData;
+        device_c_mult[DeviceCIdxWbBase].param = wb_param_q;
+        device_c_mult[DeviceCIdxWbBase].size = LineWidth;
+        device_c_mult[DeviceCIdxWbBase].source = SourceWb;
+        device_c_mult[DeviceCIdxWbBase].address = {wb_address_q, {LineWidth{1'b0}}};
+        device_c_mult[DeviceCIdxWbBase].corrupt = 1'b0;
+        device_c_mult[DeviceCIdxWbBase].data = wb_data_skid_valid ? wb_data_skid : data_rdata;
+
+        device_c_valid_mult[DeviceCIdxWbBase] = wb_rdata_valid_q;
+        if (!wb_rdata_valid_q) begin
+          data_arb_req[DataArbIdxWbBase] = 1'b1;
+          wb_rdata_valid_d = data_arb_gnt[DataArbIdxWbBase];
+        end
+
+        data_arb_way[DataArbIdxWbBase] = wb_way_q;
+
+        if (wb_rdata_valid_q && device_c_ready_mult[DeviceCIdxWbBase]) begin
+          wb_offset_d = wb_offset_q + 1;
+
+          if (wb_offset_d == 0) begin
+            wb_state_d = WbStateUpdateTag;
+            wb_rdata_valid_d = 1'b0;
+          end else begin
+            data_arb_req[DataArbIdxWbBase] = 1'b1;
+            wb_rdata_valid_d = data_arb_gnt[DataArbIdxWbBase];
+          end
+        end
+
+        data_arb_addr[DataArbIdxWbBase] = {wb_address_q[SetsWidth-1:0], wb_offset_d};
       end
 
-      RelStateError:;
+      WbStateDo: begin
+        device_c_valid_mult[DeviceCIdxWbBase] = 1'b1;
+        device_c_mult[DeviceCIdxWbBase].opcode = wb_release_q ? Release : ProbeAck;
+        device_c_mult[DeviceCIdxWbBase].param = wb_param_q;
+        device_c_mult[DeviceCIdxWbBase].size = LineWidth;
+        device_c_mult[DeviceCIdxWbBase].source = SourceWb;
+        device_c_mult[DeviceCIdxWbBase].address = {wb_address_q, {LineWidth{1'b0}}};
+        device_c_mult[DeviceCIdxWbBase].corrupt = 1'b0;
+        device_c_mult[DeviceCIdxWbBase].data = 'x;
+
+        if (device_c_ready_mult[DeviceCIdxWbBase]) begin
+          wb_state_d = wb_param_q == NtoN ? WbStateDone : WbStateUpdateTag;
+        end
+      end
+
+      WbStateUpdateTag: begin
+        tag_arb_req[TagArbIdxWbBase] = 1'b1;
+        tag_arb_addr[TagArbIdxWbBase] = {wb_address_q, {OffsetWidth{1'b0}}};
+        tag_arb_write[TagArbIdxWbBase] = 1'b1;
+        tag_arb_wway[TagArbIdxWbBase] = wb_way_q;
+        tag_arb_wdata[TagArbIdxWbBase] = wb_tag_q;
+
+        if (wb_param_q inside {BtoN, TtoN}) begin
+          tag_arb_wdata[TagArbIdxWbBase].valid = 1'b0;
+        end else begin
+          tag_arb_wdata[TagArbIdxWbBase].writable = 1'b0;
+        end
+
+        if (tag_arb_gnt[TagArbIdxWbBase]) begin
+          wb_state_d = WbStateDone;
+        end
+      end
+
+      WbStateDone: begin
+        if (wb_acked_q) begin
+          wb_resp_valid = 1'b1;
+          wb_resp_idx = wb_idx_q;
+          wb_state_d = WbStateIdle;
+        end
+      end
 
       default:;
     endcase
@@ -1519,19 +1496,953 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; #(
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      rel_state_q <= RelStateIdle;
-      rel_addr_sent_q <= 1'b0;
-      rel_source_q <= 'x;
-      rel_wptr_q <= 'x;
-      rel_selected_q <= '0;
+      wb_state_q <= WbStateIdle;
+      wb_offset_q <= 0;
+      wb_way_q <= 0;
+      wb_address_q <= 'x;
+      wb_release_q <= 1'bx;
+      wb_param_q <= 'x;
+      wb_tag_q <= 'x;
+      wb_idx_q <= 'x;
+      wb_probe_sent_q <= 1'b0;
+      wb_data_sent_q <= 1'b0;
+      wb_acked_q <= 1'b0;
+      wb_beat_written_q <= 1'b0;
+      wb_beat_forwarded_q <= 1'b0;
+      wb_beat_acked_q <= 1'b0;
+      wb_data_skid_valid <= 1'b0;
+      wb_data_skid <= 'x;
+      wb_rdata_valid_q <= 1'b0;
+    end else begin
+      wb_state_q <= wb_state_d;
+      wb_offset_q <= wb_offset_d;
+      wb_way_q <= wb_way_d;
+      wb_address_q <= wb_address_d;
+      wb_release_q <= wb_release_d;
+      wb_param_q <= wb_param_d;
+      wb_tag_q <= wb_tag_d;
+      wb_idx_q <= wb_idx_d;
+      wb_probe_sent_q <= wb_probe_sent_d;
+      wb_data_sent_q <= wb_data_sent_d;
+      wb_acked_q <= wb_acked_d;
+      wb_beat_written_q <= wb_beat_written_d;
+      wb_beat_forwarded_q <= wb_beat_forwarded_d;
+      wb_beat_acked_q <= wb_beat_acked_d;
+      wb_rdata_valid_q <= wb_rdata_valid_d;
+      if (!wb_data_skid_valid && device_c_valid_mult[DeviceCIdxWbBase]) begin
+        wb_data_skid_valid <= 1'b1;
+        wb_data_skid <= data_rdata;
+      end
+      if (device_c_ready_mult[DeviceCIdxWbBase]) begin
+        wb_data_skid_valid <= 1'b0;
+      end
     end
-    else begin
-      rel_state_q <= rel_state_d;
-      rel_addr_sent_q <= rel_addr_sent_d;
-      rel_source_q <= rel_source_d;
-      rel_wptr_q <= rel_wptr_d;
-      rel_selected_q <= rel_selected_d;
+  end
+
+  /////////////////
+  // Flush Logic //
+  /////////////////
+
+  typedef enum logic [2:0] {
+    FlushStateReset,
+    FlushStateIdle
+  } flush_state_e;
+
+  flush_state_e flush_state_q = FlushStateReset, flush_state_d;
+  logic [SetsWidth-1:0] flush_index_q, flush_index_d;
+
+  always_comb begin
+    flush_tag_wway = 'x;
+    flush_tag_set = 'x;
+    flush_tag_req = 1'b0;
+    flush_tag_wdata = tag_t'('x);
+
+    flush_state_d = flush_state_q;
+    flush_index_d = flush_index_q;
+
+    unique case (flush_state_q)
+      // Reset all states to invalid, discard changes if any.
+      FlushStateReset: begin
+        flush_tag_wway = '1;
+        flush_tag_set = flush_index_q;
+        flush_tag_req = 1'b1;
+        flush_tag_wdata.valid = 1'b0;
+
+        flush_index_d = flush_index_q + 1;
+
+        if (&flush_index_q) begin
+          flush_tag_req = 1'b0;
+          flush_state_d = FlushStateIdle;
+        end
+      end
+
+      FlushStateIdle:;
+    endcase
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      flush_state_q <= FlushStateReset;
+      flush_index_q <= '0;
+    end else begin
+      flush_state_q <= flush_state_d;
+      flush_index_q <= flush_index_d;
     end
+  end
+
+  ////////////////////////////
+  // Request handling logic //
+  ////////////////////////////
+
+  typedef enum logic [3:0] {
+    AcqStateIdle,
+    AcqStateReadTag,
+    AcqStateCheckTag,
+    AcqStateProbe,
+    AcqStateWb,
+    AcqStateFill,
+    AcqStateGet,
+    AcqStatePut,
+    AcqStateUpdateTag,
+    AcqStateAckWait
+  } acq_state_e;
+
+  // We can always receive ACKs.
+  assign host_e_ready = 1'b1;
+
+  for (genvar AcqTrackerIdx = 0; AcqTrackerIdx < AcqTrackerNum; AcqTrackerIdx++) begin: acq_logic
+
+    localparam ProbeIdxAcq = ProbeIdxAcqBase + AcqTrackerIdx;
+    localparam HostDIdxAcq = HostDIdxAcqBase + AcqTrackerIdx;
+    localparam HostAIdxAcq = AcqTrackerIdx;
+    localparam HostCIdxAcq = HostCIdxAcqBase + AcqTrackerIdx;
+    localparam DeviceAIdxAcq = DeviceAIdxAcqBase + AcqTrackerIdx;
+    localparam DeviceEIdxAcq = DeviceEIdxAcqBase + AcqTrackerIdx;
+    localparam TagArbIdxAcq = TagArbIdxAcqBase + AcqTrackerIdx;
+    localparam DataArbIdxAcq = DataArbIdxAcqBase + AcqTrackerIdx;
+    localparam WbIdxAcq = WbIdxAcqBase + AcqTrackerIdx;
+    localparam SourceRefill = DeviceSourceBase + AcqTrackerIdx;
+    localparam SinkId = SinkBase + AcqTrackerIdx;
+
+    acq_state_e acq_state_q, acq_state_d;
+    tl_a_op_e acq_opcode_q, acq_opcode_d;
+    logic [2:0] acq_param_q, acq_param_d;
+    logic [2:0] acq_size_q, acq_size_d;
+    logic [AddrWidth-1:0] acq_address_q, acq_address_d;
+    logic [SourceWidth-1:0] acq_source_q, acq_source_d;
+    tag_t acq_tag_q, acq_tag_d;
+    acq_state_e acq_post_write_q, acq_post_write_d;
+
+    // Currently we don't bother to implement PLRU, so just use a round-robin fashion to choose line to evict.
+    logic [WaysWidth-1:0] acq_evict_q, acq_evict_d;
+    logic [WaysWidth-1:0] acq_way_q, acq_way_d;
+
+    logic acq_rtag_valid;
+    logic acq_rdata_valid_q, acq_rdata_valid_d;
+    logic acq_data_skid_valid;
+    logic [DataWidth-1:0] acq_data_skid;
+
+    logic acq_wb_sent_q, acq_wb_sent_d;
+    logic acq_probe_sent_q, acq_probe_sent_d;
+    logic acq_refill_sent_q, acq_refill_sent_d;
+    logic acq_data_sent_q, acq_data_sent_d;
+    logic ack_done_q, ack_done_d;
+
+    logic acq_beat_written_q, acq_beat_written_d;
+    logic acq_beat_forwarded_q, acq_beat_forwarded_d;
+    logic acq_beat_acked_q, acq_beat_acked_d;
+
+    wire [AddrWidth-1:0] acq_tag_addr = {acq_tag_q.tag, acq_address_q[LineWidth +: SetsWidth], 6'd0};
+
+    // Decode the host mask from the source.
+    logic [NumCachedHosts-1:0] acq_host_mask;
+    for (genvar i = 0; i < NumCachedHosts; i++) begin
+      assign acq_host_mask[i] = (acq_source_q &~ SourceMask[i]) == SourceBase[i];
+    end
+
+    always_comb begin
+      probe_valid_mult[ProbeIdxAcq] = '0;
+      probe_mask_mult[ProbeIdxAcq] = 'x;
+      probe_param_mult[ProbeIdxAcq] = 'x;
+      probe_address_mult[ProbeIdxAcq] = 'x;
+
+      host_d_valid_mult[HostDIdxAcq] = 1'b0;
+      host_d_mult[HostDIdxAcq] = 'x;
+
+      host_a_ready_mult[HostAIdxAcq] = 1'b0;
+
+      host_c_ready_mult[HostCIdxAcq] = 1'b0;
+
+      device_a_valid_mult[DeviceAIdxAcq] = 1'b0;
+      device_a_mult[DeviceAIdxAcq] = 'x;
+
+      device_e_valid_mult[DeviceEIdxAcq] = 1'b0;
+      device_e_mult[DeviceEIdxAcq] = 'x;
+
+      acq_tracker[AcqTrackerIdx].valid = acq_state_q != AcqStateIdle;
+      acq_tracker[AcqTrackerIdx].address = acq_address_q[AddrWidth-1:LineWidth];
+      acq_tracker[AcqTrackerIdx].refilling = acq_state_q == AcqStateFill;
+
+      tag_arb_req[TagArbIdxAcq] = 1'b0;
+      tag_arb_addr[TagArbIdxAcq] = 'x;
+      tag_arb_write[TagArbIdxAcq] = 1'b0;
+      tag_arb_wway[TagArbIdxAcq] = '0;
+      tag_arb_wdata[TagArbIdxAcq] = 'x;
+      tag_arb_way_fallback[TagArbIdxAcq] = acq_evict_q;
+
+      data_arb_req[DataArbIdxAcq] = 1'b0;
+      data_arb_way[DataArbIdxAcq] = 'x;
+      data_arb_addr[DataArbIdxAcq] = 'x;
+      data_arb_write[DataArbIdxAcq] = 1'b0;
+      data_arb_wmask[DataArbIdxAcq] = 'x;
+      data_arb_wdata[DataArbIdxAcq] = 'x;
+
+      acq_state_d = acq_state_q;
+      acq_opcode_d = acq_opcode_q;
+      acq_param_d = acq_param_q;
+      acq_size_d = acq_size_q;
+      acq_address_d = acq_address_q;
+      acq_source_d = acq_source_q;
+      acq_tag_d = acq_tag_q;
+      acq_post_write_d = acq_post_write_q;
+
+      acq_wb_sent_d = acq_wb_sent_q;
+      acq_probe_sent_d = acq_probe_sent_q;
+      acq_refill_sent_d = acq_refill_sent_q;
+      acq_data_sent_d = acq_data_sent_q;
+      ack_done_d = ack_done_q;
+
+      acq_beat_written_d = acq_beat_written_q;
+      acq_beat_forwarded_d = acq_beat_forwarded_q;
+      acq_beat_acked_d = acq_beat_acked_q;
+
+      acq_rdata_valid_d = acq_rdata_valid_q;
+
+      acq_evict_d = acq_evict_q;
+      acq_way_d = acq_way_q;
+
+      device_d_gnt_ready_mult[AcqTrackerIdx] = 1'b0;
+
+      wb_req_valid_mult[WbIdxAcq] = 1'b0;
+      wb_req_release_mult[WbIdxAcq] = 1'b1;
+      wb_req_param_mult[WbIdxAcq] = toN;
+      wb_req_address_mult[WbIdxAcq] = 'x;
+
+      if (host_e_valid && host_e.sink == SinkId) ack_done_d = 1'b1;
+
+      unique case (acq_state_q)
+        AcqStateIdle: begin
+          if (host_a_valid_mult[HostAIdxAcq]) begin
+            acq_opcode_d = host_a.opcode;
+            acq_source_d = host_a.source;
+            acq_size_d = host_a.size;
+            acq_address_d = host_a.address;
+            acq_state_d = AcqStateReadTag;
+
+            unique case (host_a.opcode)
+              AcquireBlock, AcquirePerm: begin
+                acq_param_d = host_a.param == NtoB ? toB : toT;
+                ack_done_d = 1'b0;
+              end
+              Get: begin
+                acq_param_d = toB;
+                ack_done_d = 1'b1;
+              end
+              PutFullData, PutPartialData: begin
+                acq_param_d = toT;
+                ack_done_d = 1'b1;
+              end
+              default:;
+            endcase
+
+            acq_wb_sent_d = 1'b0;
+            acq_probe_sent_d = 1'b0;
+            acq_refill_sent_d = 1'b0;
+            acq_data_sent_d = 1'b0;
+
+            // For transfers without data, we have stored all information necessary, so consume this beat immediately.
+            if (host_a.opcode[2]) begin
+              host_a_ready_mult[HostAIdxAcq] = 1'b1;
+            end
+          end
+        end
+
+        AcqStateReadTag: begin
+          tag_arb_req[TagArbIdxAcq] = 1'b1;
+          tag_arb_addr[TagArbIdxAcq] = acq_address_q[AddrWidth-1:NonBurstSize];
+
+          if (tag_arb_gnt[TagArbIdxAcq]) begin
+            acq_state_d = AcqStateCheckTag;
+          end
+        end
+
+        AcqStateCheckTag: begin
+          if (acq_rtag_valid) begin
+            acq_way_d = hit_way;
+            acq_tag_d = hit_tag;
+          end
+
+          if (acq_rtag_valid && ~|hit) begin
+            // No tag is hit, proceed to refilling
+            if (hit_tag.valid && (hit_tag.mask != 0 || hit_tag.dirty)) begin
+              acq_state_d = AcqStateWb;
+            end else begin
+              acq_state_d = AcqStateFill;
+            end
+            acq_evict_d = acq_evict_q + 1;
+
+            // Set the tag to invalid to hint AcqStateFill logic.
+            acq_tag_d.valid = 1'b0;
+          end else begin
+            case (acq_opcode_q)
+              AcquireBlock, AcquirePerm: begin
+                acq_state_d = AcqStateGet;
+
+                // Case A: Not shared by anyone, most trivial case.
+                if (acq_tag_d.mask == 0) begin
+                  // Make the caching client own the cahce line (i.e. E state in MESI)
+                  if (acq_tag_d.writable) begin
+                    acq_tag_d.owned = 1'b1;
+                    acq_param_d = toT;
+                  end
+                  acq_tag_d.mask = acq_host_mask[NumCachedHosts-1:0];
+                end
+                // Case B: Move into owned state
+                else if (acq_param_q == toT) begin
+                  // Upgrade into owned state
+                  if (acq_tag_d.mask == acq_host_mask[NumCachedHosts-1:0]) begin
+                    acq_tag_d.owned = 1'b1;
+                  end
+                  else begin
+                    acq_state_d = AcqStateProbe;
+                  end
+                end
+                // Case C: Currently owned
+                else if (acq_tag_d.owned) begin
+                  acq_state_d = AcqStateProbe;
+                end
+                // Case D: Shared
+                else begin
+                  // For non-caching clients this will keep mask 0.
+                  acq_tag_d.mask = acq_tag_d.mask | acq_host_mask[NumCachedHosts-1:0];
+                end
+              end
+              Get, PutFullData, PutPartialData: begin
+                acq_state_d = acq_opcode_q == Get ? AcqStateGet : AcqStatePut;
+
+                // Case A: Not shared by anyone, most trivial case.
+                if (acq_tag_d.mask == 0) begin
+                  // Nothing to be done
+                end
+                // Case B: Write
+                else if (acq_opcode_q != Get) begin
+                  acq_state_d = AcqStateProbe;
+                end
+                // Case C: Currently owned
+                else if (acq_tag_d.owned) begin
+                  acq_state_d = AcqStateProbe;
+                end
+                // Case D: Read unowned
+                else begin
+                  // Nothing to be done
+                end
+              end
+            endcase
+
+            if (acq_state_d == AcqStateGet && acq_data_sent_q) begin
+              acq_state_d = AcqStateUpdateTag;
+            end
+
+            if (acq_state_d != AcqStateProbe && acq_param_q == toT && !acq_tag_d.writable) begin
+              // We've got no permission for this cache line, need refill.
+              acq_state_d = AcqStateFill;
+            end
+          end
+        end
+
+        AcqStateProbe: begin
+          // Send out a Probe message to all sharers if we haven't done so.
+          probe_valid_mult[ProbeIdxAcq] = !acq_probe_sent_q;
+          probe_mask_mult[ProbeIdxAcq] = acq_tag_q.mask;
+          probe_param_mult[ProbeIdxAcq] = acq_param_q == toT ? toN : toB;
+          probe_address_mult[ProbeIdxAcq] = acq_tag_addr;
+          if (probe_ready_mult[ProbeIdxAcq]) acq_probe_sent_d = 1'b1;
+
+          if (host_c_valid_mult[HostCIdxAcq]) begin
+            host_c_ready_mult[HostCIdxAcq] = 1'b1;
+
+            // If the beat contains data, write it back.
+            if (!acq_beat_written_q && host_c.opcode inside {ReleaseData, ProbeAckData}) begin
+              data_arb_req[DataArbIdxAcq] = 1'b1;
+              data_arb_way[DataArbIdxAcq] = acq_way_q;
+              data_arb_addr[DataArbIdxAcq] = {acq_address_q[AddrWidth-1:LineWidth], host_c_idx};
+              data_arb_write[DataArbIdxAcq] = 1'b1;
+              data_arb_wmask[DataArbIdxAcq] = '1;
+              data_arb_wdata[DataArbIdxAcq] = host_c.data;
+
+              // Hold the beat until written back.
+              if (data_arb_gnt[DataArbIdxAcq]) begin
+                acq_beat_written_d = 1'b1;
+              end else begin
+                host_c_ready_mult[HostCIdxAcq] = 1'b0;
+              end
+            end
+
+            // If the beat contains data and is forwardable, forward it.
+            // Don't forward ReleaseData as it will conflict with the ReleaseAck.
+            if (!acq_beat_forwarded_q && host_c.opcode == ProbeAckData &&
+                acq_opcode_q inside {Get, AcquireBlock} && acq_size_q == LineWidth) begin
+
+              host_d_valid_mult[HostDIdxAcq] = 1'b1;
+              host_d_mult[HostDIdxAcq].opcode = acq_opcode_q == Get ? AccessAckData : GrantData;
+              host_d_mult[HostDIdxAcq].param = acq_opcode_q == Get ? 0 : acq_param_q;
+              host_d_mult[HostDIdxAcq].size = acq_size_q;
+              host_d_mult[HostDIdxAcq].source = acq_source_q;
+              host_d_mult[HostDIdxAcq].sink = SinkId;
+              host_d_mult[HostDIdxAcq].denied = 1'b0;
+              host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+              host_d_mult[HostDIdxAcq].data = host_c.data;
+
+              // Hold the beat until forwarded.
+              if (host_d_ready_mult[HostDIdxAcq]) begin
+                acq_beat_forwarded_d = 1'b1;
+              end else begin
+                host_c_ready_mult[HostCIdxAcq] = 1'b0;
+              end
+            end
+
+            // If the beat is the last beat and it's a Release message, send back an ack.
+            if (!acq_beat_acked_q && host_c.opcode inside {Release, ReleaseData} && host_c_last) begin
+              host_d_valid_mult[HostDIdxAcq] = 1'b1;
+              host_d_mult[HostDIdxAcq].opcode = ReleaseAck;
+              host_d_mult[HostDIdxAcq].param = 0;
+              host_d_mult[HostDIdxAcq].size = LineWidth;
+              host_d_mult[HostDIdxAcq].source = host_c.source;
+              host_d_mult[HostDIdxAcq].sink = 'x;
+              host_d_mult[HostDIdxAcq].denied = 1'b0;
+              host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+              host_d_mult[HostDIdxAcq].data = 'x;
+
+              // Hold the beat until acknowledge is sent.
+              if (host_d_ready_mult[HostDIdxAcq]) begin
+                acq_beat_acked_d = 1'b1;
+              end else begin
+                host_c_ready_mult[HostCIdxAcq] = 1'b0;
+              end
+            end
+
+            // Bookkeeping when the beat is consumed.
+            if (host_c_ready_mult[HostCIdxAcq]) begin
+              acq_beat_written_d = 1'b0;
+              acq_beat_forwarded_d = 1'b0;
+              acq_beat_acked_d = 1'b0;
+
+              if (host_c_last) begin
+                if (host_c.opcode == ProbeAckData && acq_opcode_q inside {Get, AcquireBlock} && acq_size_q == LineWidth) begin
+                  acq_data_sent_d = 1'b1;
+                end
+
+                if (host_c.opcode inside {ReleaseData, ProbeAckData}) begin
+                  acq_tag_d.dirty = 1'b1;
+                end
+
+                if (host_c.opcode inside {ProbeAck, ProbeAckData}) begin
+                  acq_tag_d.owned = 1'b0;
+                  if (host_c.param inside {TtoN, BtoN, NtoN}) begin
+                    acq_tag_d.mask = acq_tag_q.mask &~ host_c_selected;
+                  end
+                end
+
+                if (acq_param_q == toT ? acq_tag_d.mask == 0 : !acq_tag_d.owned) begin
+                  acq_state_d = AcqStateCheckTag;
+                end
+              end
+            end
+          end
+        end
+
+        AcqStateWb: begin
+          // Send out a writeback request if we haven't done so.
+          wb_req_valid_mult[WbIdxAcq] = !acq_wb_sent_q;
+          wb_req_address_mult[WbIdxAcq] = acq_tag_addr[AddrWidth-1:LineWidth];
+          if (wb_req_ready_mult[WbIdxAcq]) acq_wb_sent_d = 1'b1;
+
+          // Proceed to refill once writeback is completed.
+          if (wb_resp_valid_mult[WbIdxAcq]) begin
+            acq_state_d = AcqStateFill;
+          end
+        end
+
+        AcqStateFill: begin
+          // Send out a refill message to memory if we haven't done so.
+          device_a_valid_mult[DeviceAIdxAcq] = !acq_refill_sent_q;
+          device_a_mult[DeviceAIdxAcq].opcode = AcquireBlock;
+          device_a_mult[DeviceAIdxAcq].param = acq_tag_q.valid ? BtoT : NtoT;
+          device_a_mult[DeviceAIdxAcq].size = LineWidth;
+          device_a_mult[DeviceAIdxAcq].source = SourceRefill;
+          device_a_mult[DeviceAIdxAcq].address = {acq_address_q[AddrWidth-1:LineWidth], {LineWidth{1'b0}}};
+          device_a_mult[DeviceAIdxAcq].mask = '1;
+          device_a_mult[DeviceAIdxAcq].corrupt = 1'b0;
+          if (device_a_ready_mult[DeviceAIdxAcq]) acq_refill_sent_d = 1'b1;
+
+          if (device_d_gnt_valid_mult[AcqTrackerIdx]) begin
+            device_d_gnt_ready_mult[AcqTrackerIdx] = 1'b1;
+
+            // If the beat contains data, write it back.
+            if (!acq_beat_written_q && device_d.opcode == GrantData && !device_d.corrupt) begin
+              data_arb_req[DataArbIdxAcq] = 1'b1;
+              data_arb_way[DataArbIdxAcq] = acq_way_q;
+              data_arb_addr[DataArbIdxAcq] = {acq_address_q[AddrWidth-1:LineWidth], device_d_idx};
+              data_arb_write[DataArbIdxAcq] = 1'b1;
+              data_arb_wmask[DataArbIdxAcq] = '1;
+              data_arb_wdata[DataArbIdxAcq] = device_d.data;
+
+              // Hold the beat until written back.
+              if (data_arb_gnt[DataArbIdxAcq]) begin
+                acq_beat_written_d = 1'b1;
+              end else begin
+                device_d_gnt_ready_mult[AcqTrackerIdx] = 1'b0;
+              end
+            end
+
+            // If the beat contains data and is forwardable, forward it.
+            if (!acq_beat_forwarded_q && device_d.opcode == GrantData &&
+                acq_opcode_q inside {Get, AcquireBlock} && acq_size_q == LineWidth) begin
+
+              host_d_valid_mult[HostDIdxAcq] = 1'b1;
+              host_d_mult[HostDIdxAcq].opcode = acq_opcode_q == Get ? AccessAckData : GrantData;
+              host_d_mult[HostDIdxAcq].param = acq_opcode_q == Get ? 0 : acq_param_q;
+              host_d_mult[HostDIdxAcq].size = acq_size_q;
+              host_d_mult[HostDIdxAcq].source = acq_source_q;
+              host_d_mult[HostDIdxAcq].sink = SinkId;
+              host_d_mult[HostDIdxAcq].denied = 1'b0;
+              host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+              host_d_mult[HostDIdxAcq].data = device_d.data;
+
+              // Hold the beat until forwarded.
+              if (host_d_ready_mult[HostDIdxAcq]) begin
+                acq_beat_forwarded_d = 1'b1;
+              end else begin
+                device_d_gnt_ready_mult[AcqTrackerIdx] = 1'b0;
+              end
+            end
+
+            // If the beat is the last beat, send back an ack.
+            if (!acq_beat_acked_q && device_d_last) begin
+              device_e_valid_mult[DeviceEIdxAcq] = 1'b1;
+              device_e_mult[DeviceEIdxAcq].sink = device_d.sink;
+
+              // Hold the beat until acknowledge is sent.
+              if (device_e_ready_mult[DeviceEIdxAcq]) begin
+                acq_beat_acked_d = 1'b1;
+              end else begin
+                device_d_gnt_ready_mult[AcqTrackerIdx] = 1'b0;
+              end
+            end
+
+            // Bookkeeping when the burst is completed.
+            if (device_d_gnt_ready_mult[AcqTrackerIdx]) begin
+              acq_beat_written_d = 1'b0;
+              acq_beat_forwarded_d = 1'b0;
+              acq_beat_acked_d = 1'b0;
+
+              if (device_d_last) begin
+                if (device_d.opcode == GrantData && acq_opcode_q inside {Get, AcquireBlock} && acq_size_q == LineWidth) begin
+                  acq_data_sent_d = 1'b1;
+                end
+
+                acq_tag_d = 'x;
+                acq_tag_d.tag = acq_address_q[AddrWidth-1:LineWidth+SetsWidth];
+                acq_tag_d.owned = 1'b0;
+                acq_tag_d.mask = '0;
+                acq_tag_d.dirty = 1'b0;
+                acq_tag_d.writable = device_d.param == toT;
+                acq_tag_d.valid = 1'b1;
+
+                // This state change must be the same cycle as our GrantAck handshake.
+                // We must move away from refill state before device has a chance to send us a Probe.
+                acq_state_d = AcqStateCheckTag;
+              end
+            end
+          end
+        end
+
+        AcqStateGet: begin
+          host_d_valid_mult[HostDIdxAcq] = acq_rdata_valid_q;
+          host_d_mult[HostDIdxAcq].opcode = acq_opcode_q == Get ? AccessAckData : GrantData;
+          host_d_mult[HostDIdxAcq].param = acq_opcode_q == Get ? 0 : acq_param_q;
+          host_d_mult[HostDIdxAcq].size = acq_size_q;
+          host_d_mult[HostDIdxAcq].source = acq_source_q;
+          host_d_mult[HostDIdxAcq].sink = SinkId;
+          host_d_mult[HostDIdxAcq].denied = 1'b0;
+          host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+          host_d_mult[HostDIdxAcq].data = acq_data_skid_valid ? acq_data_skid : data_rdata;
+
+          if (!acq_rdata_valid_q) begin
+            data_arb_req[DataArbIdxAcq] = 1'b1;
+            data_arb_way[DataArbIdxAcq] = acq_way_q;
+            data_arb_addr[DataArbIdxAcq] = acq_address_d[AddrWidth-1:NonBurstSize];
+            acq_rdata_valid_d = data_arb_gnt[DataArbIdxAcq];
+          end
+
+          if (acq_rdata_valid_q && host_d_ready_mult[HostDIdxAcq]) begin
+            acq_address_d = acq_address_q + (2 ** NonBurstSize);
+            data_arb_req[DataArbIdxAcq] = 1'b1;
+            data_arb_way[DataArbIdxAcq] = acq_way_q;
+            data_arb_addr[DataArbIdxAcq] = acq_address_d[AddrWidth-1:NonBurstSize];
+
+            if ((acq_address_q >> acq_size_q) != (acq_address_d >> acq_size_q)) begin
+              acq_address_d = acq_address_q;
+              data_arb_req[DataArbIdxAcq] = 1'b0;
+
+              acq_state_d = AcqStateUpdateTag;
+              acq_rdata_valid_d = 1'b0;
+            end else begin
+              acq_rdata_valid_d = data_arb_gnt[DataArbIdxAcq];
+            end
+          end
+        end
+
+        AcqStatePut: begin
+          if (host_a_valid_mult[HostAIdxAcq]) begin
+            host_a_ready_mult[HostAIdxAcq] = 1'b1;
+
+            if (!acq_beat_written_q) begin
+              data_arb_req[DataArbIdxAcq] = 1'b1;
+              data_arb_way[DataArbIdxAcq] = acq_way_q;
+              data_arb_addr[DataArbIdxAcq] = acq_address_q[NonBurstSize+:SetsWidth+OffsetWidth];
+              data_arb_write[DataArbIdxAcq] = 1'b1;
+              data_arb_wmask[DataArbIdxAcq] = host_a.mask;
+              data_arb_wdata[DataArbIdxAcq] = host_a.data;
+
+              // Hold the beat until written back.
+              if (data_arb_gnt[DataArbIdxAcq]) begin
+                acq_beat_written_d = 1'b1;
+              end else begin
+                host_a_ready_mult[HostAIdxAcq] = 1'b0;
+              end
+            end
+
+            if (!acq_beat_acked_q && host_a_last) begin
+              host_d_valid_mult[HostDIdxAcq] = 1'b1;
+              host_d_mult[HostDIdxAcq].opcode = AccessAck;
+              host_d_mult[HostDIdxAcq].param = 0;
+              host_d_mult[HostDIdxAcq].size = acq_size_q;
+              host_d_mult[HostDIdxAcq].source = acq_source_q;
+              host_d_mult[HostDIdxAcq].sink = 'x;
+              host_d_mult[HostDIdxAcq].denied = 1'b0;
+              host_d_mult[HostDIdxAcq].corrupt = 1'b0;
+              host_d_mult[HostDIdxAcq].data = 'x;
+
+              if (host_d_ready_mult[HostDIdxAcq]) begin
+                acq_beat_acked_d = 1'b1;
+              end else begin
+                host_a_ready_mult[HostAIdxAcq] = 1'b0;
+              end
+            end
+
+            if (host_a_ready_mult[HostAIdxAcq]) begin
+              acq_beat_written_d = 1'b0;
+              acq_beat_acked_d = 1'b0;
+
+              acq_address_d = acq_address_q + (2 ** NonBurstSize);
+
+              if (host_a_last) begin
+                acq_tag_d.dirty = 1'b1;
+                acq_address_d = acq_address_q;
+                acq_state_d = AcqStateUpdateTag;
+              end
+            end
+          end
+        end
+
+        AcqStateUpdateTag: begin
+          tag_arb_req[TagArbIdxAcq] = 1'b1;
+          tag_arb_addr[TagArbIdxAcq] = acq_address_q[AddrWidth-1:NonBurstSize];
+          tag_arb_write[TagArbIdxAcq] = 1'b1;
+          tag_arb_wway[TagArbIdxAcq] = acq_way_q;
+          tag_arb_wdata[TagArbIdxAcq] = acq_tag_q;
+
+          if (tag_arb_gnt[TagArbIdxAcq]) begin
+            acq_state_d = AcqStateAckWait;
+          end
+        end
+
+        AcqStateAckWait: begin
+          if (ack_done_d) acq_state_d = AcqStateIdle;
+        end
+
+        default:;
+      endcase
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        acq_state_q <= AcqStateIdle;
+        acq_opcode_q <= tl_a_op_e'('x);
+        acq_param_q <= 'x;
+        acq_source_q <= 'x;
+        acq_address_q <= 'x;
+        acq_size_q <= '0;
+        acq_evict_q <= '0;
+        acq_way_q <= 'x;
+        acq_tag_q <= 'x;
+        acq_post_write_q <= AcqStateIdle;
+        ack_done_q <= 1'b0;
+        acq_wb_sent_q <= 1'b0;
+        acq_probe_sent_q <= 1'b0;
+        acq_refill_sent_q <= 1'b0;
+        acq_beat_written_q <= 1'b0;
+        acq_beat_forwarded_q <= 1'b0;
+        acq_beat_acked_q <= 1'b0;
+        acq_data_sent_q <= 1'b0;
+        acq_rdata_valid_q <= 1'b0;
+        acq_rtag_valid <= 1'b0;
+        acq_data_skid_valid <= 1'b0;
+        acq_data_skid <= 'x;
+      end
+      else begin
+        acq_state_q <= acq_state_d;
+        acq_opcode_q <= acq_opcode_d;
+        acq_param_q <= acq_param_d;
+        acq_size_q <= acq_size_d;
+        acq_address_q <= acq_address_d;
+        acq_source_q <= acq_source_d;
+        acq_evict_q <= acq_evict_d;
+        acq_way_q <= acq_way_d;
+        acq_tag_q <= acq_tag_d;
+        acq_post_write_q <= acq_post_write_d;
+        ack_done_q <= ack_done_d;
+        acq_wb_sent_q <= acq_wb_sent_d;
+        acq_probe_sent_q <= acq_probe_sent_d;
+        acq_refill_sent_q <= acq_refill_sent_d;
+        acq_data_sent_q <= acq_data_sent_d;
+        acq_beat_written_q <= acq_beat_written_d;
+        acq_beat_forwarded_q <= acq_beat_forwarded_d;
+        acq_beat_acked_q <= acq_beat_acked_d;
+        acq_rdata_valid_q <= acq_rdata_valid_d;
+        acq_rtag_valid <= tag_arb_gnt[TagArbIdxAcq];
+        if (!acq_data_skid_valid && host_d_valid_mult[HostDIdxAcq]) begin
+          acq_data_skid_valid <= 1'b1;
+          acq_data_skid <= data_rdata;
+        end
+        if (host_d_ready_mult[HostDIdxAcq]) begin
+          acq_data_skid_valid <= 1'b0;
+        end
+      end
+    end
+
+  end
+
+  //////////////////////////////
+  // Release channel handling //
+  //////////////////////////////
+
+  typedef enum logic [2:0] {
+    RelStateIdle,
+    RelStateReadTag,
+    RelStateCheckTag,
+    RelStateUpdateTag,
+    RelStateDo,
+    RelStateError
+  } rel_state_e;
+
+  for (genvar RelTrackerIdx = 0; RelTrackerIdx < RelTrackerNum; RelTrackerIdx++) begin: rel_logic
+
+    localparam HostCIdxRel = HostCIdxRelBase + RelTrackerIdx;
+    localparam HostDIdxRel = HostDIdxRelBase + RelTrackerIdx;
+    localparam TagArbIdxRel = TagArbIdxRelBase + RelTrackerIdx;
+    localparam DataArbIdxRel = DataArbIdxRelBase + RelTrackerIdx;
+
+    rel_state_e rel_state_q, rel_state_d;
+    logic rel_addr_sent_q, rel_addr_sent_d;
+    logic [AddrWidth-1:0] rel_address_q, rel_address_d;
+    logic [SourceWidth-1:0] rel_source_q, rel_source_d;
+    logic [NumCachedHosts-1:0] rel_selected_q, rel_selected_d;
+    logic rel_beat_written_q, rel_beat_written_d;
+    logic rel_beat_acked_q, rel_beat_acked_d;
+
+    tag_t rel_tag_q, rel_tag_d;
+    logic [WaysWidth-1:0] rel_way_q, rel_way_d;
+
+    always_comb begin
+      host_d_valid_mult[HostDIdxRel] = 1'b0;
+      host_d_mult[HostDIdxRel] = 'x;
+
+      rel_tracker[RelTrackerIdx].valid = rel_state_q != RelStateIdle;
+      rel_tracker[RelTrackerIdx].address = rel_address_q[AddrWidth-1:LineWidth];
+
+      host_c_ready_mult[HostCIdxRel] = 1'b0;
+
+      tag_arb_req[TagArbIdxRel] = 1'b0;
+      tag_arb_addr[TagArbIdxRel] = 'x;
+      tag_arb_write[TagArbIdxRel] = 1'b0;
+      tag_arb_wway[TagArbIdxRel] = '0;
+      tag_arb_wdata[TagArbIdxRel] = tag_t'('x);
+      tag_arb_way_fallback[TagArbIdxRel] = 'x;
+
+      data_arb_req[DataArbIdxRel] = 1'b0;
+      data_arb_way[DataArbIdxRel] = 'x;
+      data_arb_addr[DataArbIdxRel] = 'x;
+      data_arb_write[DataArbIdxRel] = 1'b0;
+      data_arb_wmask[DataArbIdxRel] = '1;
+      data_arb_wdata[DataArbIdxRel] = 'x;
+
+      rel_state_d = rel_state_q;
+      rel_addr_sent_d = rel_addr_sent_q;
+      rel_address_d = rel_address_q;
+      rel_source_d = rel_source_q;
+      rel_selected_d = rel_selected_q;
+
+      rel_beat_written_d = rel_beat_written_q;
+      rel_beat_acked_d = rel_beat_acked_q;
+
+      rel_tag_d = rel_tag_q;
+      rel_way_d = rel_way_q;
+
+      unique case (rel_state_q)
+        RelStateIdle: begin
+          if (host_c_valid_mult[HostCIdxRel]) begin
+            rel_address_d = host_c.address;
+            rel_source_d = host_c.source;
+            rel_selected_d = host_c_selected;
+
+            if (host_c.param == NtoN) begin
+              // In this case physical address supplied is invalid.
+              rel_state_d = RelStateDo;
+            end else begin
+              rel_state_d = RelStateReadTag;
+            end
+          end
+        end
+
+        RelStateReadTag: begin
+          tag_arb_req[TagArbIdxRel] = 1'b1;
+          tag_arb_addr[TagArbIdxRel] = rel_address_q[AddrWidth-1:NonBurstSize];
+
+          if (tag_arb_gnt[TagArbIdxRel]) begin
+            rel_state_d = RelStateCheckTag;
+          end
+        end
+
+        RelStateCheckTag: begin
+          // Cache valid
+          if (|hit) begin
+            rel_state_d = RelStateDo;
+            rel_tag_d = hit_tag;
+            rel_way_d = hit_way;
+
+            if (host_c.opcode == ReleaseData) begin
+              rel_tag_d.dirty = 1'b1;
+            end
+
+            if (host_c.param inside {TtoN, BtoN, NtoN}) begin
+              rel_tag_d.mask = hit_tag.mask &~ host_c_selected;
+              if (!rel_tag_d.mask) rel_tag_d.owned = 1'b0;
+            end
+
+            if (host_c.param inside {TtoB, TtoN}) begin
+              rel_tag_d.owned = 1'b0;
+            end
+          end else begin
+            rel_state_d = RelStateError;
+          end
+        end
+
+        RelStateDo: begin
+          if (host_c_valid_mult[HostCIdxRel]) begin
+            host_c_ready_mult[HostCIdxRel] = 1'b1;
+
+            // If the beat contains data, write it back.
+            if (!rel_beat_written_q && host_c.opcode == ReleaseData) begin
+              data_arb_req[DataArbIdxRel] = 1'b1;
+              data_arb_way[DataArbIdxRel] = rel_way_q;
+              data_arb_addr[DataArbIdxRel] = {rel_address_q[NonBurstSize+OffsetWidth+:SetsWidth], host_c_idx};
+              data_arb_write[DataArbIdxRel] = 1'b1;
+              data_arb_wdata[DataArbIdxRel] = host_c.data;
+
+              // Hold the beat until written back.
+              if (data_arb_gnt[DataArbIdxRel]) begin
+                rel_beat_written_d = 1'b1;
+              end else begin
+                host_c_ready_mult[HostCIdxRel] = 1'b0;
+              end
+            end
+
+            // If the beat is the last beat, send back an Ack.
+            if (!rel_beat_acked_q && host_c_last) begin
+              host_d_valid_mult[HostDIdxRel] = 1'b1;
+              host_d_mult[HostDIdxRel].opcode = ReleaseAck;
+              host_d_mult[HostDIdxRel].param = 0;
+              host_d_mult[HostDIdxRel].size = LineWidth;
+              host_d_mult[HostDIdxRel].source = rel_source_q;
+              host_d_mult[HostDIdxRel].sink = 'x;
+              host_d_mult[HostDIdxRel].denied = 1'b0;
+              host_d_mult[HostDIdxRel].corrupt = 1'b0;
+              host_d_mult[HostDIdxRel].data = 'x;
+
+              // Hold the beat until acknowledge is sent.
+              if (host_d_ready_mult[HostDIdxRel]) begin
+                rel_beat_acked_d = 1'b1;
+              end else begin
+                host_c_ready_mult[HostCIdxRel] = 1'b0;
+              end
+            end
+
+            if (host_c_ready_mult[HostCIdxRel]) begin
+              rel_beat_written_d = 1'b0;
+              rel_beat_acked_d = 1'b0;
+
+              if (host_c_last) begin
+                rel_state_d = host_c.param == NtoN ? RelStateIdle : RelStateUpdateTag;
+              end
+            end
+          end
+        end
+
+        RelStateUpdateTag: begin
+          tag_arb_req[TagArbIdxRel] = 1'b1;
+          tag_arb_addr[TagArbIdxRel] = rel_address_q[AddrWidth-1:NonBurstSize];
+          tag_arb_write[TagArbIdxRel] = 1'b1;
+          tag_arb_wdata[TagArbIdxRel] = rel_tag_q;
+          tag_arb_wway[TagArbIdxRel] = rel_way_q;
+
+          if (tag_arb_gnt[TagArbIdxRel]) begin
+            rel_state_d = RelStateIdle;
+          end
+        end
+
+        RelStateError:;
+
+        default:;
+      endcase
+    end
+
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        rel_state_q <= RelStateIdle;
+        rel_addr_sent_q <= 1'b0;
+        rel_source_q <= 'x;
+        rel_address_q <= 'x;
+        rel_selected_q <= '0;
+        rel_beat_written_q <= 1'b0;
+        rel_beat_acked_q <= 1'b0;
+        rel_way_q <= 'x;
+        rel_tag_q <= 'x;
+      end
+      else begin
+        rel_state_q <= rel_state_d;
+        rel_addr_sent_q <= rel_addr_sent_d;
+        rel_source_q <= rel_source_d;
+        rel_address_q <= rel_address_d;
+        rel_selected_q <= rel_selected_d;
+        rel_beat_written_q <= rel_beat_written_d;
+        rel_beat_acked_q <= rel_beat_acked_d;
+        rel_way_q <= rel_way_d;
+        rel_tag_q <= rel_tag_d;
+      end
+    end
+
   end
 
 endmodule
