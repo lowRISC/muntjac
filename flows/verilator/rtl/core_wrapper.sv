@@ -47,12 +47,12 @@ module core_wrapper import muntjac_pkg::*; #(
 
   localparam SinkWidth = 2;
 
-  `TL_DECLARE(64, 56, 7, SinkWidth, mem_tlul);
+  `TL_DECLARE(64, 56, 9, SinkWidth, mem_tlul);
   `TL_DECLARE(64, 56, 7, SinkWidth, io_tlul);
 
   tl_adapter_bram #(
     .DataWidth (64),
-    .SourceWidth(7),
+    .SourceWidth(9),
     .SinkWidth (SinkWidth),
     .BramAddrWidth (53)
   ) mem_tlul_bram_bridge (
@@ -84,12 +84,12 @@ module core_wrapper import muntjac_pkg::*; #(
     .bram_rdata_i (io_rdata_i)
   );
 
-  `TL_DECLARE(64, 56, 4, SinkWidth, mem);
+  `TL_DECLARE(64, 56, 6, SinkWidth, mem);
   `TL_DECLARE(64, 56, 4, SinkWidth, io);
 
   tl_adapter_tlul #(
-    .HostSourceWidth (4),
-    .DeviceSourceWidth (7),
+    .HostSourceWidth (6),
+    .DeviceSourceWidth (9),
     .SinkWidth (SinkWidth)
   ) mem_tlul_bridge (
     .clk_i,
@@ -99,8 +99,8 @@ module core_wrapper import muntjac_pkg::*; #(
   );
 
   tl_adapter_tlul #(
-    .HostSourceWidth (4),
-    .DeviceSourceWidth (7),
+    .HostSourceWidth (6),
+    .DeviceSourceWidth (9),
     .SinkWidth (SinkWidth)
   ) io_tlul_bridge (
     .clk_i,
@@ -109,13 +109,35 @@ module core_wrapper import muntjac_pkg::*; #(
     `TL_CONNECT_HOST_PORT(device, io_tlul)
   );
 
+  `TL_DECLARE(64, 56, 6, SinkWidth, mem_tlc_term);
+  tl_ram_terminator #(
+    .DataWidth(64),
+    .AddrWidth(56),
+    .HostSourceWidth(4),
+    .DeviceSourceWidth(6),
+    .SinkWidth (SinkWidth),
+    .SinkBase (0),
+    .SinkMask (2 ** SinkWidth - 1)
+  ) ram_term (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT(host, mem_tlc_term),
+    `TL_CONNECT_HOST_PORT(device, mem)
+  );
+
+  localparam [SinkWidth-1:0] CacheSinkBase = 0;
+  localparam [SinkWidth-1:0] CacheSinkMask = 1;
+  localparam [SinkWidth-1:0] IoSinkBase = 2;
+  localparam [SinkWidth-1:0] IoSinkMask = 0;
+
   `TL_DECLARE_ARR(64, 56, 4, SinkWidth, mem_tlc, [1:0]);
   muntjac_llc #(
     .AddrWidth(56),
     .DataWidth(64),
     .SourceWidth(4),
     .SinkWidth (SinkWidth),
-    .SinkBase (0),
+    .SinkBase (CacheSinkBase),
+    .SinkMask (CacheSinkMask),
     .NumCachedHosts(1),
     .SourceBase({4'd0}),
     .SourceMask({4'd0})
@@ -123,7 +145,7 @@ module core_wrapper import muntjac_pkg::*; #(
     .clk_i,
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT_IDX(host, mem_tlc, [0]),
-    `TL_CONNECT_HOST_PORT(device, mem)
+    `TL_CONNECT_HOST_PORT(device, mem_tlc_term)
   );
 
   `TL_DECLARE(64, 56, 4, SinkWidth, io_tlc);
@@ -132,16 +154,13 @@ module core_wrapper import muntjac_pkg::*; #(
     .DataWidth(64),
     .SourceWidth(4),
     .SinkWidth (SinkWidth),
-    .SinkBase (1)
+    .SinkBase (IoSinkBase)
   ) io_term (
     .clk_i,
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT_IDX(host, mem_tlc, [1]),
     `TL_CONNECT_HOST_PORT(device, io)
   );
-
-  localparam [SinkWidth-1:0] IoSinkBase = 1;
-  localparam [SinkWidth-1:0] IoSinkMask = 0;
 
   `TL_DECLARE(64, 56, 4, SinkWidth, ch_aggregate);
   tl_socket_1n #(
