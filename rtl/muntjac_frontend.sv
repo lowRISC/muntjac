@@ -260,127 +260,20 @@ module muntjac_frontend import muntjac_pkg::*; #(
   // Instruction Alignment //
   ///////////////////////////
 
-  logic prev_valid_q, prev_valid_d;
-  logic [63:0] prev_pc_q;
-  if_reason_e prev_reason_q, prev_reason_d;
-  logic [15:0] prev_instr_q;
-
-  logic second_half_q, second_half_d;
-
-  always_comb begin
-    prev_valid_d = prev_valid_q;
-    align_ready = 1'b0;
-    second_half_d = second_half_q;
-    prev_reason_d = IF_PREFETCH;
-
-    fetch_valid_o = 1'b0;
-    fetch_instr_o.instr_word = 'x;
-    fetch_instr_o.pc = 'x;
-    fetch_instr_o.if_reason = if_reason_e'('x);
-    fetch_instr_o.ex_valid = 1'b0;
-    fetch_instr_o.exception.cause = exc_cause_e'('x);
-    fetch_instr_o.exception.tval = 'x;
-
-    if (align_valid && align_exception) begin
-      prev_valid_d = 1'b0;
-
-      fetch_valid_o = 1'b1;
-      fetch_instr_o.pc = prev_valid_q && align_reason ==? IF_PREFETCH ? prev_pc_q : align_pc;
-      fetch_instr_o.if_reason = prev_valid_q && align_reason ==? IF_PREFETCH ? prev_reason_q : align_reason;
-      fetch_instr_o.ex_valid = 1'b1;
-      fetch_instr_o.exception.cause = align_ex_code;
-      fetch_instr_o.exception.tval = align_pc;
-
-      if (fetch_ready_i) align_ready = 1'b1;
-    end else if (align_valid && align_strb == 2'b10 && align_instr[17:16] == 2'b11) begin
-      // A redirection fetches unaligned 32-bit instruction. Keep the higher half,
-      // discard the lower half, without waiting for the fetch_ready_i signal.
-      prev_valid_d = 1'b1;
-      second_half_d = 1'b0;
-      prev_reason_d = align_reason;
-
-      align_ready = 1'b1;
-    end else if (align_valid) begin
-      if (fetch_ready_i) begin
-        prev_valid_d = 1'b0;
-        second_half_d = 1'b0;
-      end
-
-      if (align_strb == 2'b10 || second_half_q) begin
-        // Misaligned compressed instruction.
-        fetch_valid_o = 1'b1;
-        fetch_instr_o.pc = {align_pc[63:2], 2'b10};
-        fetch_instr_o.if_reason = second_half_q ? IF_PREFETCH : align_reason;
-        fetch_instr_o.instr_word = {16'd0, align_instr[31:16]};
-
-        if (fetch_ready_i) align_ready = 1'b1;
-      end else begin
-        if (prev_valid_q && align_reason ==? IF_PREFETCH) begin
-          // If there is a half word left (and we can use it), then this is the second half
-          // of a misaligned 32-bit instruction.
-          fetch_valid_o = 1'b1;
-          fetch_instr_o.pc = prev_pc_q;
-          fetch_instr_o.if_reason = prev_reason_q;
-          fetch_instr_o.instr_word = {align_instr[15:0], prev_instr_q};
-
-          // If the second half is also a 32-bit instruction, fetch the next word.
-          if (fetch_ready_i) begin
-            prev_valid_d = 1'b1;
-
-            if (align_instr[17:16] == 2'b11 || align_strb == 2'b01) begin
-              align_ready = 1'b1;
-            end else begin
-              second_half_d = 1'b1;
-            end
-          end
-        end else begin
-          if (align_instr[1:0] == 2'b11) begin
-            // Full instruction, output it.
-            fetch_valid_o = 1'b1;
-            fetch_instr_o.pc = align_pc;
-            fetch_instr_o.if_reason = align_reason;
-            fetch_instr_o.instr_word = align_instr;
-
-            if (fetch_ready_i) align_ready = 1'b1;
-          end else begin
-            // Compressed instruction, output it.
-            fetch_valid_o = 1'b1;
-            fetch_instr_o.pc = align_pc;
-            fetch_instr_o.if_reason = align_reason;
-            fetch_instr_o.instr_word = {16'd0, align_instr[15:0]};
-
-            if (fetch_ready_i) begin
-              prev_valid_d = 1'b1;
-
-              if (align_instr[17:16] == 2'b11 || align_strb == 2'b01) begin
-                // The second half is not compressed instruction, fetch next word
-                align_ready = 1'b1;
-              end else begin
-                second_half_d = 1'b1;
-              end
-            end
-          end
-        end
-      end
-    end
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      prev_valid_q <= 1'b0;
-      second_half_q <= 1'b0;
-      prev_instr_q <= 'x;
-      prev_reason_q <= if_reason_e'('x);
-      prev_pc_q <= 'x;
-    end else begin
-      prev_valid_q <= prev_valid_d;
-      second_half_q <= second_half_d;
-      if (align_ready) begin
-        prev_instr_q <= align_instr[31:16];
-        prev_pc_q <= {align_pc[63:2], 2'b10};
-        prev_reason_q <= prev_reason_d;
-      end
-    end
-  end
+  muntjac_instr_align aligner (
+    .clk_i,
+    .rst_ni,
+    .unaligned_ready_o (align_ready),
+    .unaligned_valid_i (align_valid),
+    .unaligned_pc_i (align_pc),
+    .unaligned_exception_i (align_exception),
+    .unaligned_ex_code_i (align_ex_code),
+    .unaligned_reason_i (align_reason),
+    .unaligned_strb_i (align_strb),
+    .unaligned_instr_i (align_instr),
+    .aligned_ready_i (fetch_ready_i),
+    .aligned_valid_o (fetch_valid_o),
+    .aligned_instr_o (fetch_instr_o)
+  );
 
 endmodule

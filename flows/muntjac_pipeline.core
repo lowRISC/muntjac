@@ -21,6 +21,7 @@ filesets:
       - ../rtl/muntjac_btb.sv
       - ../rtl/muntjac_bp_bimodal.sv
       - ../rtl/muntjac_ras.sv
+      - ../rtl/muntjac_instr_align.sv
       - ../rtl/muntjac_frontend.sv
       - ../rtl/muntjac_reg_file_fpga.sv
       - ../rtl/muntjac_fp_reg_file_fpga.sv
