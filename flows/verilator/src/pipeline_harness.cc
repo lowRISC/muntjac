@@ -12,7 +12,6 @@
 #include "simulation.h"
 
 #include "Vpipeline_wrapper.h"
-#include "Vpipeline_wrapper_pipeline_wrapper.h"  // Verilator internals
 
 typedef Vpipeline_wrapper DUT;
 
@@ -30,9 +29,6 @@ protected:
 
   virtual void set_clock(int value) {dut.clk_i = value;}
   virtual void set_reset(int value) {dut.rst_ni = !value;}
-  virtual void set_entry_point(MemoryAddress pc) {
-    dut.pipeline_wrapper->write_reset_pc(pc);
-  }
   virtual MemoryAddress get_program_counter() {return dut.dbg_pc_o;}
 
   virtual instr_trace_t get_trace_info() {

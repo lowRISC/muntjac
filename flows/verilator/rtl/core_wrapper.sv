@@ -194,15 +194,4 @@ module core_wrapper import muntjac_pkg::*; #(
   assign dbg_csr_data_o = dbg_o.csr_data;
 `endif
 
-  // Set the pipeline's program counter during reset.
-  function write_reset_pc;
-    // verilator public
-    input [63:0] new_pc;
-    begin
-      core.pipeline.frontend.redirect_valid_i = 1;
-      core.pipeline.frontend.redirect_reason_i = IF_FENCE_I;
-      core.pipeline.frontend.redirect_pc_i = new_pc;
-    end
-  endfunction
-
 endmodule

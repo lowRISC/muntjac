@@ -40,7 +40,6 @@ protected:
   // To be implemented by subclasses.
   virtual void set_clock(int value) = 0;
   virtual void set_reset(int value) = 0;
-  virtual void set_entry_point(MemoryAddress pc) = 0;
   virtual MemoryAddress get_program_counter() = 0;
   virtual instr_trace_t get_trace_info() = 0;
   virtual void init() = 0;
@@ -78,6 +77,8 @@ public:
 
     init();
     reset();
+
+    cycle_second_half();
 
     while (!Verilated::gotFinish() && cycle < timeout) {
       set_clock(1);
@@ -124,6 +125,7 @@ public:
   }
 
   void reset() {
+    set_entry_point(entry_point);
     set_reset(1);
 
     for (int i=0; i<10; i++) {
@@ -134,7 +136,6 @@ public:
     }
 
     set_reset(0);
-    set_entry_point(entry_point);
   }
 
   bool is_system_call(MemoryAddress address, uint64_t write_data) {
@@ -246,6 +247,15 @@ private:
     // System calls: this may be specific to riscv-tests.
     tohost = BinaryParser::symbol_location(argv[0], "tohost");
     fromhost = BinaryParser::symbol_location(argv[0], "fromhost");
+  }
+
+  void set_entry_point(MemoryAddress pc) {
+    // auipc a0, 0; ld a0, 16(a0)
+    memory.write64(0x00, 0x0105350300000517);
+    // jr a0
+    memory.write64(0x08, 0x0000000000008502);
+    // target pc
+    memory.write64(0x10, pc);
   }
 
 protected:

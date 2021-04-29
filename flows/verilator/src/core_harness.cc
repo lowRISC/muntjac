@@ -11,7 +11,6 @@
 #include "memory_port.h"
 
 #include "Vcore_wrapper.h"
-#include "Vcore_wrapper_core_wrapper.h"  // Verilator internals
 
 typedef Vcore_wrapper DUT;
 
@@ -154,9 +153,6 @@ protected:
 
   virtual void set_clock(int value) {dut.clk_i = value;}
   virtual void set_reset(int value) {dut.rst_ni = !value;}
-  virtual void set_entry_point(MemoryAddress pc) {
-    dut.core_wrapper->write_reset_pc(pc);
-  }
   virtual MemoryAddress get_program_counter() {return dut.dbg_pc_o;}
 
   virtual instr_trace_t get_trace_info() {
