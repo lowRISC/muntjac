@@ -113,8 +113,8 @@ module muntjac_instr_align import muntjac_pkg::*; # (
   if_reason_e window_reason;
 
   always_comb begin
-    window_start_idx = use_buffer ? buffer_start_idx_q : input_start_idx + BufferSize;
-    window_end_idx = use_input ? input_end_idx + BufferSize : buffer_end_idx_q;
+    window_start_idx = use_buffer ? IndexWidth'(buffer_start_idx_q) : input_start_idx + BufferSize;
+    window_end_idx = use_input ? input_end_idx + BufferSize : IndexWidth'(buffer_end_idx_q);
 
     if (use_input) begin
       window_pc = input_pc;
@@ -171,7 +171,7 @@ module muntjac_instr_align import muntjac_pkg::*; # (
 
     if (window_exception) begin
       aligned_valid_o[0] = 1'b1;
-      aligned_instr_o[0].pc = window_pc + (insn_idx[0] - BufferSize) * 2;
+      aligned_instr_o[0].pc = window_pc + (64'(insn_idx[0]) - BufferSize) * 2;
       aligned_instr_o[0].if_reason = window_reason;
       aligned_instr_o[0].ex_valid = 1'b1;
       aligned_instr_o[0].exception.cause = unaligned_ex_code_i;
@@ -186,7 +186,7 @@ module muntjac_instr_align import muntjac_pkg::*; # (
     end else begin
       for (int i = 0; i < OutWidth; i++) begin
         aligned_valid_o[i] = insn_length[i] != 0;
-        aligned_instr_o[i].pc = window_pc + (insn_idx[i] - BufferSize) * 2;
+        aligned_instr_o[i].pc = window_pc + (64'(insn_idx[i]) - BufferSize) * 2;
         aligned_instr_o[i].if_reason = i == 0 ? window_reason : IF_PREFETCH;
         aligned_instr_o[i].instr_word = {
           insn_length[i] == 1 ? 16'd0 : window_instr[insn_idx[i] + 1],
@@ -206,13 +206,13 @@ module muntjac_instr_align import muntjac_pkg::*; # (
         if (use_input) begin
           // If input is being used, the buffer will be shifted.
           buffer_d = window_instr[InputSize +: BufferSize];
-          buffer_start_idx_d = insn_idx[OutWidth] - InputSize;
-          buffer_end_idx_d = input_end_idx + BufferSize - InputSize;
+          buffer_start_idx_d = BufferIndexWidth'(insn_idx[OutWidth] - IndexWidth'(InputSize));
+          buffer_end_idx_d = BufferIndexWidth'(input_end_idx - IndexWidth'(InputSize - BufferSize));
           buffer_pc_d = input_pc + InputSize * 2;
           unaligned_ready_o = 1'b1;
         end else begin
           // Otherwise the buffer should not change.
-          buffer_start_idx_d = insn_idx[OutWidth];
+          buffer_start_idx_d = BufferIndexWidth'(insn_idx[OutWidth]);
         end
       end
     end
@@ -220,8 +220,8 @@ module muntjac_instr_align import muntjac_pkg::*; # (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      buffer_start_idx_q <= BufferSize;
-      buffer_end_idx_q <= BufferSize;
+      buffer_start_idx_q <= BufferIndexWidth'(BufferSize);
+      buffer_end_idx_q <= BufferIndexWidth'(BufferSize);
       buffer_q <= 'x;
       buffer_reason_q <= if_reason_e'('x);
       buffer_pc_q <= 'x;

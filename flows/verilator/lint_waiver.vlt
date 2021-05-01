@@ -49,6 +49,10 @@ lint_off -rule UNUSED -file "*/rtl/muntjac_btb.sv" -match "*'access_pc_i'[1:0]"
 lint_off -rule UNUSED -file "*/rtl/muntjac_bp_bimodal.sv" -match "*'train_pc_i'*"
 lint_off -rule UNUSED -file "*/rtl/muntjac_bp_bimodal.sv" -match "*'access_pc_i'*"
 
+// False positive lint. Those lints make no sense.
+lint_off -rule WIDTH -file "*/rtl/muntjac_instr_align.sv" -match "Operator ADD expects 32 or 5 bits on the LHS, but LHS's SEL generates 2 bits."
+lint_off -rule ALWCOMBORDER -file "*/rtl/muntjac_instr_align.sv" -match "*'insn_idx'*"
+
 // A whole decoded instruction is passed around for convenience, but only part
 // of it is needed by any given functional unit.
 lint_off -rule UNUSED -file "*/rtl/muntjac_alu.sv" -match "*'decoded_op_i'*"
