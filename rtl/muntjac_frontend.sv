@@ -268,7 +268,13 @@ module muntjac_frontend import muntjac_pkg::*; #(
   // Instruction Alignment //
   ///////////////////////////
 
-  muntjac_instr_align aligner (
+  logic buf_ready;
+  logic [1:0] buf_valid;
+  fetched_instr_t [1:0] buf_instr;
+
+  muntjac_instr_align # (
+    .OutWidth (2)
+  ) aligner (
     .clk_i,
     .rst_ni,
     .unaligned_ready_o (align_ready),
@@ -279,9 +285,20 @@ module muntjac_frontend import muntjac_pkg::*; #(
     .unaligned_reason_i (align_reason),
     .unaligned_strb_i (align_strb),
     .unaligned_instr_i (align_instr),
-    .aligned_ready_i (fetch_ready_i),
-    .aligned_valid_o (fetch_valid_o),
-    .aligned_instr_o (fetch_instr_o)
+    .aligned_ready_i (buf_ready),
+    .aligned_valid_o (buf_valid),
+    .aligned_instr_o (buf_instr)
+  );
+
+  muntjac_instr_buffer buffer (
+    .clk_i,
+    .rst_ni,
+    .in_ready_o (buf_ready),
+    .in_valid_i (buf_valid),
+    .in_instr_i (buf_instr),
+    .out_ready_i (fetch_ready_i),
+    .out_valid_o (fetch_valid_o),
+    .out_instr_o (fetch_instr_o)
   );
 
 endmodule
