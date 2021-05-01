@@ -195,10 +195,18 @@ module muntjac_frontend import muntjac_pkg::*; #(
   );
 
   always_comb begin
-    // Don't honor the BTB lookup if the current PC is from a redirection that targets a misaligned instruction.
-    // Otherwise if we indeed predicted that this is a jump.
-    // Also don't honor the result if we jumped to the second half while the prediction is for the first half.
-    if (btb_valid && !(pc[1] && (reason ==? 4'b???1 || btb_partial))) begin
+    // Don't perform branch prediction if any two of the three criteria are hold
+    // (1) The instruction is misaligned
+    // (2) The instruction is fetched due to a redirection
+    // (3) Prediction says it applies to first hword only.
+    // If (1) and (2) hold, then the prediction is not valid.
+    // If (1) and (3) hold, then we may only fetch a partial instruction, but a fetch due to a
+    //                      redireciton should be precise.
+    // If (2) and (3) hold, then the hwords we send to aligner may contain only a partial
+    //                      instruction, and again redirection should be precise.
+    if (btb_valid && !(pc[1] && reason ==? 4'b???1)
+                  && !(pc[1] && btb_partial) && !(reason ==? 4'b???1 && btb_partial)) begin
+      // Only use prediction if we predict this instruction is a jump.
       predict_taken = btb_type[2] || bht_taken;
       if (ras_pop && ras_peek_valid) begin
         predict_target = ras_peek_addr;
