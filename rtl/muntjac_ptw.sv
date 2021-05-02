@@ -5,10 +5,9 @@ module muntjac_ptw import muntjac_pkg::*; #(
     input  logic clk_i,
     input  logic rst_ni,
 
-    input  logic [63:0] satp_i,
-
     input  logic                    req_valid_i,
     input  logic [VirtAddrLen-13:0] req_vpn_i,
+    input  logic [PhysAddrLen-13:0] req_pt_ppn_i,
 
     output logic                    resp_valid_o,
     output logic [PhysAddrLen-13:0] resp_ppn_o,
@@ -27,8 +26,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
     StateAtpL3,
     StateAtpL2,
     StateAtpL1,
-    StateDone,
-    StateException
+    StateDone
   } state_e;
 
   state_e state_q = StateIdle, state_d;
@@ -143,7 +141,7 @@ module muntjac_ptw import muntjac_pkg::*; #(
     if (req_valid_i) begin
       vpn_d = req_vpn_i;
       req_valid_d = 1'b1;
-      req_addr_d = {satp_i[PhysAddrLen-13:0], req_vpn_i[26:18]};
+      req_addr_d = {req_pt_ppn_i, req_vpn_i[26:18]};
       state_d = StateAtpL3;
     end
   end

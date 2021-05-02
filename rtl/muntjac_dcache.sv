@@ -1002,9 +1002,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   ) ptw (
       .clk_i             (clk_i),
       .rst_ni            (rst_ni),
-      .satp_i            (req_atp),
       .req_valid_i       (ptw_req_valid),
       .req_vpn_i         (ptw_req_vpn),
+      .req_pt_ppn_i      (req_atp[PhysAddrLen-13:0]),
       .resp_valid_o      (ptw_resp_valid),
       .resp_ppn_o        (ptw_resp_ppn),
       .resp_perm_o       (ptw_resp_perm),
