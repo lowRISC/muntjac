@@ -7,7 +7,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   parameter PhysAddrLen = 56,
 
   // Number of bits of virtual address supported. This currently must be 39.
-  parameter VirtAddrLen = 39
+  parameter VirtAddrLen = 39,
+
+  // Number of additional hardware performance monitor counters other than mcycle and minstret.
+  parameter int unsigned MHPMCounterNum = 0
 ) (
     // Clock and reset
     input  logic               clk_i,
@@ -66,7 +69,9 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
     input  logic [4:0]         set_fflags_i,
 
     // Performance counters
-    input  logic               instr_ret_i
+    input  logic                     instr_ret_i,
+    // Performance counters.
+    input  logic [HPM_EVENT_NUM-1:0] hpm_event_i
 );
 
   // Number of bits required to recover a legal full 64-bit address.
@@ -200,15 +205,13 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   logic [2:0] frm_q, frm_d;
   assign frm_o = frm_q;
 
-  // Counter Enable
+  // Hardware performance counters
   logic [2:0] mcounteren_q, mcounteren_d;
   logic [2:0] scounteren_q, scounteren_d;
-
-  // Hardware performance counters
-  logic mcycle_we;
-  logic minstret_we;
-  logic [63:0] mcycle_q, mcycle_d;
-  logic [63:0] minstret_q, minstret_d;
+  hpm_event_e [31:0] mhpmevent_q, mhpmevent_d;
+  logic [31:0] mcountinhibit_q, mcountinhibit_d;
+  logic [31:0][63:0] mcounter_q;
+  logic mcounter_we;
 
   //////////////////////////////
   // Privilege checking logic //
@@ -225,8 +228,19 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
     unique case (check_addr_i)
       CSR_FFLAGS, CSR_FRM, CSR_FCSR: if (!RV64F || mstatus_q.fs == 2'b00) illegal = 1'b1;
-      CSR_CYCLE: if (!((priv_lvl_q > PRIV_LVL_S || mcounteren_q[0]) && (priv_lvl_q > PRIV_LVL_U || scounteren_q[0]))) illegal = 1'b1;
-      CSR_INSTRET: if (!((priv_lvl_q > PRIV_LVL_S || mcounteren_q[2]) && (priv_lvl_q > PRIV_LVL_U || scounteren_q[2]))) illegal = 1'b1;
+      CSR_CYCLE,
+      CSR_INSTRET,
+      CSR_HPMCOUNTER3,
+      CSR_HPMCOUNTER4,  CSR_HPMCOUNTER5,  CSR_HPMCOUNTER6,  CSR_HPMCOUNTER7,
+      CSR_HPMCOUNTER8,  CSR_HPMCOUNTER9,  CSR_HPMCOUNTER10, CSR_HPMCOUNTER11,
+      CSR_HPMCOUNTER12, CSR_HPMCOUNTER13, CSR_HPMCOUNTER14, CSR_HPMCOUNTER15,
+      CSR_HPMCOUNTER16, CSR_HPMCOUNTER17, CSR_HPMCOUNTER18, CSR_HPMCOUNTER19,
+      CSR_HPMCOUNTER20, CSR_HPMCOUNTER21, CSR_HPMCOUNTER22, CSR_HPMCOUNTER23,
+      CSR_HPMCOUNTER24, CSR_HPMCOUNTER25, CSR_HPMCOUNTER26, CSR_HPMCOUNTER27,
+      CSR_HPMCOUNTER28, CSR_HPMCOUNTER29, CSR_HPMCOUNTER30, CSR_HPMCOUNTER31: begin
+        if (!((priv_lvl_q > PRIV_LVL_S || mcounteren_q[check_addr_i[4:0]]) &&
+            (priv_lvl_q > PRIV_LVL_U || scounteren_q[check_addr_i[4:0]]))) illegal = 1'b1;
+      end
       CSR_SSTATUS, CSR_SIE, CSR_STVEC, CSR_SCOUNTEREN:;
       CSR_SSCRATCH, CSR_SEPC, CSR_SCAUSE, CSR_STVAL, CSR_SIP:;
       CSR_SATP: if (priv_lvl_q != PRIV_LVL_M && mstatus_q.tvm) illegal = 1'b1;
@@ -276,9 +290,16 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       CSR_FCSR: if (RV64F) csr_rdata_int = {56'b0, frm_q, fflags_q};
 
       // User Counter/Timers CSRs
-      CSR_CYCLE: csr_rdata_int = mcycle_q;
-      CSR_INSTRET: csr_rdata_int = minstret_q;
-      // TIME and HPMCOUNTERS does not exist MCOUNTEREN bits are hardwired to zero.
+      CSR_CYCLE,
+      CSR_INSTRET,
+      CSR_HPMCOUNTER3,
+      CSR_HPMCOUNTER4,  CSR_HPMCOUNTER5,  CSR_HPMCOUNTER6,  CSR_HPMCOUNTER7,
+      CSR_HPMCOUNTER8,  CSR_HPMCOUNTER9,  CSR_HPMCOUNTER10, CSR_HPMCOUNTER11,
+      CSR_HPMCOUNTER12, CSR_HPMCOUNTER13, CSR_HPMCOUNTER14, CSR_HPMCOUNTER15,
+      CSR_HPMCOUNTER16, CSR_HPMCOUNTER17, CSR_HPMCOUNTER18, CSR_HPMCOUNTER19,
+      CSR_HPMCOUNTER20, CSR_HPMCOUNTER21, CSR_HPMCOUNTER22, CSR_HPMCOUNTER23,
+      CSR_HPMCOUNTER24, CSR_HPMCOUNTER25, CSR_HPMCOUNTER26, CSR_HPMCOUNTER27,
+      CSR_HPMCOUNTER28, CSR_HPMCOUNTER29, CSR_HPMCOUNTER30, CSR_HPMCOUNTER31: csr_rdata_int = mcounter_q[csr_addr_i[4:0]];
 
       CSR_SSTATUS: begin
         csr_rdata_int = '0;
@@ -374,10 +395,8 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
         csr_rdata_int[CSR_MEIX_BIT] = mip.irq_external_m;
       end
 
-      CSR_MCYCLE: csr_rdata_int = mcycle_q;
-      CSR_MINSTRET: csr_rdata_int = minstret_q;
-
-      // We don't yet support additional counters nor inhibition.
+      CSR_MCYCLE,
+      CSR_MINSTRET,
       CSR_MHPMCOUNTER3,
       CSR_MHPMCOUNTER4,  CSR_MHPMCOUNTER5,  CSR_MHPMCOUNTER6,  CSR_MHPMCOUNTER7,
       CSR_MHPMCOUNTER8,  CSR_MHPMCOUNTER9,  CSR_MHPMCOUNTER10, CSR_MHPMCOUNTER11,
@@ -385,7 +404,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       CSR_MHPMCOUNTER16, CSR_MHPMCOUNTER17, CSR_MHPMCOUNTER18, CSR_MHPMCOUNTER19,
       CSR_MHPMCOUNTER20, CSR_MHPMCOUNTER21, CSR_MHPMCOUNTER22, CSR_MHPMCOUNTER23,
       CSR_MHPMCOUNTER24, CSR_MHPMCOUNTER25, CSR_MHPMCOUNTER26, CSR_MHPMCOUNTER27,
-      CSR_MHPMCOUNTER28, CSR_MHPMCOUNTER29, CSR_MHPMCOUNTER30, CSR_MHPMCOUNTER31: csr_rdata_int = '0;
+      CSR_MHPMCOUNTER28, CSR_MHPMCOUNTER29, CSR_MHPMCOUNTER30, CSR_MHPMCOUNTER31: csr_rdata_int = mcounter_q[csr_addr_i[4:0]];
       CSR_MHPMEVENT3,
       CSR_MHPMEVENT4,  CSR_MHPMEVENT5,  CSR_MHPMEVENT6,  CSR_MHPMEVENT7,
       CSR_MHPMEVENT8,  CSR_MHPMEVENT9,  CSR_MHPMEVENT10, CSR_MHPMEVENT11,
@@ -393,7 +412,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       CSR_MHPMEVENT16, CSR_MHPMEVENT17, CSR_MHPMEVENT18, CSR_MHPMEVENT19,
       CSR_MHPMEVENT20, CSR_MHPMEVENT21, CSR_MHPMEVENT22, CSR_MHPMEVENT23,
       CSR_MHPMEVENT24, CSR_MHPMEVENT25, CSR_MHPMEVENT26, CSR_MHPMEVENT27,
-      CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31: csr_rdata_int = '0;
+      CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31: csr_rdata_int = 64'(mhpmevent_q[csr_addr_i[4:0]]);
       CSR_MCOUNTINHIBIT: csr_rdata_int = '0;
       default: csr_rdata_int = 'x;
     endcase
@@ -461,9 +480,10 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
     mcounteren_d = mcounteren_q;
     scounteren_d = scounteren_q;
+    mhpmevent_d = mhpmevent_q;
+    mcountinhibit_d = mcountinhibit_q;
 
-    mcycle_we = 1'b0;
-    minstret_we = 1'b0;
+    mcounter_we = 1'b0;
 
     ex_tvec_o = 'x;
     er_epc_o = 'x;
@@ -647,8 +667,33 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
               seip_d = csr_wdata_int[CSR_SEIX_BIT];
             end
 
-            CSR_MCYCLE: mcycle_we = 1'b1;
-            CSR_MINSTRET: minstret_we = 1'b1;
+            CSR_MCYCLE,
+            CSR_MINSTRET,
+            CSR_MHPMCOUNTER3,
+            CSR_MHPMCOUNTER4,  CSR_MHPMCOUNTER5,  CSR_MHPMCOUNTER6,  CSR_MHPMCOUNTER7,
+            CSR_MHPMCOUNTER8,  CSR_MHPMCOUNTER9,  CSR_MHPMCOUNTER10, CSR_MHPMCOUNTER11,
+            CSR_MHPMCOUNTER12, CSR_MHPMCOUNTER13, CSR_MHPMCOUNTER14, CSR_MHPMCOUNTER15,
+            CSR_MHPMCOUNTER16, CSR_MHPMCOUNTER17, CSR_MHPMCOUNTER18, CSR_MHPMCOUNTER19,
+            CSR_MHPMCOUNTER20, CSR_MHPMCOUNTER21, CSR_MHPMCOUNTER22, CSR_MHPMCOUNTER23,
+            CSR_MHPMCOUNTER24, CSR_MHPMCOUNTER25, CSR_MHPMCOUNTER26, CSR_MHPMCOUNTER27,
+            CSR_MHPMCOUNTER28, CSR_MHPMCOUNTER29, CSR_MHPMCOUNTER30, CSR_MHPMCOUNTER31: mcounter_we = 1'b1;
+
+            CSR_MHPMEVENT3,
+            CSR_MHPMEVENT4,  CSR_MHPMEVENT5,  CSR_MHPMEVENT6,  CSR_MHPMEVENT7,
+            CSR_MHPMEVENT8,  CSR_MHPMEVENT9,  CSR_MHPMEVENT10, CSR_MHPMEVENT11,
+            CSR_MHPMEVENT12, CSR_MHPMEVENT13, CSR_MHPMEVENT14, CSR_MHPMEVENT15,
+            CSR_MHPMEVENT16, CSR_MHPMEVENT17, CSR_MHPMEVENT18, CSR_MHPMEVENT19,
+            CSR_MHPMEVENT20, CSR_MHPMEVENT21, CSR_MHPMEVENT22, CSR_MHPMEVENT23,
+            CSR_MHPMEVENT24, CSR_MHPMEVENT25, CSR_MHPMEVENT26, CSR_MHPMEVENT27,
+            CSR_MHPMEVENT28, CSR_MHPMEVENT29, CSR_MHPMEVENT30, CSR_MHPMEVENT31: begin
+              if (csr_addr_i[4:0] < 5'(MHPMCounterNum + 3)) begin
+                mhpmevent_d[csr_addr_i[4:0]] = hpm_event_e'(csr_wdata_int[$bits(hpm_event_e)-1:0]);
+              end
+            end
+
+            CSR_MCOUNTINHIBIT: begin
+              mcountinhibit_d = csr_wdata_int[31:0] & {{(29-MHPMCounterNum){1'b0}}, {MHPMCounterNum{1'b1}}, 3'b101};
+            end
             default:;
           endcase
         end
@@ -688,6 +733,8 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
       mcounteren_q <= '0;
       scounteren_q <= '0;
+      mhpmevent_q <= '0;
+      mcountinhibit_q <= '0;
     end
     else begin
       ssip_q <= ssip_d;
@@ -719,6 +766,8 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
 
       mcounteren_q <= mcounteren_d;
       scounteren_q <= scounteren_d;
+      mhpmevent_q <= mhpmevent_d;
+      mcountinhibit_q <= mcountinhibit_d;
     end
   end
 
@@ -726,25 +775,36 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
   //  Performance monitor //
   //////////////////////////
 
+  logic [31:0][63:0] mcounter_d;
+  logic [31:0] counter_increment;
+
   always_comb begin
-    mcycle_d = mcycle_q;
-    minstret_d = minstret_q;
+    counter_increment = '0;
+    // MCYCLE
+    counter_increment[0] = !mcountinhibit_q[0];
+    // MINSTRET
+    counter_increment[2] = !mcountinhibit_q[2] && instr_ret_i;
+    for (int i = 3; i < MHPMCounterNum + 3; i++) begin
+      counter_increment[i] = !mcountinhibit_q[i] && hpm_event_i[mhpmevent_q[i]];
+    end
+  end
 
-    if (1'b1) mcycle_d = mcycle_q + 1;
-    if (instr_ret_i) minstret_d = minstret_q + 1;
+  always_comb begin
+    mcounter_d = mcounter_q;
 
-    if (mcycle_we) mcycle_d = csr_wdata_int;
-    if (minstret_we) minstret_d = csr_wdata_int;
+    for (int i = 0; i < 32; i++) begin
+      if (counter_increment[i]) mcounter_d[i] = mcounter_q[i] + 1;
+    end
+
+    if (mcounter_we) mcounter_d[csr_addr_i[4:0]] = csr_wdata_int;
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      mcycle_q <= '0;
-      minstret_q <= '0;
+      mcounter_q <= '0;
     end
     else begin
-      mcycle_q <= mcycle_d;
-      minstret_q <= minstret_d;
+      mcounter_q <= mcounter_d;
     end
   end
 

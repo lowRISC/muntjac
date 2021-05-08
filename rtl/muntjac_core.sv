@@ -10,6 +10,11 @@ module muntjac_core import muntjac_pkg::*; #(
 
   parameter rv64f_e RV64F = RV64FNone,
 
+  // Number of additional hardware performance monitor counters other than mcycle and minstret.
+  parameter int unsigned MHPMCounterNum = 0,
+  parameter bit          MHPMICacheEnable = 1'b0,
+  parameter bit          MHPMDCacheEnable = 1'b0,
+
   parameter int unsigned SourceWidth = 4,
   parameter int unsigned SinkWidth = 1
 ) (
@@ -26,6 +31,8 @@ module muntjac_core import muntjac_pkg::*; #(
     input  logic irq_external_s_i,
 
     input  logic [63:0] hart_id_i,
+
+    input  logic [HPM_EVENT_NUM-1:0] hpm_event_i,
 
     // Debug connections
     output instr_trace_t dbg_o
@@ -46,9 +53,29 @@ module muntjac_core import muntjac_pkg::*; #(
   dcache_h2d_t dcache_h2d;
   dcache_d2h_t dcache_d2h;
 
-  muntjac_pipeline # (
+  logic [HPM_EVENT_NUM-1:0] hpm_event;
+  logic hpm_icache_access;
+  logic hpm_icache_miss;
+  logic hpm_itlb_miss;
+  logic hpm_dcache_access;
+  logic hpm_dcache_miss;
+  logic hpm_dtlb_miss;
+  always_comb begin
+    // Passthrough exterior performance counters.
+    hpm_event = hpm_event_i;
+    hpm_event[HPM_EVENT_NONE] = 1'b0;
+    hpm_event[HPM_EVENT_L1_ICACHE_ACCESS] = hpm_icache_access;
+    hpm_event[HPM_EVENT_L1_ICACHE_MISS  ] = hpm_icache_miss;
+    hpm_event[HPM_EVENT_L1_ITLB_MISS    ] = hpm_itlb_miss;
+    hpm_event[HPM_EVENT_L1_DCACHE_ACCESS] = hpm_dcache_access;
+    hpm_event[HPM_EVENT_L1_DCACHE_MISS  ] = hpm_dcache_miss;
+    hpm_event[HPM_EVENT_L1_DTLB_MISS    ] = hpm_dtlb_miss;
+  end
+
+  muntjac_pipeline #(
     .PhysAddrLen (PhysAddrLen),
-    .RV64F (RV64F)
+    .RV64F (RV64F),
+    .MHPMCounterNum (MHPMCounterNum)
   ) pipeline (
       .clk_i,
       .rst_ni,
@@ -61,6 +88,7 @@ module muntjac_core import muntjac_pkg::*; #(
       .irq_external_m_i,
       .irq_external_s_i,
       .hart_id_i,
+      .hpm_event_i (hpm_event),
       .dbg_o
   );
 
@@ -132,12 +160,16 @@ module muntjac_core import muntjac_pkg::*; #(
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .SourceBase (IcacheSourceBase),
-    .PtwSourceBase (IptwSourceBase)
+    .PtwSourceBase (IptwSourceBase),
+    .EnableHpm (MHPMICacheEnable)
   ) icache_inst (
     .clk_i,
     .rst_ni,
     .cache_h2d_i (icache_h2d),
     .cache_d2h_o (icache_d2h),
+    .hpm_access_o (hpm_icache_access),
+    .hpm_miss_o (hpm_icache_miss),
+    .hpm_tlb_miss_o (hpm_itlb_miss),
     `TL_CONNECT_HOST_PORT_IDX(mem, ch, [1]),
     `TL_CONNECT_HOST_PORT(mem_ptw, icache_ptw)
   );
@@ -148,12 +180,16 @@ module muntjac_core import muntjac_pkg::*; #(
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
     .SourceBase (DcacheSourceBase),
-    .PtwSourceBase (DptwSourceBase)
+    .PtwSourceBase (DptwSourceBase),
+    .EnableHpm (MHPMDCacheEnable)
   ) dcache_inst (
     .clk_i,
     .rst_ni,
     .cache_h2d_i (dcache_h2d),
     .cache_d2h_o (dcache_d2h),
+    .hpm_access_o (hpm_dcache_access),
+    .hpm_miss_o (hpm_dcache_miss),
+    .hpm_tlb_miss_o (hpm_dtlb_miss),
     `TL_CONNECT_HOST_PORT_IDX(mem, ch, [0]),
     `TL_CONNECT_HOST_PORT(mem_ptw, dcache_ptw)
   );

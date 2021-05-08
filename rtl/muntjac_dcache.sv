@@ -10,6 +10,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned PhysAddrLen = 56,
     parameter int unsigned SourceWidth = 1,
     parameter int unsigned SinkWidth   = 1,
+    parameter bit          EnableHpm   = 0,
 
     parameter bit [SourceWidth-1:0] SourceBase  = 0,
     parameter bit [SourceWidth-1:0] PtwSourceBase = 0
@@ -20,6 +21,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     // Interface to CPU
     input  dcache_h2d_t cache_h2d_i,
     output dcache_d2h_t cache_d2h_o,
+
+    // Hardware performance monitor events
+    output logic hpm_access_o,
+    output logic hpm_miss_o,
+    output logic hpm_tlb_miss_o,
 
     // Channel for D$
     `TL_DECLARE_HOST_PORT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem),
@@ -1720,6 +1726,24 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       reservation_q <= reservation_d;
       reservation_failed_q <= reservation_failed_d;
     end
+  end
+
+  if (EnableHpm) begin
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        hpm_access_o <= 1'b0;
+        hpm_miss_o <= 1'b0;
+        hpm_tlb_miss_o <= 1'b0;
+      end else begin
+        hpm_access_o <= req_valid;
+        hpm_miss_o <= state_q != StateFill && state_d == StateFill;
+        hpm_tlb_miss_o <= state_q != StateWaitTLB && state_d == StateWaitTLB;
+      end
+    end
+  end else begin
+    assign hpm_access_o = 1'b0;
+    assign hpm_miss_o = 1'b0;
+    assign hpm_tlb_miss_o = 1'b0;
   end
 
 endmodule

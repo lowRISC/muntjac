@@ -1,7 +1,10 @@
 module muntjac_pipeline import muntjac_pkg::*; #(
   // Number of bits of physical address supported. This must not exceed 56.
   parameter         PhysAddrLen = 56,
-  parameter rv64f_e RV64F       = RV64FNone
+  parameter rv64f_e RV64F       = RV64FNone,
+
+  // Number of additional hardware performance monitor counters other than mcycle and minstret.
+  parameter int unsigned MHPMCounterNum = 0
 ) (
     // Clock and reset
     input  logic            clk_i,
@@ -19,6 +22,8 @@ module muntjac_pipeline import muntjac_pkg::*; #(
     input  logic irq_external_s_i,
 
     input  logic [63:0] hart_id_i,
+
+    input  logic [HPM_EVENT_NUM-1:0] hpm_event_i,
 
     // Debug connections
     output instr_trace_t dbg_o
@@ -55,8 +60,9 @@ module muntjac_pipeline import muntjac_pkg::*; #(
   );
 
   muntjac_backend #(
-    .PhysAddrLen (PhysAddrLen),
-    .RV64F       (RV64F)
+    .PhysAddrLen    (PhysAddrLen),
+    .RV64F          (RV64F),
+    .MHPMCounterNum (MHPMCounterNum)
   ) backend (
       .clk_i,
       .rst_ni,
@@ -77,6 +83,7 @@ module muntjac_pipeline import muntjac_pkg::*; #(
       .irq_external_m_i,
       .irq_external_s_i,
       .hart_id_i,
+      .hpm_event_i,
       .dbg_o
   );
 

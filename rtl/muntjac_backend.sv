@@ -5,7 +5,10 @@ module muntjac_backend import muntjac_pkg::*; #(
   // Number of bits of virtual address supported. This currently must be 39.
   parameter VirtAddrLen = 39,
 
-  parameter rv64f_e RV64F = RV64FNone
+  parameter rv64f_e RV64F = RV64FNone,
+
+  // Number of additional hardware performance monitor counters other than mcycle and minstret.
+  parameter int unsigned MHPMCounterNum = 0
 ) (
     // Clock and reset
     input  logic          clk_i,
@@ -34,6 +37,8 @@ module muntjac_backend import muntjac_pkg::*; #(
     input  logic irq_external_s_i,
 
     input  logic [63:0] hart_id_i,
+
+    input  logic [HPM_EVENT_NUM-1:0] hpm_event_i,
 
     // Debug connections
     output instr_trace_t  dbg_o
@@ -1113,7 +1118,8 @@ module muntjac_backend import muntjac_pkg::*; #(
   logic [63:0] exc_tvec_q, exc_tvec_d;
   muntjac_cs_registers #(
     .RV64F (RV64F != RV64FNone),
-    .RV64D (RV64F != RV64FNone)
+    .RV64D (RV64F != RV64FNone),
+    .MHPMCounterNum (MHPMCounterNum)
   ) csr_regfile (
     .clk_i,
     .rst_ni,
@@ -1150,7 +1156,8 @@ module muntjac_backend import muntjac_pkg::*; #(
     .er_epc_o (er_epc),
     .make_fs_dirty_i (make_fs_dirty),
     .set_fflags_i (ex2_pending_q && ex2_data_valid ? ex2_fflags : '0),
-    .instr_ret_i (ex2_pending_q && ex2_data_valid)
+    .instr_ret_i (ex2_pending_q && ex2_data_valid),
+    .hpm_event_i
   );
 
   always_comb begin
