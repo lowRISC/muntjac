@@ -34,6 +34,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   parameter tl_cache_pkg::release_policy_e ReleasePolicy = tl_cache_pkg::ReleaseDirty,
   parameter int RelTrackerNum = 2,
   parameter int AcqTrackerNum = 2,
+  parameter bit EnableHpm     = 0,
 
   // Source ID table for cacheable hosts.
   // These IDs are used for sending out Probe messages.
@@ -44,6 +45,10 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
 ) (
   input  logic clk_i,
   input  logic rst_ni,
+
+  output logic hpm_acq_count_o,
+  output logic hpm_rel_count_o,
+  output logic hpm_miss_o,
 
   `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
   `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
@@ -1610,6 +1615,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   // We can always receive ACKs.
   assign host_e_ready = 1'b1;
 
+  logic [AcqTrackerNum-1:0] acq_miss;
+
   for (genvar AcqTrackerIdx = 0; AcqTrackerIdx < AcqTrackerNum; AcqTrackerIdx++) begin: acq_logic
 
     localparam ProbeIdxAcq = ProbeIdxAcqBase + AcqTrackerIdx;
@@ -1632,6 +1639,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
     logic [SourceWidth-1:0] acq_source_q, acq_source_d;
     tag_t acq_tag_q, acq_tag_d;
     acq_state_e acq_post_write_q, acq_post_write_d;
+
+    assign acq_miss[AcqTrackerIdx] = acq_state_q != AcqStateFill && acq_state_d == AcqStateFill;
 
     // Currently we don't bother to implement PLRU, so just use a round-robin fashion to choose line to evict.
     logic [WaysWidth-1:0] acq_evict_q, acq_evict_d;
@@ -2443,6 +2452,24 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
       end
     end
 
+  end
+
+  if (EnableHpm) begin
+    always_ff @(posedge clk_i or negedge rst_ni) begin
+      if (!rst_ni) begin
+        hpm_acq_count_o <= 1'b0;
+        hpm_rel_count_o <= 1'b0;
+        hpm_miss_o <= 1'b0;
+      end else begin
+        hpm_acq_count_o <= host_a_valid && host_a_ready && host_a_last;
+        hpm_rel_count_o <= host_c_valid && host_c_ready && host_c_last;
+        hpm_miss_o <= |acq_miss;
+      end
+    end
+  end else begin
+    assign hpm_acq_count_o = 1'b0;
+    assign hpm_rel_count_o = 1'b0;
+    assign hpm_miss_o = 1'b0;
   end
 
 endmodule

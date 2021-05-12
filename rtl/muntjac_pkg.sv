@@ -312,17 +312,20 @@ parameter int unsigned CSR_SEIX_BIT = 9;
 parameter int unsigned CSR_MEIX_BIT = 11;
 
 // Hardware performance counter event indexes.
-typedef enum logic [2:0] {
+typedef enum logic [3:0] {
   HPM_EVENT_NONE = 0,
   HPM_EVENT_L1_ICACHE_ACCESS = 1,
   HPM_EVENT_L1_ICACHE_MISS = 2,
   HPM_EVENT_L1_ITLB_MISS = 3,
   HPM_EVENT_L1_DCACHE_ACCESS = 4,
   HPM_EVENT_L1_DCACHE_MISS = 5,
-  HPM_EVENT_L1_DTLB_MISS = 6
+  HPM_EVENT_L1_DTLB_MISS = 6,
+  HPM_EVENT_L2_ACQ_COUNT = 7,
+  HPM_EVENT_L1_REL_COUNT = 8,
+  HPM_EVENT_L1_MISS = 9
 } hpm_event_e;
 
-parameter int unsigned HPM_EVENT_NUM = 7;
+parameter int unsigned HPM_EVENT_NUM = 10;
 
 ////////////////////
 // Virtual memory //
