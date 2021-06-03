@@ -85,7 +85,7 @@ module tl_fifo_async import tl_pkg::*; #(
 
   prim_fifo_async #(
     .Width ($bits(rel_t)),
-    .Depth (RequestFifoDepth)
+    .Depth (ReleaseFifoDepth)
   ) rel_fifo (
     .clk_wr_i  (clk_host_i),
     .rst_wr_ni (rst_host_ni),
