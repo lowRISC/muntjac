@@ -193,7 +193,7 @@ module tl_ram_terminator import tl_pkg::*; #(
     host_d_ready_nosink = host_d_ready;
     host_d_valid = host_d_valid_nosink;
     host_d = host_d_nosink;
-    host_d.sink = sink_q;
+    host_d.sink = SinkBase | sink_q;
 
     if (host_d_valid_nosink && host_d_first && host_d.opcode inside {Grant, GrantData}) begin
       host_d.sink = SinkBase | sink_avail_idx;
