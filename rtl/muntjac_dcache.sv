@@ -469,7 +469,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic writeback_lock_acq;
   logic flush_lock_acq;
 
-  logic probe_lock;
+  // Indicates the most recently refilled set number.
+  // A valid recently-refilled set would prevent the probe logic from invalidating the cache line,
+  // therefore ensuring forward progress.
+  // Cleared once a store has happened or 16 cycles have lapsed.
+  logic       access_lock_valid;
+  logic [5:0] access_lock_addr;
 
   wire nothing_in_progress = !(refill_tracker_valid || probe_tracker_valid || writeback_tracker_valid || flush_tracker_valid);
 
@@ -1121,8 +1126,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     refill_lock_acq = 1'b0;
     refill_fifo_ready = 1'b0;
 
-    probe_lock = 1'b0;
-
     refill_state_d = refill_state_q;
 
     unique case (refill_state_q)
@@ -1160,7 +1163,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
           if (refill_fifo_ready) begin
             if (refill_fifo_last) begin
-              probe_lock = 1'b1;
               refill_tracker_valid_d = 1'b0;
               refill_state_d = RefillStateIdle;
             end
@@ -1343,7 +1345,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic [PhysAddrLen-7:0] probe_address_q, probe_address_d;
   logic [2:0] probe_param_q, probe_param_d;
-  logic [4:0] probe_lock_q, probe_lock_d;
 
   always_comb begin
     probe_tracker_valid_d = probe_tracker_valid;
@@ -1368,15 +1369,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     mem_b_ready = 1'b0;
 
-    // probe_lock and related signals are for forward progress guarantees.
-    probe_lock_d = probe_lock_q;
-    if (probe_lock_q != 0) probe_lock_d = probe_lock_q - 1;
-    if (probe_lock) probe_lock_d = 16;
-
     unique case (probe_state_q)
       // Waiting for a probe request to reach us.
       ProbeStateIdle: begin
-        probe_lock_acq = probe_lock_q == 0 && mem_b_valid;
+        probe_lock_acq = mem_b_valid;
+        if (access_lock_valid && access_lock_addr == mem_b.address[11:6]) begin
+          probe_lock_acq = 1'b0;
+        end
 
         if (probe_locking) begin
           mem_b_ready = 1'b1;
@@ -1432,13 +1431,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       probe_tracker_valid <= 1'b0;
       probe_address_q <= 'x;
       probe_param_q <= 'x;
-      probe_lock_q <= 0;
     end else begin
       probe_state_q <= probe_state_d;
       probe_tracker_valid <= probe_tracker_valid_d;
       probe_address_q <= probe_address_d;
       probe_param_q <= probe_param_d;
-      probe_lock_q <= probe_lock_d;
     end
   end
 
@@ -1775,6 +1772,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
+  logic [SetsWidth-1:0] access_lock_addr_d;
+  logic [5:0] access_lock_timer_q, access_lock_timer_d;
+  assign access_lock_valid = access_lock_timer_q != 0;
+
   assign access_lock_acq = access_tag_write_req;
 
   always_comb begin
@@ -1838,6 +1839,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     reservation_d = reservation_q;
     reservation_failed_d = reservation_failed_q;
 
+    access_lock_addr_d = access_lock_addr;
+    access_lock_timer_d = access_lock_timer_q;
+    if (access_lock_timer_q != 0 && !probe_tracker_valid) begin
+      access_lock_timer_d = access_lock_timer_q - 1;
+    end
+
     unique case (state_q)
       StateIdle: begin
         cache_d2h_o.req_ready = 1'b1;
@@ -1874,29 +1881,37 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           // Exception from page table lookup.
           state_d = StateException;
           ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
-        end else if (reservation_failed_q) begin
-          cache_d2h_o.req_ready = 1'b1;
-          resp_valid = 1'b1;
-          resp_value = 1;
-          state_d = StateIdle;
         end else if (|hit && (hit_tag.writable || op_q == MEM_LOAD)) begin
-          // Cache valid with required permission.
+          if (reservation_failed_q) begin
+            cache_d2h_o.req_ready = 1'b1;
+            resp_valid = 1'b1;
+            resp_value = 1;
+            state_d = StateIdle;
+          end else begin
 
-          cache_d2h_o.req_ready = 1'b1;
-          resp_valid = 1'b1;
-          resp_value = op_q[0] ? align_load(
-              .value (hit_data),
-              .addr (address_q[2:0]),
-              .size (size_q),
-              .size_ext (size_ext_q)
-          ) : 0;
-          state_d = StateIdle;
+            cache_d2h_o.req_ready = 1'b1;
+            resp_valid = 1'b1;
+            resp_value = op_q[0] ? align_load(
+                .value (hit_data),
+                .addr (address_q[2:0]),
+                .size (size_q),
+                .size_ext (size_ext_q)
+            ) : 0;
+            state_d = StateIdle;
 
-          // MEM_STORE/MEM_SC/MEM_AMO
+            // MEM_STORE/MEM_SC/MEM_AMO
+            if (op_q[1]) begin
+              // Write data and make tag dirty.
+              access_data_write_req = 1'b1;
+              access_tag_write_req = !hit_tag.dirty;
+            end
+          end
+
           if (op_q[1]) begin
-            // Write data and make tag dirty.
-            access_data_write_req = 1'b1;
-            access_tag_write_req = !hit_tag.dirty;
+            // Early release of timer once we've done a write; forward progress could be
+            // guaranteed and we won't starve other core.
+            // There is no need to care if it's successful write or not.
+            access_lock_timer_d = 0;
           end
         end else if (op_q == MEM_SC) begin
           cache_d2h_o.req_ready = 1'b1;
@@ -1925,6 +1940,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           // Make tag invalid
           access_tag_write_req = 1'b1;
           access_tag_write_data.valid = 1'b0;
+
+          // Early release of timer if we missed.
+          access_lock_timer_d = 0;
         end
       end
 
@@ -1966,6 +1984,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
               end
             endcase
           end else begin
+            // Timer starts ticking for 16 cycles which gives us exclusive access to the cache line
+            // that we just acquired. This ensures forward progress.
+            // IMPORTANT: For this to work the timer must start in the same cycle that the refiller
+            // logic goes from "in progress" state to "idle".
+            access_lock_addr_d = address_q[LineWidth+:6];
+            access_lock_timer_d = 16;
             state_d = StateReplay;
           end
         end
@@ -2067,6 +2091,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       reserved_q <= 1'b0;
       reservation_q <= 'x;
       reservation_failed_q <= 1'bx;
+      access_lock_addr <= 'x;
+      access_lock_timer_q <= 0;
     end else begin
       state_q <= state_d;
       address_q <= address_d;
@@ -2082,6 +2108,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       reserved_q <= reserved_d;
       reservation_q <= reservation_d;
       reservation_failed_q <= reservation_failed_d;
+      access_lock_addr <= access_lock_addr_d;
+      access_lock_timer_q <= access_lock_timer_d;
     end
   end
 
