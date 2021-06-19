@@ -462,12 +462,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic probe_lock_acq;
   // probe_lock_rel is not defined because probe always transfer the lock to write-back module.
   logic release_lock_rel;
-  logic access_lock_acq;
   // access_lock_rel, flush_lock_rel is not always paired with access_lock_req. When a dirty cache
   // line needs to be evicted/flushed, it will transfer the lock to the write-back module.
   logic access_lock_rel;
   logic flush_lock_acq;
   logic flush_lock_rel;
+
+  // Used for blocking other components from acquiring the lock while access lock writes back dirty
+  // data.
+  logic access_lock_acq;
 
   // WB logic taking lock from probe/access
   logic release_lock_move;
@@ -476,24 +479,22 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     LockHolderNone,
     LockHolderRefill,
     LockHolderProbe,
-    LockHolderAccess,
     LockHolderRelease,
     LockHolderFlush
   } lock_holder_e;
 
-  logic access_lock_acq_pending_q, access_lock_acq_pending_d;
   logic flush_lock_acq_pending_q, flush_lock_acq_pending_d;
   lock_holder_e lock_holder_q, lock_holder_d;
 
+  wire nothing_in_progress = lock_holder_q == LockHolderNone;
+
   wire refill_locking = lock_holder_d == LockHolderRefill;
   wire probe_locking  = lock_holder_d == LockHolderProbe;
-  wire access_locking = lock_holder_d == LockHolderAccess;
   wire flush_locking  = lock_holder_d == LockHolderFlush;
 
   // Arbitrate on the new holder of the lock
   always_comb begin
     lock_holder_d = lock_holder_q;
-    access_lock_acq_pending_d = access_lock_acq_pending_q || access_lock_acq;
     flush_lock_acq_pending_d = flush_lock_acq_pending_q || flush_lock_acq;
 
     if (refill_lock_rel || release_lock_rel || access_lock_rel || flush_lock_rel) begin
@@ -506,6 +507,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     if (lock_holder_d == LockHolderNone) begin
       priority case (1'b1)
+        access_lock_acq:;
         // This blocks channel D, so it must have highest priority by TileLink rule
         refill_lock_acq: begin
           lock_holder_d = LockHolderRefill;
@@ -519,10 +521,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           lock_holder_d = LockHolderFlush;
           flush_lock_acq_pending_d = 1'b0;
         end
-        access_lock_acq_pending_d: begin
-          lock_holder_d = LockHolderAccess;
-          access_lock_acq_pending_d = 1'b0;
-        end
         default:;
       endcase
     end
@@ -530,11 +528,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      access_lock_acq_pending_q <= 1'b0;
       flush_lock_acq_pending_q <= 1'b0;
       lock_holder_q <= LockHolderFlush;
     end else begin
-      access_lock_acq_pending_q <= access_lock_acq_pending_d;
       flush_lock_acq_pending_q <= flush_lock_acq_pending_d;
       lock_holder_q <= lock_holder_d;
     end
@@ -705,7 +701,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     `ASSERT(flush_tag_write, flush_tag_write_req |-> flush_tag_write_gnt);
     `ASSERT(flush_tag_read, flush_tag_read_req |-> flush_tag_read_gnt);
     `ASSERT(access_tag_write, access_tag_write_req |-> access_tag_write_gnt);
-    `ASSERT(access_tag_read, access_tag_read_req |-> access_tag_read_gnt);
   end
 
   always_comb begin
@@ -771,12 +766,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     `ASSERT(refill_data_write, refill_data_write_req |-> refill_data_write_gnt);
     `ASSERT(wb_data_read, wb_data_read_req |-> wb_data_read_gnt);
     `ASSERT(access_data_write, access_data_write_req |-> access_data_write_gnt);
-    `ASSERT(access_data_read, access_data_read_req |-> access_data_read_gnt);
   end
 
   logic tag_read_physical_latch;
   logic [LogicAddrLen-6-1:0] tag_read_addr_latch;
   logic [2:0] data_read_addr_latch;
+  logic [WaysWidth-1:0] data_way_latch;
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       tag_read_physical_latch <= 1'b1;
@@ -789,7 +785,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         tag_read_addr_latch <= tag_read_addr;
       end
       if (data_read_req) begin
-          data_read_addr_latch <= data_read_addr[2:0];
+        data_read_addr_latch <= data_read_addr[2:0];
+        data_way_latch <= data_read_way;
       end
     end
   end
@@ -798,6 +795,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [63:0] data_read_data_interleave [NumWays];
   for (genvar i = 0; i < NumWays; i++) begin
     assign data_read_data[i] = data_read_data_interleave[i ^ (data_read_addr_latch & InterleaveMask)];
+  end
+  logic [DataWidth-1:0] data_read_data_wide;
+  always_comb begin
+    for (int i = 0; i < NumInterleave; i++) begin
+      data_read_data_wide[i * 64 +: 64] = data_read_data[(data_way_latch &~ InterleaveMask) | i];
+    end
   end
 
   // Interleave the write ways and data
@@ -1001,6 +1004,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic evict_completed_q, evict_completed_d;
 
+  logic [DataWidth-1:0] wb_data_skid;
+  logic [DataWidth-1:0] wb_data_skid_valid;
 
   always_comb begin
     wb_data_read_req = 1'b0;
@@ -1036,6 +1041,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             (wb_req_dirty ? ProbeAckData : ProbeAck);
           wb_param_d = wb_req_param;
           wb_address_d = wb_req_address;
+          evict_completed_d = 1'b0;
 
           // When wb_req_dirty is false, set wb_index to 0 to hint this is the last cycle.
           wb_index_d = wb_req_dirty ? 1 : 0;
@@ -1055,9 +1061,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         mem_c.source = SourceBase;
         mem_c.address = {wb_address_q, 6'd0};
         mem_c.corrupt = 1'b0;
-        for (int i = 0; i < NumInterleave; i++) begin
-          mem_c.data[i * 64 +: 64] = data_read_data[(wb_way_q &~ InterleaveMask) | i];
-        end
+        mem_c.data = wb_data_skid_valid ? wb_data_skid : data_read_data_wide;
 
         if (mem_c_ready) begin
           wb_index_d = wb_index_q + 1;
@@ -1096,6 +1100,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       wb_param_q <= 'x;
       wb_address_q <= 'x;
       evict_completed_q <= 1'b0;
+      wb_data_skid_valid <= 1'b0;
+      wb_data_skid <= 'x;
     end else begin
       wb_state_q <= wb_state_d;
       wb_index_q <= wb_index_d;
@@ -1104,6 +1110,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       wb_param_q <= wb_param_d;
       wb_address_q <= wb_address_d;
       evict_completed_q <= evict_completed_d;
+      if (!wb_data_skid_valid && mem_c_valid) begin
+        wb_data_skid_valid <= 1'b1;
+        wb_data_skid <= data_read_data_wide;
+      end
+      if (mem_c_ready) begin
+        wb_data_skid_valid <= 1'b0;
+      end
     end
   end
 
@@ -1836,11 +1849,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
-    StateReplayPre,
     StateUncachedPre,
     StateExceptionPre,
     StateUncached,
-    StateExceptionLocked,
     StateException
   } state_e;
 
@@ -1871,6 +1882,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [WaysWidth-1:0] way_q, way_d;
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
+
+  assign access_lock_acq = access_tag_write_req;
 
   always_comb begin
     cache_d2h_o.req_ready = 1'b0;
@@ -1917,9 +1930,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     access_data_write_req = 1'b0;
     access_data_write_data = combine_word(hit_data, amo_result, mask_q);
 
-    access_lock_acq = 1'b0;
-    access_lock_rel = 1'b0;
-
     state_d = state_q;
     address_d = address_q;
     value_d = value_q;
@@ -1942,16 +1952,23 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       StateFetch: begin
-        // Release the access lock. In this state we either complete an access, or we need to
-        // wait for refill/TLB access. In either case we will need to release the lock and
-        // re-acquire later to prevent deadlock.
-        //
-        // Note: When we are evicting, we will move the lock from access to writeback, so
-        // conceptually we shouldn't be releasing the lock. However this is okay because
-        // release_lock_move takes precedence to access_lock_rel.
-        access_lock_rel = 1'b1;
-
-        if (req_atp[63] && !ppn_valid) begin
+        // The fast path of the access logic:
+        // * Has lowest priority on read; it does not check if a conflicting operation is in progress
+        //   before reading the tag (and data) for a shorter critical path. So in this state we need
+        //   to first check if there is a conflict, and if so we need to replay the access.
+        // * Has highest priority on write or writeback. This ensures that the tag or data we just
+        //   fetched is up-to-date, so that any operation performed in this cycle is atomic. Note
+        //   that (at least currently) writeback cannot be triggered while there are no conflicting
+        //   operation.
+        //   This high priority is guaranteed by
+        //   - asserting access_lock_acq whenever a tag write is performed.
+        //   - when data write is performed, we know that refill logic is not active, and writeback
+        //     logic is not yet active (the only other concurrent trigger is writeback triggered by
+        //     probe, but that won't happen in the first cycle of probe).
+        if (!nothing_in_progress) begin
+          // If lock is held by someone, it indicates that we races with another logic, replay.
+          state_d = StateReplay;
+        end else if (req_atp[63] && !ppn_valid) begin
           // TLB miss, wait for it to be ready again.
           state_d = StateWaitTLB;
         end
@@ -1987,7 +2004,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           if (op_q[1]) begin
             // Write data and make tag dirty.
             access_data_write_req = 1'b1;
-            access_tag_write_req = 1'b1;
+            access_tag_write_req = !hit_tag.dirty;
           end
         end else if (op_q == MEM_SC) begin
           cache_d2h_o.req_ready = 1'b1;
@@ -2020,18 +2037,18 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       StateReplay: begin
-        access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
-        access_data_read_addr = address_d[LogicAddrLen-1:3];
-        if (access_locking) begin
+        if (nothing_in_progress) begin
           access_tag_read_req = 1'b1;
           access_data_read_req = 1'b1;
-          state_d = StateFetch;
+          access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
+          access_data_read_addr = address_d[LogicAddrLen-1:3];
+
+          if (access_tag_read_gnt && access_data_read_gnt) state_d = StateFetch;
         end
       end
 
       StateWaitTLB: begin
         if (ppn_valid) begin
-          access_lock_acq = 1'b1;
           state_d = StateReplay;
         end
       end
@@ -2056,16 +2073,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
               end
             endcase
           end else begin
-            // Re-acquire lock that refiller released.
-            // FIXME: Maybe should let refiller give lock back to us like I$.
-            state_d = StateReplayPre;
+            state_d = StateReplay;
           end
         end
-      end
-
-      StateReplayPre: begin
-        state_d = StateReplay;
-        access_lock_acq = 1'b1;
       end
 
       StateUncachedPre: begin
@@ -2107,13 +2117,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
 
-      StateExceptionLocked: begin
-        if (lock_holder_q == LockHolderAccess) begin
-          access_lock_rel = 1'b1;
-          state_d = StateException;
-        end
-      end
-
       StateException: begin
         ex_valid = 1'b1;
         ex_exception.cause = ex_code_q;
@@ -2132,41 +2135,37 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       value_d = align_store(req_value, req_address[2:0]);
       mask_d = align_strb(req_address[2:0], req_size);
 
-      // Access the cache
-      access_lock_acq = 1'b1;
-      access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
-      access_data_read_addr = address_d[LogicAddrLen-1:3];
-
-      if (access_locking) begin
-        access_tag_read_req = 1'b1;
-        access_data_read_req = 1'b1;
-      end
-
       // Load reservation. The reservation is single-use; it is cleared by any other memory access.
       reserved_d = req_op == MEM_LR;
       reservation_d = req_address[LogicAddrLen-1:6];
       reservation_failed_d = req_op == MEM_SC && (req_address[LogicAddrLen-1:6] != reservation_q || !reserved_q);
 
-      state_d = StateFetch;
+      // Access the cache
+      access_tag_read_req = 1'b1;
+      access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
+      access_data_read_req = 1'b1;
+      access_data_read_addr = address_d[LogicAddrLen-1:3];
 
-      // If we failed to acquire the lock this cycle, move into replay state.
-      if (!access_locking) state_d = StateReplay;
+      if (access_tag_read_gnt && ((req_op == MEM_STORE && req_size == 3) || access_data_read_gnt)) begin
+        state_d = StateFetch;
+      end else begin
+        // If we failed to perform both tag and data read this cycle, move into replay state.
+        state_d = StateReplay;
+      end
 
       // Misaligned memory load/store will trigger an exception.
-      // Note that we would like to avoid complicating the condition for access_lock_acq
-      // to trigger, so move to an intermediate state to have the lock released.
       if (!is_aligned(req_address[2:0], req_size)) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_MISALIGN : EXC_CAUSE_STORE_MISALIGN;
       end
 
       if (req_atp[63] && !canonical_virtual) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = req_op == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
       end
     end
