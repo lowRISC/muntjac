@@ -1201,10 +1201,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic probe_lock;
 
-  typedef enum logic [1:0] {
+  typedef enum logic {
     RefillStateIdle,
-    RefillStateProgress,
-    RefillStateComplete
+    RefillStateProgress
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
@@ -1238,36 +1237,36 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
       RefillStateProgress: begin
-        refill_fifo_ready = 1'b1;
-        refill_tag_write_way = refill_req_way;
-        refill_tag_write_addr = refill_req_address[SetsWidth-1:0];
+        if (refill_fifo_valid) begin
+          refill_fifo_ready = 1'b1;
 
-        refill_data_write_way = refill_req_way;
-        refill_data_write_addr = {refill_req_address[SetsWidth-1:0], 3'(refill_fifo_idx << InterleaveWidth)};
+          // If the beat contains data, write it.
+          if (refill_fifo_beat.opcode == GrantData && !refill_fifo_beat.denied) begin
+            refill_data_write_req = 1'b1;
+            refill_data_write_way = refill_req_way;
+            refill_data_write_addr = {refill_req_address[SetsWidth-1:0], 3'(refill_fifo_idx << InterleaveWidth)};
+            refill_data_write_data = refill_fifo_beat.data;
+          end
 
-        refill_data_write_req = refill_fifo_valid && refill_fifo_beat.opcode == GrantData && !refill_fifo_beat.denied;
-        refill_data_write_data = refill_fifo_beat.data;
+          // Update the metadata. This should only be done once, we can do it in either time.
+          if (refill_fifo_last && !refill_fifo_beat.denied) begin
+            refill_tag_write_req = 1'b1;
+            refill_tag_write_way = refill_req_way;
+            refill_tag_write_addr = refill_req_address[SetsWidth-1:0];
+            refill_tag_write_data.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
+            refill_tag_write_data.writable = refill_fifo_beat.param == tl_pkg::toT;
+            refill_tag_write_data.dirty = 1'b0;
+            refill_tag_write_data.valid = 1'b1;
+          end
 
-        // Update the metadata. This should only be done once, we can do it in either time.
-        refill_tag_write_req = refill_fifo_valid && refill_fifo_last && !refill_fifo_beat.denied;
-        refill_tag_write_data.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
-        refill_tag_write_data.writable = refill_fifo_beat.param == tl_pkg::toT;
-        refill_tag_write_data.dirty = 1'b0;
-        refill_tag_write_data.valid = 1'b1;
-
-        if (refill_fifo_valid && refill_fifo_ready) begin
-          if (refill_fifo_last) begin
-            probe_lock = 1'b1;
-            refill_state_d = RefillStateComplete;
+          if (refill_fifo_ready) begin
+            if (refill_fifo_last) begin
+              probe_lock = 1'b1;
+              refill_lock_rel = 1'b1;
+              refill_state_d = RefillStateIdle;
+            end
           end
         end
-      end
-      RefillStateComplete: begin
-        // Lock the data cache for 16 cycles to guarantee forward progess.
-        probe_lock = 1'b1;
-
-        refill_lock_rel = 1'b1;
-        refill_state_d = RefillStateIdle;
       end
     endcase
   end
