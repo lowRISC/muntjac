@@ -8,7 +8,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned SetsWidth   = 6,
     parameter int unsigned VirtAddrLen = 39,
     parameter int unsigned PhysAddrLen = 56,
-    parameter int unsigned AddrWidth   = PhysAddrLen,
     parameter int unsigned SourceWidth = 1,
     parameter int unsigned SinkWidth   = 1,
     parameter bit          EnableHpm   = 0,
@@ -54,13 +53,29 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   `TL_DECLARE(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem);
   `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw);
-  `TL_BIND_HOST_PORT(mem, mem);
   `TL_BIND_HOST_PORT(mem_ptw, mem_ptw);
+
+  // Registers mem_d so its content will hold until we consumed it.
+  tl_regslice #(
+    .DataWidth (DataWidth),
+    .AddrWidth (PhysAddrLen),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .GrantMode (2)
+  ) mem_reg (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT(host, mem),
+    `TL_FORWARD_HOST_PORT(device, mem)
+  );
 
   /////////////////////////////////////////
   // #region Burst tracker instantiation //
 
   wire mem_a_last;
+  wire mem_d_last;
+
+  logic [OffsetWidth-1:0] mem_d_idx;
 
   tl_burst_tracker #(
     .AddrWidth (PhysAddrLen),
@@ -79,7 +94,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     .req_idx_o (),
     .prb_idx_o (),
     .rel_idx_o (),
-    .gnt_idx_o (),
+    .gnt_idx_o (mem_d_idx),
     .req_left_o (),
     .prb_left_o (),
     .rel_left_o (),
@@ -91,7 +106,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     .req_last_o (mem_a_last),
     .prb_last_o (),
     .rel_last_o (),
-    .gnt_last_o ()
+    .gnt_last_o (mem_d_last)
   );
 
   // #endregion
@@ -426,49 +441,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   //////////////////////////////////////
   // #region D channel demultiplexing //
 
-  // Refilling needs to take a lock, but it may be blocked by the writeback. This violates
-  // TileLink's rule that D takes priority to C channel. To ensure deadlock freedom, we
-  // can simply insert a FIFO for D channel (as we can only have 1 D-channel message pending).
+  wire mem_d_valid_refill  = mem_d_valid && mem_d.opcode inside {Grant, GrantData};
+  wire mem_d_valid_rel_ack = mem_d_valid && mem_d.opcode == ReleaseAck;
+  wire mem_d_valid_access  = mem_d_valid && mem_d.opcode inside {AccessAck, AccessAckData};
 
-  typedef `TL_D_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) gnt_t;
-
-  logic mem_grant_valid;
-  logic mem_grant_ready;
-  gnt_t gnt_r;
-
-  // Use bit instead of logic here because fifo has an assertion that requires data to be known.
-  bit [$bits(gnt_t)-1:0] gnt_w;
-  assign gnt_w = mem_d;
-
-  prim_fifo_sync #(
-    .Width ($bits(gnt_t)),
-    .Pass  (1'b1),
-    .Depth (2 ** (LineWidth - NonBurstSize) + 1)
-  ) gnt_fifo (
-    .clk_i,
-    .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (mem_d_valid),
-    .wready (mem_d_ready),
-    .wdata  (gnt_w),
-    .rvalid (mem_grant_valid),
-    .rready (mem_grant_ready),
-    .rdata  (gnt_r),
-    .depth  ()
-  );
-
-  wire [DataWidth-1:0] mem_grant_data   = gnt_r.data;
-  wire tl_d_op_e       mem_grant_opcode = gnt_r.opcode;
-  wire [2:0]           mem_grant_param  = gnt_r.param;
-  wire [SinkWidth-1:0] mem_grant_sink   = gnt_r.sink;
-  wire                 mem_grant_denied = gnt_r.denied;
-
-  wire mem_grant_valid_refill  = mem_grant_valid && gnt_r.opcode inside {Grant, GrantData};
-  wire mem_grant_valid_rel_ack = mem_grant_valid && gnt_r.opcode == ReleaseAck;
-  wire mem_grant_valid_access  = mem_grant_valid && gnt_r.opcode inside {AccessAck, AccessAckData};
-
-  logic mem_grant_ready_refill;
-  assign mem_grant_ready = mem_grant_valid_refill ? mem_grant_ready_refill : 1'b1;
+  logic mem_d_ready_refill;
+  assign mem_d_ready = mem_d_valid_refill ? mem_d_ready_refill : 1'b1;
 
   // #endregion
   //////////////////////////////////////
@@ -1059,15 +1037,93 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   //////////////////////////
   // #region Refill Logic //
 
+  typedef `TL_D_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) gnt_t;
+
+  logic refill_fifo_insert;
+  logic refill_fifo_valid;
+  logic refill_fifo_ready;
+  logic refill_fifo_last;
+  gnt_t refill_fifo_beat;
+  logic [OffsetWidth-1:0] refill_fifo_idx;
+
+  // Use bit instead of logic here because fifo has an assertion that requires data to be known.
+  bit [$bits(gnt_t)-1:0] gnt_w;
+  assign gnt_w = mem_d;
+
+  prim_fifo_sync #(
+    .Width ($bits(gnt_t) + 1 + OffsetWidth),
+    .Pass  (1'b1),
+    .Depth (2 ** (LineWidth - NonBurstSize))
+  ) refill_fifo (
+    .clk_i,
+    .rst_ni,
+    .clr_i  (1'b0),
+    .wvalid (refill_fifo_insert),
+    .wready (),
+    .wdata  ({gnt_w, mem_d_last, mem_d_idx}),
+    .rvalid (refill_fifo_valid),
+    .rready (refill_fifo_ready),
+    .rdata  ({refill_fifo_beat, refill_fifo_last, refill_fifo_idx}),
+    .depth  ()
+  );
+
+  logic refill_beat_saved_q, refill_beat_saved_d;
+  logic refill_beat_acked_q, refill_beat_acked_d;
+
+  always_comb begin
+    refill_beat_saved_d = refill_beat_saved_q;
+    refill_beat_acked_d = refill_beat_acked_q;
+
+    refill_fifo_insert = 1'b0;
+    mem_d_ready_refill = 1'b0;
+    mem_e_valid = 1'b0;
+    mem_e = 'x;
+
+    if (mem_d_valid_refill) begin
+      mem_d_ready_refill = 1'b1;
+
+      if (!refill_beat_saved_q) begin
+        refill_fifo_insert = 1'b1;
+        refill_beat_saved_d = 1'b1;
+      end
+
+      // Send back an ack to memory. To avoid unnecessary blocking we add a FIFO to the
+      // E channel.
+      // It's okay to send back an ack now, because refill logic takes priority to the probe logic
+      // so we will indeed observe the effect of refill before any further probes.
+      if (!refill_beat_acked_q && mem_d_last) begin
+        mem_e_valid = 1'b1;
+        mem_e.sink = mem_d.sink;
+
+        // Hold the beat until acknowledge is sent.
+        if (mem_e_ready) begin
+          refill_beat_acked_d = 1'b1;
+        end else begin
+          mem_d_ready_refill = 1'b0;
+        end
+      end
+
+      if (mem_d_ready_refill) begin
+        refill_beat_saved_d = 1'b0;
+        refill_beat_acked_d = 1'b0;
+      end
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      refill_beat_saved_q <= 1'b0;
+      refill_beat_acked_q <= 1'b0;
+    end else begin
+      refill_beat_saved_q <= refill_beat_saved_d;
+      refill_beat_acked_q <= refill_beat_acked_d;
+    end
+  end
+
   logic [PhysAddrLen-7:0] refill_req_address;
   logic [WaysWidth-1:0]   refill_req_way;
 
   logic probe_lock;
-
-  logic [OffsetWidth-1:0] refill_index_q, refill_index_d;
-
-  logic [SinkWidth-1:0] ack_sink_q, ack_sink_d;
-  logic                 ack_pending_q, ack_pending_d;
 
   typedef enum logic [1:0] {
     RefillStateIdle,
@@ -1076,8 +1132,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
-
-  logic mem_grant_last;
 
   always_comb begin
     refill_tag_write_req = 1'b0;
@@ -1092,29 +1146,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     refill_lock_acq = 1'b0;
     refill_lock_rel = 1'b0;
-    mem_grant_ready_refill = 1'b0;
+    refill_fifo_ready = 1'b0;
 
     probe_lock = 1'b0;
-    mem_grant_last = 1'b0;
 
-    refill_index_d = refill_index_q;
     refill_state_d = refill_state_q;
-    ack_sink_d = ack_sink_q;
-    ack_pending_d = ack_pending_q;
-
-    mem_e_valid = ack_pending_q;
-    mem_e.sink = ack_sink_q;
-
-    // Process Ack on E channel
-    if (mem_e_ready) ack_pending_d = 1'b0;
 
     unique case (refill_state_q)
       RefillStateIdle: begin
-        if (mem_grant_valid_refill) begin
-          refill_index_d = mem_grant_opcode == GrantData ? 0 : (2 ** OffsetWidth - 1);
-          ack_sink_d = mem_grant_sink;
-          ack_pending_d = 1'b1;
-
+        if (refill_fifo_valid) begin
           refill_lock_acq = 1'b1;
           if (refill_locking) begin
             refill_state_d = RefillStateProgress;
@@ -1122,56 +1162,45 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         end
       end
       RefillStateProgress: begin
-        mem_grant_ready_refill = 1'b1;
+        refill_fifo_ready = 1'b1;
         refill_tag_write_way = refill_req_way;
         refill_tag_write_addr = refill_req_address[SetsWidth-1:0];
 
         refill_data_write_way = refill_req_way;
-        refill_data_write_addr = {refill_req_address[SetsWidth-1:0], 3'(refill_index_q << InterleaveWidth)};
+        refill_data_write_addr = {refill_req_address[SetsWidth-1:0], 3'(refill_fifo_idx << InterleaveWidth)};
 
-        refill_data_write_req = mem_grant_valid_refill && mem_grant_opcode == GrantData && !mem_grant_denied;
-        refill_data_write_data = mem_grant_data;
+        refill_data_write_req = refill_fifo_valid && refill_fifo_beat.opcode == GrantData && !refill_fifo_beat.denied;
+        refill_data_write_data = refill_fifo_beat.data;
 
         // Update the metadata. This should only be done once, we can do it in either time.
-        refill_tag_write_req = mem_grant_valid_refill && &refill_index_q && !mem_grant_denied;
+        refill_tag_write_req = refill_fifo_valid && refill_fifo_last && !refill_fifo_beat.denied;
         refill_tag_write_data.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
-        refill_tag_write_data.writable = mem_grant_param == tl_pkg::toT;
+        refill_tag_write_data.writable = refill_fifo_beat.param == tl_pkg::toT;
         refill_tag_write_data.dirty = 1'b0;
         refill_tag_write_data.valid = 1'b1;
 
-        if (mem_grant_valid_refill && mem_grant_ready_refill) begin
-          refill_index_d = refill_index_q + 1;
-          if (&refill_index_q) begin
-            mem_grant_last = 1'b1;
+        if (refill_fifo_valid && refill_fifo_ready) begin
+          if (refill_fifo_last) begin
             probe_lock = 1'b1;
             refill_state_d = RefillStateComplete;
           end
         end
       end
       RefillStateComplete: begin
-        if (!ack_pending_d) begin
-          // Lock the data cache for 16 cycles to guarantee forward progess.
-          probe_lock = 1'b1;
+        // Lock the data cache for 16 cycles to guarantee forward progess.
+        probe_lock = 1'b1;
 
-          refill_index_d = 0;
-          refill_lock_rel = 1'b1;
-          refill_state_d = RefillStateIdle;
-        end
+        refill_lock_rel = 1'b1;
+        refill_state_d = RefillStateIdle;
       end
     endcase
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      refill_index_q <= 0;
       refill_state_q <= RefillStateIdle;
-      ack_sink_q <= 'x;
-      ack_pending_q <= 1'b0;
     end else begin
-      refill_index_q <= refill_index_d;
       refill_state_q <= refill_state_d;
-      ack_sink_q <= ack_sink_d;
-      ack_pending_q <= ack_pending_d;
     end
   end
 
@@ -1553,7 +1582,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       FlushStateAck: begin
-        if (mem_grant_valid_rel_ack) begin
+        if (mem_d_valid_rel_ack) begin
           flush_state_d = FlushStateIdle;
           // Write-back has consumed our lock, re-acquire.
           flush_lock_acq = 1'b1;
@@ -1623,11 +1652,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         acq_req_sent_d = 1'b1;
       end
 
-      if (mem_grant_last) begin
-        acq_pending_d = 1'b0;
-        acq_resp_valid = 1'b1;
-        if (mem_grant_denied) begin
-          acq_resp_exception = 1'b1;
+      if (refill_fifo_valid) begin
+        if (refill_fifo_ready) begin
+          if (refill_fifo_last) begin
+            acq_pending_d = 1'b0;
+            acq_resp_valid = 1'b1;
+            if (refill_fifo_beat.denied) begin
+              acq_resp_exception = 1'b1;
+            end
+          end
         end
       end
     end
@@ -1693,13 +1726,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         uncached_req_sent_d = 1'b1;
       end
 
-      if (mem_grant_valid_access) begin
+      if (mem_d_valid_access) begin
         uncached_pending_d = 1'b0;
         uncached_resp_valid = 1'b1;
-        if (mem_grant_denied) begin
+        if (mem_d.denied) begin
           uncached_resp_exception = 1'b1;
         end else begin
-          uncached_resp_data = tl_align_load(mem_grant_data, uncached_req_address[NonBurstSize-1:0]);
+          uncached_resp_data = tl_align_load(mem_d.data, uncached_req_address[NonBurstSize-1:0]);
         end
       end
     end
@@ -1833,7 +1866,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     reservation_d = reservation_q;
     reservation_failed_d = reservation_failed_q;
 
-    if (mem_grant_valid_rel_ack) begin
+    if (mem_d_valid_rel_ack) begin
       evict_completed_d = 1'b1;
     end
 
