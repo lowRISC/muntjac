@@ -92,45 +92,24 @@ module muntjac_core import muntjac_pkg::*; #(
       .dbg_o
   );
 
-  `TL_DECLARE_ARR(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, ch, [3:0]);
+  `TL_DECLARE_ARR(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, ch, [2:0]);
   tl_socket_m1 #(
     .DataWidth(DataWidth),
     .AddrWidth (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
-    .NumLinks (4),
+    .NumLinks (3),
     .NumCachedLinks (1),
 
-    .NumSourceRange(3),
-    .SourceBase({IcacheSourceBase, DptwSourceBase, IptwSourceBase}),
-    .SourceMask({      SourceMask,     SourceMask,     SourceMask}),
-    .SourceLink({2'd            1, 2'd          2, 2'd          3})
+    .NumSourceRange(2),
+    .SourceBase({IcacheSourceBase, IptwSourceBase}),
+    .SourceMask({      SourceMask,     SourceMask}),
+    .SourceLink({2'd            1, 2'd          2})
   ) socket (
     .clk_i,
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT(host, ch),
     `TL_CONNECT_HOST_PORT(device, mem)
-  );
-
-  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, dcache_ptw);
-  tl_adapter #(
-    .HostDataWidth (64),
-    .DeviceDataWidth (DataWidth),
-    .HostAddrWidth (PhysAddrLen),
-    .DeviceAddrWidth (PhysAddrLen),
-    .HostSourceWidth (SourceWidth),
-    .DeviceSourceWidth (SourceWidth),
-    .HostSinkWidth (SinkWidth),
-    .DeviceSinkWidth (SinkWidth),
-    .HostMaxSize (3),
-    .DeviceMaxSize (6),
-    .HostFifo (1'b0),
-    .DeviceFifo (1'b0)
-  ) dcache_ptw_adapter (
-    .clk_i,
-    .rst_ni,
-    `TL_CONNECT_DEVICE_PORT(host, dcache_ptw),
-    `TL_CONNECT_HOST_PORT_IDX(device, ch, [2])
   );
 
   `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, icache_ptw);
@@ -151,7 +130,7 @@ module muntjac_core import muntjac_pkg::*; #(
     .clk_i,
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT(host, icache_ptw),
-    `TL_CONNECT_HOST_PORT_IDX(device, ch, [3])
+    `TL_CONNECT_HOST_PORT_IDX(device, ch, [2])
   );
 
   muntjac_icache #(
@@ -190,8 +169,7 @@ module muntjac_core import muntjac_pkg::*; #(
     .hpm_access_o (hpm_dcache_access),
     .hpm_miss_o (hpm_dcache_miss),
     .hpm_tlb_miss_o (hpm_dtlb_miss),
-    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [0]),
-    `TL_CONNECT_HOST_PORT(mem_ptw, dcache_ptw)
+    `TL_CONNECT_HOST_PORT_IDX(mem, ch, [0])
   );
 
 endmodule

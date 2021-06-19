@@ -29,9 +29,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     output logic hpm_tlb_miss_o,
 
     // Channel for D$
-    `TL_DECLARE_HOST_PORT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem),
-    // Channel for PTW
-    `TL_DECLARE_HOST_PORT(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw)
+    `TL_DECLARE_HOST_PORT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem)
 );
 
   // This is the largest address width that we ever have to deal with.
@@ -53,8 +51,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   if (SetsWidth > 6) $fatal(1, "PIPT cache's SetsWidth is bounded by 6");
 
   `TL_DECLARE(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem);
-  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw);
-  `TL_BIND_HOST_PORT(mem_ptw, mem_ptw);
 
   // Registers mem_d so its content will hold until we consumed it.
   tl_regslice #(
@@ -377,9 +373,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   typedef `TL_A_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) req_t;
 
-  localparam ANums = 2;
+  localparam ANums = 3;
   localparam AIdxRefill = 0;
   localparam AIdxUncached = 1;
+  localparam AIdxPtw = 2;
 
   // Grouped signals before multiplexing/arbitration
   req_t [ANums-1:0] mem_a_mult;
@@ -444,7 +441,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire mem_d_valid_refill  = mem_d_valid && mem_d.opcode inside {Grant, GrantData};
   wire mem_d_valid_rel_ack = mem_d_valid && mem_d.opcode == ReleaseAck;
-  wire mem_d_valid_access  = mem_d_valid && mem_d.opcode inside {AccessAck, AccessAckData};
+  wire mem_d_valid_access  = mem_d_valid && mem_d.source != PtwSourceBase && mem_d.opcode inside {AccessAck, AccessAckData};
+  wire mem_d_valid_ptw     = mem_d_valid && mem_d.source == PtwSourceBase;
 
   logic mem_d_ready_refill;
   assign mem_d_ready = mem_d_valid_refill ? mem_d_ready_refill : 1'b1;
@@ -1220,6 +1218,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       .ptw_resp_perm_i  (ptw_resp_perm)
   );
 
+  logic                    ptw_a_valid;
+  logic [NonBurstSize-1:0] ptw_a_address;
+
   muntjac_ptw #(
     .PhysAddrLen (PhysAddrLen)
   ) ptw (
@@ -1231,30 +1232,36 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       .resp_valid_o      (ptw_resp_valid),
       .resp_ppn_o        (ptw_resp_ppn),
       .resp_perm_o       (ptw_resp_perm),
-      .mem_req_ready_i   (mem_ptw_a_ready),
-      .mem_req_valid_o   (mem_ptw_a_valid),
-      .mem_req_address_o (mem_ptw_a.address),
-      .mem_resp_valid_i  (mem_ptw_d_valid),
-      .mem_resp_data_i   (mem_ptw_d.data)
+      .mem_req_ready_i   (mem_a_ready_mult[AIdxPtw]),
+      .mem_req_valid_o   (mem_a_valid_mult[AIdxPtw]),
+      .mem_req_address_o (mem_a_mult[AIdxPtw].address),
+      .mem_resp_valid_i  (mem_d_valid_ptw && ptw_a_valid),
+      .mem_resp_data_i   (tl_align_load(mem_d.data, ptw_a_address))
   );
 
-  assign mem_ptw_a.opcode = Get;
-  assign mem_ptw_a.param = 0;
-  assign mem_ptw_a.size = 1;
-  assign mem_ptw_a.source = PtwSourceBase;
-  assign mem_ptw_a.mask = '1;
-  assign mem_ptw_a.corrupt = 1'b0;
-  assign mem_ptw_a.data = 'x;
+  assign mem_d_ready_ptw = ptw_a_valid;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ptw_a_valid <= 1'b0;
+      ptw_a_address <= 'x;
+    end else begin
+      if (mem_d_valid_ptw) begin
+        ptw_a_valid <= 1'b0;
+      end
+      if (mem_a_valid_mult[AIdxPtw] && mem_a_ready_mult[AIdxPtw]) begin
+        ptw_a_valid <= 1'b1;
+        ptw_a_address <= mem_a_mult[AIdxPtw].address;
+      end
+    end
+  end
 
-  assign mem_ptw_b_ready = 1'b1;
-
-  assign mem_ptw_c_valid = 1'b0;
-  assign mem_ptw_c       = 'x;
-
-  assign mem_ptw_d_ready = 1'b1;
-
-  assign mem_ptw_e_valid = 1'b0;
-  assign mem_ptw_e       = 'x;
+  assign mem_a_mult[AIdxPtw].opcode = Get;
+  assign mem_a_mult[AIdxPtw].param = 0;
+  assign mem_a_mult[AIdxPtw].size = 1;
+  assign mem_a_mult[AIdxPtw].source = PtwSourceBase;
+  assign mem_a_mult[AIdxPtw].mask = '1;
+  assign mem_a_mult[AIdxPtw].corrupt = 1'b0;
+  assign mem_a_mult[AIdxPtw].data = 'x;
 
   // PPN response is just single pulse. The logic below extends it.
   logic [43:0] ppn_latch;
