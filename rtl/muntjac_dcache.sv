@@ -1,4 +1,5 @@
 `include "tl_util.svh"
+`include "prim_assert.sv"
 
 module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned DataWidth   = 64,
@@ -546,48 +547,59 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   // #region SRAM access multiplex //
 
   logic                      access_tag_read_req;
+  logic                      access_tag_read_gnt;
   logic [LogicAddrLen-6-1:0] access_tag_read_addr;
   logic                      access_tag_read_physical;
 
   logic                      access_data_read_req;
+  logic                      access_data_read_gnt;
   logic [LogicAddrLen-3-1:0] access_data_read_addr;
 
   logic                   access_tag_write_req;
+  logic                   access_tag_write_gnt;
   logic [SetsWidth-1:0]   access_tag_write_addr;
   logic [WaysWidth-1:0]   access_tag_write_way;
   tag_t                   access_tag_write_data;
 
   logic                   access_data_write_req;
+  logic                   access_data_write_gnt;
   logic [SetsWidth+3-1:0] access_data_write_addr;
   logic [WaysWidth-1:0]   access_data_write_way;
   logic [63:0]            access_data_write_data;
 
   logic                   wb_data_read_req;
+  logic                   wb_data_read_gnt;
   logic [SetsWidth+3-1:0] wb_data_read_addr;
   logic [WaysWidth-1:0]   wb_data_read_way;
 
   logic                           refill_tag_write_req;
+  logic                           refill_tag_write_gnt;
   logic [SetsWidth-1:0]           refill_tag_write_addr;
   logic [WaysWidth-1:0]           refill_tag_write_way;
   tag_t                           refill_tag_write_data;
 
   logic                           refill_data_write_req;
+  logic                           refill_data_write_gnt;
   logic [SetsWidth+3-1:0]         refill_data_write_addr;
   logic [WaysWidth-1:0]           refill_data_write_way;
   logic [NumInterleave-1:0][63:0] refill_data_write_data;
 
   logic                      probe_tag_read_req;
+  logic                      probe_tag_read_gnt;
   logic [LogicAddrLen-6-1:0] probe_tag_read_addr;
 
   logic                  probe_tag_write_req;
+  logic                  probe_tag_write_gnt;
   logic [SetsWidth-1:0]  probe_tag_write_addr;
   logic [NumWays-1:0]    probe_tag_write_ways;
   tag_t                  probe_tag_write_data;
 
   logic                  flush_tag_read_req;
+  logic                  flush_tag_read_gnt;
   logic [SetsWidth-1:0]  flush_tag_read_addr;
 
   logic                  flush_tag_write_req;
+  logic                  flush_tag_write_gnt;
   logic [SetsWidth-1:0]  flush_tag_write_addr;
   logic [NumWays-1:0]    flush_tag_write_ways;
   tag_t                  flush_tag_write_data;
@@ -615,44 +627,133 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic                           data_write_wide;
 
   always_comb begin
+    refill_tag_write_gnt = 1'b0;
+    probe_tag_write_gnt = 1'b0;
+    probe_tag_read_gnt = 1'b0;
+    flush_tag_write_gnt = 1'b0;
+    flush_tag_read_gnt = 1'b0;
+    access_tag_write_gnt = 1'b0;
+    access_tag_read_gnt = 1'b0;
+
+    tag_write_addr = 'x;
+    tag_write_req = 1'b0;
+    tag_write_ways = '0;
+    tag_write_data = tag_t'('x);
+
     tag_read_req = 1'b0;
     tag_read_addr = 'x;
     tag_read_physical = 1'b1;
 
     priority case (1'b1)
+      refill_tag_write_req: begin
+        refill_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_write_addr = refill_tag_write_addr;
+        for (int i = 0; i < NumWays; i++) tag_write_ways[i] = refill_tag_write_way == i;
+        tag_write_data = refill_tag_write_data;
+      end
+      probe_tag_write_req: begin
+        probe_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_write_addr = probe_tag_write_addr;
+        tag_write_ways = probe_tag_write_ways;
+        tag_write_data = probe_tag_write_data;
+      end
+      flush_tag_write_req: begin
+        flush_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_write_addr = flush_tag_write_addr;
+        tag_write_ways = flush_tag_write_ways;
+        tag_write_data = flush_tag_write_data;
+      end
+      access_tag_write_req: begin
+        access_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_write_addr = access_tag_write_addr;
+        for (int i = 0; i < NumWays; i++) tag_write_ways[i] = access_tag_write_way == i;
+        tag_write_data = access_tag_write_data;
+      end
+      default:;
+    endcase
+
+    priority case (1'b1)
       probe_tag_read_req: begin
+        probe_tag_read_gnt = 1'b1;
         tag_read_req = 1'b1;
         tag_read_addr = probe_tag_read_addr;
         tag_read_physical = 1'b1;
       end
       flush_tag_read_req: begin
+        flush_tag_read_gnt = 1'b1;
         tag_read_req = 1'b1;
         tag_read_addr = flush_tag_read_addr;
         tag_read_physical = 1'b1;
       end
       access_tag_read_req: begin
+        access_tag_read_gnt = 1'b1;
         tag_read_req = 1'b1;
         tag_read_addr = access_tag_read_addr;
         tag_read_physical = access_tag_read_physical;
       end
       default:;
     endcase
+
+    // These logic assumes that all their requests are handled immediately.
+    `ASSERT(refill_tag_write, refill_tag_write_req |-> refill_tag_write_gnt);
+    `ASSERT(probe_tag_write, probe_tag_write_req |-> probe_tag_write_gnt);
+    `ASSERT(probe_tag_read, probe_tag_read_req |-> probe_tag_read_gnt);
+    `ASSERT(flush_tag_write, flush_tag_write_req |-> flush_tag_write_gnt);
+    `ASSERT(flush_tag_read, flush_tag_read_req |-> flush_tag_read_gnt);
+    `ASSERT(access_tag_write, access_tag_write_req |-> access_tag_write_gnt);
+    `ASSERT(access_tag_read, access_tag_read_req |-> access_tag_read_gnt);
   end
 
   always_comb begin
+    refill_data_write_gnt = 1'b0;
+    wb_data_read_gnt = 1'b0;
+    access_data_write_gnt = 1'b0;
+    access_data_read_gnt = 1'b0;
+
+    data_write_req = 1'b0;
+    data_write_addr = 'x;
+    data_write_way = 'x;
+    data_write_data = 'x;
+    data_write_wide = 1'b0;
+
     data_read_req = 1'b0;
     data_read_addr = 'x;
     data_read_way = 'x;
     data_read_wide = 1'b0;
 
     priority case (1'b1)
+      refill_data_write_req: begin
+        refill_data_write_gnt = 1'b1;
+        data_write_req = 1'b1;
+        data_write_addr = refill_data_write_addr;
+        data_write_way = refill_data_write_way;
+        data_write_data = refill_data_write_data;
+        data_write_wide = 1'b1;
+      end
+      access_data_write_req: begin
+        access_data_write_gnt = 1'b1;
+        data_write_req = 1'b1;
+        data_write_addr = access_data_write_addr;
+        data_write_way = access_data_write_way;
+        data_write_data = {NumInterleave{access_data_write_data}};
+      end
+      default:;
+    endcase
+
+    priority case (1'b1)
       wb_data_read_req: begin
+        wb_data_read_gnt = 1'b1;
         data_read_req = 1'b1;
         data_read_addr = wb_data_read_addr;
         data_read_way = wb_data_read_way;
         data_read_wide = 1'b1;
       end
       access_data_read_req: begin
+        access_data_read_gnt = 1'b1;
         data_read_req = 1'b1;
         data_read_addr = access_data_read_addr;
       end
@@ -662,11 +763,20 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     if (data_read_wide) begin
       data_read_addr = data_read_addr ^ (data_read_way & InterleaveMask);
     end
+    if (data_write_wide) begin
+      data_write_addr = data_write_addr ^ (data_write_way & InterleaveMask);
+    end
+
+
+    `ASSERT(refill_data_write, refill_data_write_req |-> refill_data_write_gnt);
+    `ASSERT(wb_data_read, wb_data_read_req |-> wb_data_read_gnt);
+    `ASSERT(access_data_write, access_data_write_req |-> access_data_write_gnt);
+    `ASSERT(access_data_read, access_data_read_req |-> access_data_read_gnt);
   end
 
   logic tag_read_physical_latch;
   logic [LogicAddrLen-6-1:0] tag_read_addr_latch;
-  logic [LogicAddrLen-3-1:0] data_read_addr_latch;
+  logic [2:0] data_read_addr_latch;
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       tag_read_physical_latch <= 1'b1;
@@ -679,7 +789,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         tag_read_addr_latch <= tag_read_addr;
       end
       if (data_read_req) begin
-          data_read_addr_latch <= data_read_addr;
+          data_read_addr_latch <= data_read_addr[2:0];
       end
     end
   end
@@ -688,74 +798,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [63:0] data_read_data_interleave [NumWays];
   for (genvar i = 0; i < NumWays; i++) begin
     assign data_read_data[i] = data_read_data_interleave[i ^ (data_read_addr_latch & InterleaveMask)];
-  end
-
-  always_comb begin
-    tag_write_addr = 'x;
-    tag_write_req = 1'b0;
-    tag_write_ways = '0;
-    tag_write_data = tag_t'('x);
-
-    // Unlike read, write can happen at the cycle of lock release. However the writer must ensure
-    // that the new lock acquirer will not access the same address.
-    priority case (1'b1)
-      refill_tag_write_req: begin
-        tag_write_req = 1'b1;
-        tag_write_addr = refill_tag_write_addr;
-        for (int i = 0; i < NumWays; i++) tag_write_ways[i] = refill_tag_write_way == i;
-        tag_write_data = refill_tag_write_data;
-      end
-      probe_tag_write_req: begin
-        tag_write_req = 1'b1;
-        tag_write_addr = probe_tag_write_addr;
-        tag_write_ways = probe_tag_write_ways;
-        tag_write_data = probe_tag_write_data;
-      end
-      flush_tag_write_req: begin
-        tag_write_req = 1'b1;
-        tag_write_addr = flush_tag_write_addr;
-        tag_write_ways = flush_tag_write_ways;
-        tag_write_data = flush_tag_write_data;
-      end
-      access_tag_write_req: begin
-        tag_write_req = 1'b1;
-        tag_write_addr = access_tag_write_addr;
-        for (int i = 0; i < NumWays; i++) tag_write_ways[i] = access_tag_write_way == i;
-        tag_write_data = access_tag_write_data;
-      end
-      default:;
-    endcase
-  end
-
-  always_comb begin
-    data_write_req = 1'b0;
-    data_write_addr = 'x;
-    data_write_way = 'x;
-    data_write_data = 'x;
-    data_write_wide = 1'b0;
-
-    // Unlike read, write can happen at the cycle of lock release. However the writer must ensure
-    // that the new lock acquirer will not access the same address.
-    priority case (1'b1)
-      refill_data_write_req: begin
-        data_write_req = 1'b1;
-        data_write_addr = refill_data_write_addr;
-        data_write_way = refill_data_write_way;
-        data_write_data = refill_data_write_data;
-        data_write_wide = 1'b1;
-      end
-      access_data_write_req: begin
-        data_write_req = 1'b1;
-        data_write_addr = access_data_write_addr;
-        data_write_way = access_data_write_way;
-        data_write_data = {NumInterleave{access_data_write_data}};
-      end
-      default:;
-    endcase
-
-    if (data_write_wide) begin
-      data_write_addr = data_write_addr ^ (data_write_way & InterleaveMask);
-    end
   end
 
   // Interleave the write ways and data
