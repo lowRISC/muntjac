@@ -986,12 +986,21 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     endcase
   end
 
-  logic                   wb_progress_q, wb_progress_d;
+  typedef enum logic [1:0] {
+    WbStateIdle,
+    WbStateProgress,
+    WbStateWait
+  } wb_state_e;
+
+  wb_state_e              wb_state_q, wb_state_d;
   logic [WaysWidth-1:0]   wb_way_q, wb_way_d;
   logic [OffsetWidth-1:0] wb_index_q, wb_index_d;
   tl_c_op_e               wb_opcode_q, wb_opcode_d;
   logic [2:0]             wb_param_q, wb_param_d;
   logic [PhysAddrLen-7:0] wb_address_q, wb_address_d;
+
+  logic evict_completed_q, evict_completed_d;
+
 
   always_comb begin
     wb_data_read_req = 1'b0;
@@ -1001,75 +1010,100 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     release_lock_move = 1'b0;
     release_lock_rel = 1'b0;
 
-    wb_progress_d = wb_progress_q;
+    wb_state_d = wb_state_q;
     wb_index_d = wb_index_q;
     wb_way_d = wb_way_q;
     wb_opcode_d = wb_opcode_q;
     wb_param_d = wb_param_q;
     wb_address_d = wb_address_q;
 
-    mem_c_valid = wb_progress_q;
-    mem_c.opcode = wb_opcode_q;
-    mem_c.param = wb_param_q;
-    mem_c.size = 6;
-    mem_c.source = SourceBase;
-    mem_c.address = {wb_address_q, 6'd0};
-    mem_c.corrupt = 1'b0;
-    for (int i = 0; i < NumInterleave; i++) begin
-      mem_c.data[i * 64 +: 64] = data_read_data[(wb_way_q &~ InterleaveMask) | i];
+    mem_c_valid = 1'b0;
+    mem_c = 'x;
+
+    evict_completed_d = evict_completed_q;
+    if (mem_d_valid_rel_ack) begin
+      evict_completed_d = 1'b1;
     end
 
-    if (wb_progress_q && mem_c_ready) begin
-      wb_index_d = wb_index_q + 1;
+    unique case (wb_state_q)
+      WbStateIdle: begin
+        if (wb_req_valid) begin
+          release_lock_move = 1'b1;
+          wb_state_d = WbStateProgress;
+          wb_way_d = wb_req_way;
+          wb_opcode_d = wb_req_active ?
+            (wb_req_dirty ? ReleaseData : Release) :
+            (wb_req_dirty ? ProbeAckData : ProbeAck);
+          wb_param_d = wb_req_param;
+          wb_address_d = wb_req_address;
 
-      if (wb_index_q == 0) begin
-        // Last cycle. Signal the invoker and clear progress bit.
-        wb_progress_d = 1'b0;
-
-        // Release SRAM access lock
-        release_lock_rel = 1'b1;
-      end else begin
-        wb_data_read_req = 1'b1;
-        wb_data_read_way = wb_way_d;
-        wb_data_read_addr = {wb_address_d[SetsWidth-1:0], 3'(wb_index_q << InterleaveWidth)};
+          // When wb_req_dirty is false, set wb_index to 0 to hint this is the last cycle.
+          wb_index_d = wb_req_dirty ? 1 : 0;
+          if (wb_req_dirty) begin
+            wb_data_read_req = 1'b1;
+            wb_data_read_way = wb_way_d;
+            wb_data_read_addr = {wb_address_d[SetsWidth-1:0], 3'd0};
+          end
+        end
       end
-    end
 
-    if (wb_req_valid) begin
-      release_lock_move = 1'b1;
-      wb_progress_d = 1'b1;
-      wb_way_d = wb_req_way;
-      wb_opcode_d = wb_req_active ?
-        (wb_req_dirty ? ReleaseData : Release) :
-        (wb_req_dirty ? ProbeAckData : ProbeAck);
-      wb_param_d = wb_req_param;
-      wb_address_d = wb_req_address;
+      WbStateProgress: begin
+        mem_c_valid = 1'b1;
+        mem_c.opcode = wb_opcode_q;
+        mem_c.param = wb_param_q;
+        mem_c.size = 6;
+        mem_c.source = SourceBase;
+        mem_c.address = {wb_address_q, 6'd0};
+        mem_c.corrupt = 1'b0;
+        for (int i = 0; i < NumInterleave; i++) begin
+          mem_c.data[i * 64 +: 64] = data_read_data[(wb_way_q &~ InterleaveMask) | i];
+        end
 
-      // When wb_req_dirty is false, set wb_index to 0 to hint this is the last cycle.
-      wb_index_d = wb_req_dirty ? 1 : 0;
-      if (wb_req_dirty) begin
-        wb_data_read_req = 1'b1;
-        wb_data_read_way = wb_way_d;
-        wb_data_read_addr = {wb_address_d[SetsWidth-1:0], 3'd0};
+        if (mem_c_ready) begin
+          wb_index_d = wb_index_q + 1;
+
+          if (wb_index_q == 0) begin
+            // Last cycle. Signal the invoker and clear progress bit.
+            wb_state_d = wb_opcode_q inside {Release, ReleaseData} ? WbStateWait : WbStateIdle;
+
+            // Release SRAM access lock
+            release_lock_rel = wb_opcode_q inside {Release, ReleaseData} ? 1'b0 : 1'b1;
+          end else begin
+            wb_data_read_req = 1'b1;
+            wb_data_read_way = wb_way_d;
+            wb_data_read_addr = {wb_address_d[SetsWidth-1:0], 3'(wb_index_q << InterleaveWidth)};
+          end
+        end
       end
-    end
+
+      WbStateWait: begin
+        if (evict_completed_d) begin
+          wb_state_d = WbStateIdle;
+          release_lock_rel = 1'b1;
+        end
+      end
+
+      default:;
+    endcase
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      wb_progress_q <= 1'b0;
+      wb_state_q <= WbStateIdle;
       wb_index_q <= 0;
       wb_way_q <= 0;
       wb_opcode_q <= tl_c_op_e'('x);
       wb_param_q <= 'x;
       wb_address_q <= 'x;
+      evict_completed_q <= 1'b0;
     end else begin
-      wb_progress_q <= wb_progress_d;
+      wb_state_q <= wb_state_d;
       wb_index_q <= wb_index_d;
       wb_way_q <= wb_way_d;
       wb_opcode_q <= wb_opcode_d;
       wb_param_q <= wb_param_d;
       wb_address_q <= wb_address_d;
+      evict_completed_q <= evict_completed_d;
     end
   end
 
@@ -1398,8 +1432,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   /////////////////////////
   // #region Probe Logic //
 
-  logic evict_completed_q, evict_completed_d;
-
   typedef enum logic {
     ProbeStateIdle,
     ProbeStateCheck
@@ -1441,7 +1473,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     unique case (probe_state_q)
       // Waiting for a probe request to reach us.
       ProbeStateIdle: begin
-        probe_lock_acq = probe_lock_q == 0 && mem_b_valid && evict_completed_q;
+        probe_lock_acq = probe_lock_q == 0 && mem_b_valid;
 
         if (probe_locking) begin
           mem_b_ready = 1'b1;
@@ -1624,11 +1656,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       FlushStateAck: begin
-        if (mem_d_valid_rel_ack) begin
-          flush_state_d = FlushStateIdle;
-          // Write-back has consumed our lock, re-acquire.
-          flush_lock_acq = 1'b1;
-        end
+        flush_state_d = FlushStateIdle;
+        // Write-back has consumed our lock, re-acquire.
+        flush_lock_acq = 1'b1;
       end
 
       FlushStateDone: begin
@@ -1902,15 +1932,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     evict_way_d = evict_way_q;
     way_d = way_q;
     ex_code_d = ex_code_q;
-    evict_completed_d = evict_completed_q;
 
     reserved_d = reserved_q;
     reservation_d = reservation_q;
     reservation_failed_d = reservation_failed_q;
-
-    if (mem_d_valid_rel_ack) begin
-      evict_completed_d = 1'b1;
-    end
 
     unique case (state_q)
       StateIdle: begin
@@ -1976,13 +2001,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             evict_way_d = evict_way_q + 1;
           end
 
-          evict_completed_d = 1'b1;
           state_d = StateFill;
           acq_req_valid = 1'b1;
 
           if (hit_tag.valid &&
               hit_tag.writable) begin
-            evict_completed_d = 1'b0;
 
             wb_rel_req_valid = 1'b1;
             wb_rel_req_way = way_d;
@@ -2042,21 +2065,19 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       StateReplayPre: begin
-        if (evict_completed_d) begin
-          state_d = StateReplay;
-          access_lock_acq = 1'b1;
-        end
+        state_d = StateReplay;
+        access_lock_acq = 1'b1;
       end
 
       StateUncachedPre: begin
-        if (evict_completed_d) begin
+        if (wb_state_q == WbStateIdle) begin
           state_d = StateUncached;
           uncached_req_valid = 1'b1;
         end
       end
 
       StateExceptionPre: begin
-        if (evict_completed_d) begin
+        if (wb_state_q == WbStateIdle) begin
           state_d = StateException;
         end
       end
@@ -2164,7 +2185,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       amo_q <= 'x;
       evict_way_q <= 0;
       way_q <= 'x;
-      evict_completed_q <= 1'b1;
       ex_code_q <= exc_cause_e'('x);
       reserved_q <= 1'b0;
       reservation_q <= 'x;
@@ -2180,7 +2200,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       amo_q <= amo_d;
       evict_way_q <= evict_way_d;
       way_q <= way_d;
-      evict_completed_q <= evict_completed_d;
       ex_code_q <= ex_code_d;
       reserved_q <= reserved_d;
       reservation_q <= reservation_d;
