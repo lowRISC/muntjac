@@ -230,30 +230,63 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     end
   endfunction
 
+  function automatic logic [63:0] combine_word (
+      input  logic [63:0] old_value,
+      input  logic [63:0] new_value,
+      input  logic [7:0]  mask
+  );
+
+    combine_word = old_value;
+    for (int i = 0; i < 8; i++) begin
+      if (mask[i]) combine_word[i * 8 +: 8] = new_value[i * 8 +: 8];
+    end
+
+  endfunction
+
   function automatic logic [63:0] do_amo_op (
       // We make these bit instead of logic, because addition and subtraction will produce x
       // if any bits of these are x. So even if highest bits are x it also corrupt lower bits.
       input  bit   [63:0] original,
       input  bit   [63:0] operand,
-      input  logic [1:0]  size,
+      input  logic [7:0]  mask,
       input  logic [6:0]  amo
   );
 
-    // Do a substraction. The 63rd and 31st bit would give us enough information for comparision.
-    automatic logic [63:0] difference = original - operand;
+    automatic logic [31:0] difference_lsb;
+    automatic logic        borrow_lsb;
+    automatic logic [31:0] difference_msb;
+    automatic logic [63:0] difference;
+
+    automatic logic original_sign;
+    automatic logic operand_sign;
+    automatic logic difference_sign;
+    automatic logic lt_flag;
+
+    // Perform subtraction. Only propagating the borrow bit if `mask[3]` is set.
+    {borrow_lsb, difference_lsb} = {1'b0, original[31:0]} + {1'b0, ~operand[31:0]} + 33'b1;
+    difference_msb = original[63:32] + ~operand[63:32] + {31'b0, !mask[3] | borrow_lsb};
+    difference = {difference_msb, difference_lsb};
 
     // Get the sign bits for comparision needs
-    automatic logic original_sign = size == 2'b11 ? original[63] : original[31];
-    automatic logic operand_sign = size == 2'b11 ? operand[63] : operand[31];
-    automatic logic difference_sign = size == 2'b11 ? difference[63] : difference[31];
+    original_sign = mask[7] ? original[63] : original[31];
+    operand_sign = mask[7] ? operand[63] : operand[31];
+    difference_sign = mask[7] ? difference[63] : difference[31];
 
     // If MSBs are the same, look at the sign of the result is sufficient.
     // Otherwise the one with MSB 0 is larger (if signed) and smaller (if unsigned).
-    automatic logic lt_flag = original_sign == operand_sign ? difference_sign : (amo[5] ? operand_sign : original_sign);
+    lt_flag = original_sign == operand_sign ? difference_sign : (amo[5] ? operand_sign : original_sign);
 
     unique casez (amo[6:2])
       5'b00001: do_amo_op = operand;
-      5'b00000: do_amo_op = original + operand;
+      5'b00000: begin
+        automatic logic [31:0] sum_lsb;
+        automatic logic        carry_lsb;
+        automatic logic [31:0] sum_msb;
+
+        {carry_lsb, sum_lsb} = {1'b0, original[31:0]} + {1'b0, operand[31:0]};
+        sum_msb = original[63:32] + operand[63:32] + {31'b0, mask[3] & carry_lsb};
+        do_amo_op = {sum_msb, sum_lsb};
+      end
       5'b00100: do_amo_op = original ^ operand;
       5'b01100: do_amo_op = original & operand;
       5'b01000: do_amo_op = original | operand;
@@ -549,7 +582,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic                   access_data_write_req;
   logic [SetsWidth+3-1:0] access_data_write_addr;
   logic [WaysWidth-1:0]   access_data_write_way;
-  logic [7:0]             access_data_write_strb;
   logic [63:0]            access_data_write_data;
 
   logic                   wb_data_read_req;
@@ -601,7 +633,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic                           data_write_req;
   logic [SetsWidth+3-1:0]         data_write_addr;
   logic [WaysWidth-1:0]           data_write_way;
-  logic [7:0]                     data_write_strb;
   logic [NumInterleave-1:0][63:0] data_write_data;
   logic                           data_write_wide;
 
@@ -722,7 +753,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     data_write_req = 1'b0;
     data_write_addr = 'x;
     data_write_way = 'x;
-    data_write_strb = 'x;
     data_write_data = 'x;
     data_write_wide = 1'b0;
 
@@ -733,7 +763,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         data_write_req = 1'b1;
         data_write_addr = refill_data_write_addr;
         data_write_way = refill_data_write_way;
-        data_write_strb = '1;
         data_write_data = refill_data_write_data;
         data_write_wide = 1'b1;
       end
@@ -741,7 +770,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         data_write_req = 1'b1;
         data_write_addr = access_data_write_addr;
         data_write_way = access_data_write_way;
-        data_write_strb = access_data_write_strb;
         data_write_data = {NumInterleave{access_data_write_data}};
       end
       default:;
@@ -769,13 +797,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   ////////////////////////////////
   // #region SRAM Instantiation //
-
-  logic [63:0] data_write_strb_expanded;
-  always_comb begin
-    for (int i = 0; i < 8; i++) begin
-      data_write_strb_expanded[i * 8 +: 8] = data_write_strb[i] ? 8'hff : 8'h00;
-    end
-  end
 
   // When a read/write to the same address happens in the same cycle, they may cause conflict.
   // While it is possible to keep track of the previous address and stall for one cycle if
@@ -805,7 +826,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   for (genvar i = 0; i < NumWays; i++) begin: ram
 
     logic tag_bypass_valid;
-    logic [7:0] data_bypass_valid;
+    logic data_bypass_valid;
 
     tag_t        tag_raw;
     logic [63:0] data_raw;
@@ -828,19 +849,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         if (data_read_req) begin
           data_bypass_valid <= 0;
           if (data_write_req && data_write_ways_interleave[i] && data_write_addr_effective == data_read_addr_effective) begin
-            data_bypass_valid <= data_write_strb;
+            data_bypass_valid <= 1'b1;
           end
         end
       end
     end
 
     assign tag_read_data[i] = tag_bypass_valid ? tag_bypass : tag_raw;
-    always_comb begin
-      for (int j = 0; j < 8; j++) begin
-        data_bypassed[j*8 +: 8] = data_bypass_valid[j] ? data_bypass[i & InterleaveMask][j*8 +: 8] : data_raw[j*8 +: 8];
-      end
-    end
-    assign data_read_data_interleave[i] = data_bypassed;
+    assign data_read_data_interleave[i] = data_bypass_valid ? data_bypass[i & InterleaveMask] : data_raw;
 
     prim_generic_ram_simple_2p #(
         .Width           ($bits(tag_t)),
@@ -875,7 +891,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         .b_req_i   (data_write_req && data_write_ways_interleave[i]),
         .b_addr_i  (data_write_addr_effective),
         .b_wdata_i (data_write_data_interleave[i & InterleaveMask]),
-        .b_wmask_i (data_write_strb_expanded)
+        .b_wmask_i ('1)
     );
   end
 
@@ -1735,19 +1751,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic [63:0] address_q, address_d;
   logic [63:0] value_q, value_d;
+  logic [7:0]  mask_q, mask_d;
   logic [1:0]  size_q, size_d;
   size_ext_e   size_ext_q, size_ext_d;
   mem_op_e     op_q, op_d;
   logic [6:0]  amo_q, amo_d;
 
   wire [63:0] hit_data = data_read_data[hit_way];
-  wire [63:0] hit_data_aligned = align_load(
-      .value (hit_data),
-      .addr (address_q[2:0]),
-      .size (size_q),
-      .size_ext (size_ext_q)
-  );
-  wire [63:0] amo_result = do_amo_op(hit_data_aligned, value_q, size_q, amo_q);
+  wire [63:0] amo_result = do_amo_op(hit_data, value_q, mask_q, amo_q);
 
   logic                    reserved_q, reserved_d;
   logic [LogicAddrLen-7:0] reservation_q, reservation_d;
@@ -1800,8 +1811,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     access_data_write_way = hit_way;
     access_data_write_addr = address_q[3+:SetsWidth+3];
     access_data_write_req = 1'b0;
-    access_data_write_strb = align_strb(address_q[2:0], size_q);
-    access_data_write_data = align_store(amo_result, address_q[2:0]);
+    access_data_write_data = combine_word(hit_data, amo_result, mask_q);
 
     access_lock_acq = 1'b0;
     access_lock_rel = 1'b0;
@@ -1809,6 +1819,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     state_d = state_q;
     address_d = address_q;
     value_d = value_q;
+    mask_d = mask_q;
     size_d = size_q;
     size_ext_d = size_ext_q;
     op_d = op_q;
@@ -1865,7 +1876,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
           cache_d2h_o.req_ready = 1'b1;
           resp_valid = 1'b1;
-          resp_value = op_q[0] ? hit_data_aligned : 0;
+          resp_value = op_q[0] ? align_load(
+              .value (hit_data),
+              .addr (address_q[2:0]),
+              .size (size_q),
+              .size_ext (size_ext_q)
+          ) : 0;
           state_d = StateIdle;
 
           // MEM_STORE/MEM_SC/MEM_AMO
@@ -1974,8 +1990,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         uncached_req_write = !op_q[0];
         uncached_req_size = size_q;
         uncached_req_address = address_phys;
-        uncached_req_mask = align_strb(address_q[2:0], size_q);
-        uncached_req_data = align_store(value_q, address_q[2:0]);
+        uncached_req_mask = mask_q;
+        uncached_req_data = value_q;
 
         if (uncached_resp_valid) begin
           if (uncached_resp_exception) begin
@@ -2018,7 +2034,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       op_d = req_op;
       // Translate MEM_STORE/MEM_SC to AMOSWAP, so we can reuse the AMOALU.
       amo_d = !req_op[0] ? 7'b0000100 : req_amo;
-      value_d = req_value;
+      value_d = align_store(req_value, req_address[2:0]);
+      mask_d = align_strb(req_address[2:0], req_size);
 
       // Access the cache
       access_lock_acq = 1'b1;
@@ -2065,6 +2082,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       state_q <= StateIdle;
       address_q <= '0;
       value_q <= 'x;
+      mask_q <= 'x;
       size_q <= 'x;
       size_ext_q <= size_ext_e'('x);
       op_q <= mem_op_e'('x);
@@ -2080,6 +2098,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       state_q <= state_d;
       address_q <= address_d;
       value_q <= value_d;
+      mask_q <= mask_d;
       size_q <= size_d;
       size_ext_q <= size_ext_d;
       op_q <= op_d;
