@@ -455,79 +455,51 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   //////////////////////////////
   // #region Lock arbitration //
 
-  logic refill_lock_acq;
-  logic refill_lock_rel;
-  // Unlike {refill, access, flush}_lock_acq, probe_lock_acq is not set pulse signal; logic must
-  // maintain it if it still wants lock.
-  logic probe_lock_acq;
-  // probe_lock_rel is not defined because probe always transfer the lock to write-back module.
-  logic release_lock_rel;
-  // access_lock_rel, flush_lock_rel is not always paired with access_lock_req. When a dirty cache
-  // line needs to be evicted/flushed, it will transfer the lock to the write-back module.
-  logic access_lock_rel;
-  logic flush_lock_acq;
-  logic flush_lock_rel;
+  logic probe_tracker_valid;
+  logic flush_tracker_valid;
+  logic refill_tracker_valid;
+  logic writeback_tracker_valid;
 
   // Used for blocking other components from acquiring the lock while access lock writes back dirty
   // data.
   logic access_lock_acq;
 
-  // WB logic taking lock from probe/access
-  logic release_lock_move;
+  logic refill_lock_acq;
+  logic probe_lock_acq;
+  logic writeback_lock_acq;
+  logic flush_lock_acq;
 
-  typedef enum logic [2:0] {
-    LockHolderNone,
-    LockHolderRefill,
-    LockHolderProbe,
-    LockHolderRelease,
-    LockHolderFlush
-  } lock_holder_e;
+  logic probe_lock;
 
-  lock_holder_e lock_holder_q, lock_holder_d;
+  wire nothing_in_progress = !(refill_tracker_valid || probe_tracker_valid || writeback_tracker_valid || flush_tracker_valid);
 
-  wire nothing_in_progress = lock_holder_q == LockHolderNone;
-
-  wire refill_locking = lock_holder_d == LockHolderRefill;
-  wire probe_locking  = lock_holder_d == LockHolderProbe;
-  wire flush_locked   = lock_holder_q == LockHolderFlush;
-  wire flush_locking  = lock_holder_d == LockHolderFlush;
+  logic refill_locking;
+  logic probe_locking;
+  logic flush_locking;
 
   // Arbitrate on the new holder of the lock
   always_comb begin
-    lock_holder_d = lock_holder_q;
+    refill_locking = 1'b0;
+    probe_locking = 1'b0;
+    flush_locking = 1'b0;
 
-    if (refill_lock_rel || release_lock_rel || access_lock_rel || flush_lock_rel) begin
-      lock_holder_d = LockHolderNone;
-    end
-
-    if (release_lock_move) begin
-      lock_holder_d = LockHolderRelease;
-    end
-
-    if (lock_holder_d == LockHolderNone) begin
+    if (nothing_in_progress) begin
       priority case (1'b1)
         access_lock_acq:;
+        writeback_lock_acq:;
         // This blocks channel D, so it must have highest priority by TileLink rule
         refill_lock_acq: begin
-          lock_holder_d = LockHolderRefill;
+          refill_locking = 1'b1;
         end
         // This blocks other agents, so make it more important than the rest.
         probe_lock_acq: begin
-          lock_holder_d = LockHolderProbe;
+          probe_locking = 1'b1;
         end
         flush_lock_acq: begin
-          lock_holder_d = LockHolderFlush;
+          flush_locking = 1'b1;
         end
         default:;
       endcase
-    end
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      lock_holder_q <= LockHolderFlush;
-    end else begin
-      lock_holder_q <= lock_holder_d;
     end
   end
 
@@ -923,13 +895,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [DataWidth-1:0] wb_data_skid;
   logic [DataWidth-1:0] wb_data_skid_valid;
 
+  assign writeback_tracker_valid = wb_state_q != WbStateIdle;
+
   always_comb begin
     wb_data_read_req = 1'b0;
     wb_data_read_addr = 'x;
     wb_data_read_way = 'x;
 
-    release_lock_move = 1'b0;
-    release_lock_rel = 1'b0;
+    writeback_lock_acq = 1'b0;
 
     wb_state_d = wb_state_q;
     wb_index_d = wb_index_q;
@@ -949,7 +922,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     unique case (wb_state_q)
       WbStateIdle: begin
         if (wb_req_valid) begin
-          release_lock_move = 1'b1;
+          writeback_lock_acq = 1'b1;
           wb_state_d = WbStateProgress;
           wb_way_d = wb_req_way;
           wb_opcode_d = wb_req_active ?
@@ -985,9 +958,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           if (wb_index_q == 0) begin
             // Last cycle. Signal the invoker and clear progress bit.
             wb_state_d = wb_opcode_q inside {Release, ReleaseData} ? WbStateWait : WbStateIdle;
-
-            // Release SRAM access lock
-            release_lock_rel = wb_opcode_q inside {Release, ReleaseData} ? 1'b0 : 1'b1;
           end else begin
             wb_data_read_req = 1'b1;
             wb_data_read_way = wb_way_d;
@@ -999,7 +969,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       WbStateWait: begin
         if (evict_completed_d) begin
           wb_state_d = WbStateIdle;
-          release_lock_rel = 1'b1;
         end
       end
 
@@ -1128,14 +1097,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-7:0] refill_req_address;
   logic [WaysWidth-1:0]   refill_req_way;
 
-  logic probe_lock;
-
   typedef enum logic {
     RefillStateIdle,
     RefillStateProgress
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
+
+  logic refill_tracker_valid_d;
 
   always_comb begin
     refill_tag_write_req = 1'b0;
@@ -1148,8 +1117,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     refill_data_write_way = 'x;
     refill_data_write_data = 'x;
 
+    refill_tracker_valid_d = refill_tracker_valid;
     refill_lock_acq = 1'b0;
-    refill_lock_rel = 1'b0;
     refill_fifo_ready = 1'b0;
 
     probe_lock = 1'b0;
@@ -1162,6 +1131,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           refill_lock_acq = 1'b1;
           if (refill_locking) begin
             refill_state_d = RefillStateProgress;
+            refill_tracker_valid_d = 1'b1;
           end
         end
       end
@@ -1191,7 +1161,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           if (refill_fifo_ready) begin
             if (refill_fifo_last) begin
               probe_lock = 1'b1;
-              refill_lock_rel = 1'b1;
+              refill_tracker_valid_d = 1'b0;
               refill_state_d = RefillStateIdle;
             end
           end
@@ -1203,8 +1173,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       refill_state_q <= RefillStateIdle;
+      refill_tracker_valid <= 1'b0;
     end else begin
       refill_state_q <= refill_state_d;
+      refill_tracker_valid <= refill_tracker_valid_d;
     end
   end
 
@@ -1353,6 +1325,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   end
 
   wire tag_t hit_tag = tag_read_data[hit_way];
+  wire [63:0] hit_data = data_read_data[hit_way];
 
   // #endregion
   ///////////////////////////////////
@@ -1366,12 +1339,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   } probe_state_e;
 
   probe_state_e probe_state_q = ProbeStateIdle, probe_state_d;
+  logic probe_tracker_valid_d;
 
   logic [PhysAddrLen-7:0] probe_address_q, probe_address_d;
   logic [2:0] probe_param_q, probe_param_d;
   logic [4:0] probe_lock_q, probe_lock_d;
 
   always_comb begin
+    probe_tracker_valid_d = probe_tracker_valid;
     probe_lock_acq = 1'b0;
     probe_tag_read_req = 1'b0;
     probe_tag_read_addr = 'x;
@@ -1413,11 +1388,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           probe_tag_read_addr = probe_address_d;
 
           probe_state_d = ProbeStateCheck;
+          probe_tracker_valid_d = 1'b1;
         end
       end
       // Act upon tag read
       ProbeStateCheck: begin
         probe_state_d = ProbeStateIdle;
+
+        // Lock transferred to writeback logic.
+        probe_tracker_valid_d = 1'b0;
 
         wb_probe_req_valid = 1'b1;
         wb_probe_req_way = hit_way;
@@ -1450,11 +1429,13 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       probe_state_q <= ProbeStateIdle;
+      probe_tracker_valid <= 1'b0;
       probe_address_q <= 'x;
       probe_param_q <= 'x;
       probe_lock_q <= 0;
     end else begin
       probe_state_q <= probe_state_d;
+      probe_tracker_valid <= probe_tracker_valid_d;
       probe_address_q <= probe_address_d;
       probe_param_q <= probe_param_d;
       probe_lock_q <= probe_lock_d;
@@ -1476,6 +1457,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   } flush_state_e;
 
   flush_state_e flush_state_q = FlushStateReset, flush_state_d;
+  logic flush_tracker_valid_d;
   logic [SetsWidth-1:0] flush_index_q, flush_index_d;
 
   // Dirty tag check
@@ -1504,8 +1486,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     flush_tag_write_req = 1'b0;
     flush_tag_write_data = tag_t'('x);
 
+    flush_tracker_valid_d = flush_tracker_valid;
     flush_lock_acq = 1'b0;
-    flush_lock_rel = 1'b0;
 
     wb_flush_req_valid = 1'b0;
     wb_flush_req_way = 'x;
@@ -1529,7 +1511,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
         flush_index_d = flush_index_q + 1;
 
         if (&flush_index_q) begin
-          flush_lock_rel = 1'b1;
+          flush_tracker_valid_d = 1'b0;
           flush_state_d = FlushStateIdle;
         end
       end
@@ -1543,14 +1525,15 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
       // Read the tag to prepare for the dirtiness check.
       FlushStateReadTag: begin
-        flush_lock_acq = !flush_locked;
+        flush_lock_acq = !flush_tracker_valid;
 
-        if (flush_locked || flush_locking) begin
+        if (flush_tracker_valid || flush_locking) begin
           // Performs tag read to determine how to flush.
           flush_tag_read_req = 1'b1;
           flush_tag_read_addr = flush_index_q;
 
           flush_state_d = FlushStateCheck;
+          flush_tracker_valid_d = 1'b1;
         end
       end
 
@@ -1560,6 +1543,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
         if (flush_has_dirty) begin
           // If eviction is necesasry do it.
+          flush_tracker_valid_d = 1'b0;
+
           wb_flush_req_valid = 1'b1;
           wb_flush_req_way = flush_dirty_way;
           wb_flush_req_address = {flush_dirty_tag.tag, flush_index_q};
@@ -1581,6 +1566,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           flush_tag_write_data.valid = 1'b0;
 
           if (&flush_index_q) begin
+            flush_tracker_valid_d = 1'b0;
             flush_state_d = FlushStateDone;
           end
         end
@@ -1588,7 +1574,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
       FlushStateDone: begin
         flush_ready = 1'b1;
-        // flush_lock_rel = 1'b1;
         flush_state_d = FlushStateIdle;
       end
     endcase
@@ -1597,9 +1582,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       flush_state_q <= FlushStateReset;
+      flush_tracker_valid <= 1'b1;
       flush_index_q <= '0;
     end else begin
       flush_state_q <= flush_state_d;
+      flush_tracker_valid <= flush_tracker_valid_d;
       flush_index_q <= flush_index_d;
     end
   end
@@ -1757,8 +1744,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
-    StateUncachedPre,
-    StateExceptionPre,
     StateUncached,
     StateException
   } state_e;
@@ -1780,7 +1765,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   mem_op_e     op_q, op_d;
   logic [6:0]  amo_q, amo_d;
 
-  wire [63:0] hit_data = data_read_data[hit_way];
   wire [63:0] amo_result = do_amo_op(hit_data, value_q, mask_q, amo_q);
 
   logic                    reserved_q, reserved_d;
@@ -1973,29 +1957,17 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             // So if the op is MEM_LOAD or MEM_STORE, we try uncached access, otherwise it is an access error.
             case (op_q)
               MEM_LOAD, MEM_STORE: begin
-                state_d = StateUncachedPre;
+                uncached_req_valid = 1'b1;
+                state_d = StateUncached;
               end
               MEM_LR, MEM_SC, MEM_AMO: begin
                 ex_code_d = EXC_CAUSE_STORE_ACCESS_FAULT;
-                state_d = StateExceptionPre;
+                state_d = StateException;
               end
             endcase
           end else begin
             state_d = StateReplay;
           end
-        end
-      end
-
-      StateUncachedPre: begin
-        if (wb_state_q == WbStateIdle) begin
-          state_d = StateUncached;
-          uncached_req_valid = 1'b1;
-        end
-      end
-
-      StateExceptionPre: begin
-        if (wb_state_q == WbStateIdle) begin
-          state_d = StateException;
         end
       end
 
