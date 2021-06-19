@@ -373,10 +373,9 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   typedef `TL_A_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) req_t;
 
-  localparam ANums = 3;
-  localparam AIdxRefill = 0;
-  localparam AIdxUncached = 1;
-  localparam AIdxPtw = 2;
+  localparam ANums = 2;
+  localparam AIdxPtw    = 0;
+  localparam AIdxRefill = 1;
 
   // Grouped signals before multiplexing/arbitration
   req_t [ANums-1:0] mem_a_mult;
@@ -1601,143 +1600,124 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   ///////////////////////////////////////////////////
   // #region Cache Miss Handling Logic (Slow Path) //
 
-  logic                             acq_req_valid;
-  logic [2:0]                       acq_req_param;
-  logic [PhysAddrLen-LineWidth-1:0] acq_req_address;
+  typedef enum logic [2:0] {
+    MissStateIdle,
+    MissStateFill,
+    MissStateUncached
+  } miss_state_e;
 
-  logic acq_resp_valid;
-  logic acq_resp_exception;
+  miss_state_e miss_state_q, miss_state_d;
 
-  logic acq_pending_q, acq_pending_d;
-  logic acq_req_sent_q, acq_req_sent_d;
+  logic                    miss_req_valid;
+  mem_op_e                 miss_req_op;
+  logic [PhysAddrLen-1:0]  miss_req_address;
+  logic [1:0]              miss_req_size;
+  logic [7:0]              miss_req_mask;
+  logic [63:0]             miss_req_data;
+
+  logic miss_resp_replay;
+  logic miss_resp_exception;
+  logic miss_resp_valid;
+  logic [63:0] miss_resp_data;
+
+  logic miss_refill_sent_q, miss_refill_sent_d;
+  logic miss_uncached_sent_q, miss_uncached_sent_d;
 
   always_comb begin
-    acq_resp_valid = 1'b0;
-    acq_resp_exception = 1'b0;
+    miss_resp_replay = 1'b0;
+    miss_resp_exception = 1'b0;
+    miss_resp_valid = 1'b0;
+    miss_resp_data = 'x;
 
     mem_a_valid_mult[AIdxRefill] = 1'b0;
     mem_a_mult[AIdxRefill] = 'x;
 
-    acq_pending_d = acq_pending_q;
-    acq_req_sent_d = acq_req_sent_q;
+    miss_state_d = miss_state_q;
+    miss_refill_sent_d = miss_refill_sent_q;
+    miss_uncached_sent_d = miss_uncached_sent_q;
 
-    if (acq_pending_q) begin
-      mem_a_valid_mult[AIdxRefill] = !acq_req_sent_q;
-      mem_a_mult[AIdxRefill].opcode = AcquireBlock;
-      mem_a_mult[AIdxRefill].param = acq_req_param;
-      mem_a_mult[AIdxRefill].size = 6;
-      mem_a_mult[AIdxRefill].address = {acq_req_address, {LineWidth{1'b0}}};
-      mem_a_mult[AIdxRefill].source = SourceBase;
-      mem_a_mult[AIdxRefill].mask = '1;
-      mem_a_mult[AIdxRefill].corrupt = 1'b0;
-
-      if (mem_a_ready_mult[AIdxRefill]) begin
-        acq_req_sent_d = 1'b1;
+    unique case (miss_state_q)
+      MissStateIdle: begin
+        if (miss_req_valid) begin
+          miss_state_d = MissStateFill;
+          miss_refill_sent_d = 1'b0;
+        end
       end
+      MissStateFill: begin
+        mem_a_valid_mult[AIdxRefill] = !miss_refill_sent_q;
+        mem_a_mult[AIdxRefill].opcode = AcquireBlock;
+        mem_a_mult[AIdxRefill].param = miss_req_op != MEM_LOAD ? tl_pkg::NtoT : tl_pkg::NtoB;
+        mem_a_mult[AIdxRefill].size = LineWidth;
+        mem_a_mult[AIdxRefill].address = {miss_req_address[PhysAddrLen-1:6], {LineWidth{1'b0}}};
+        mem_a_mult[AIdxRefill].source = SourceBase;
+        mem_a_mult[AIdxRefill].mask = '1;
+        mem_a_mult[AIdxRefill].corrupt = 1'b0;
+        if (mem_a_ready_mult[AIdxRefill]) miss_refill_sent_d = 1'b1;
 
-      if (refill_fifo_valid) begin
-        if (refill_fifo_ready) begin
-          if (refill_fifo_last) begin
-            acq_pending_d = 1'b0;
-            acq_resp_valid = 1'b1;
-            if (refill_fifo_beat.denied) begin
-              acq_resp_exception = 1'b1;
+        if (refill_fifo_valid) begin
+          if (refill_fifo_ready) begin
+            if (refill_fifo_last) begin
+              miss_state_d = MissStateIdle;
+              if (refill_fifo_beat.denied) begin
+                // In case of denied, this can be:
+                // * An actual access error
+                // * The target just denies AcquireBlock
+                // So if the op is MEM_LOAD or MEM_STORE, we try uncached access, otherwise it is an access error.
+                case (miss_req_op)
+                  MEM_LOAD, MEM_STORE: begin
+                    miss_uncached_sent_d = 1'b0;
+                    miss_state_d = MissStateUncached;
+                  end
+                  default: begin
+                    miss_resp_exception = 1'b1;
+                  end
+                endcase
+              end else begin
+                miss_resp_replay = 1'b1;
+              end
             end
           end
         end
       end
-    end
+      MissStateUncached: begin
+        mem_a_valid_mult[AIdxRefill] = !miss_uncached_sent_q;
+        mem_a_mult[AIdxRefill].opcode = miss_req_op[0] ? Get : PutFullData;
+        mem_a_mult[AIdxRefill].param = 0;
+        mem_a_mult[AIdxRefill].size = miss_req_size;
+        mem_a_mult[AIdxRefill].address = miss_req_address;
+        mem_a_mult[AIdxRefill].source = SourceBase;
+        mem_a_mult[AIdxRefill].mask = tl_align_strb(miss_req_mask, miss_req_address[NonBurstSize-1:0]);
+        mem_a_mult[AIdxRefill].data = tl_align_store(miss_req_data);
+        if (mem_a_ready_mult[AIdxRefill]) miss_uncached_sent_d = 1'b1;
 
-    if (acq_req_valid) begin
-      acq_pending_d = 1'b1;
-      acq_req_sent_d = 1'b0;
-    end
+        if (mem_d_valid_access) begin
+          miss_state_d = MissStateIdle;
+          if (mem_d.denied) begin
+            miss_resp_exception = 1'b1;
+          end else begin
+            miss_resp_valid = 1'b1;
+            miss_resp_data = tl_align_load(mem_d.data, miss_req_address[NonBurstSize-1:0]);
+          end
+        end
+      end
+      default:;
+    endcase
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      acq_pending_q <= 1'b0;
-      acq_req_sent_q <= 1'b0;
+      miss_state_q <= MissStateIdle;
+      miss_refill_sent_q <= 1'b0;
+      miss_uncached_sent_q <= 1'b0;
     end else begin
-      acq_pending_q <= acq_pending_d;
-      acq_req_sent_q <= acq_req_sent_d;
+      miss_state_q <= miss_state_d;
+      miss_refill_sent_q <= miss_refill_sent_d;
+      miss_uncached_sent_q <= miss_uncached_sent_d;
     end
   end
 
   // #endregion
   ///////////////////////////////////////////////////
-
-  //////////////////////////////////////////
-  // #region Uncached Memory Access Logic //
-
-  logic                   uncached_req_valid;
-  logic                   uncached_req_write;
-  logic [1:0]             uncached_req_size;
-  logic [PhysAddrLen-1:0] uncached_req_address;
-  logic [7:0]             uncached_req_mask;
-  logic [63:0]            uncached_req_data;
-
-  logic        uncached_resp_valid;
-  logic        uncached_resp_exception;
-  logic [63:0] uncached_resp_data;
-
-  logic uncached_pending_q, uncached_pending_d;
-  logic uncached_req_sent_q, uncached_req_sent_d;
-
-  always_comb begin
-    uncached_resp_valid = 1'b0;
-    uncached_resp_exception = 1'b0;
-    uncached_resp_data = 'x;
-
-    mem_a_valid_mult[AIdxUncached] = 1'b0;
-    mem_a_mult[AIdxUncached] = 'x;
-
-    uncached_pending_d = uncached_pending_q;
-    uncached_req_sent_d = uncached_req_sent_q;
-
-    if (uncached_pending_q) begin
-      mem_a_valid_mult[AIdxUncached] = !uncached_req_sent_q;
-      mem_a_mult[AIdxUncached].opcode = uncached_req_write ? PutFullData : Get;
-      mem_a_mult[AIdxUncached].param = 0;
-      mem_a_mult[AIdxUncached].size = uncached_req_size;
-      mem_a_mult[AIdxUncached].address = uncached_req_address;
-      mem_a_mult[AIdxUncached].source = SourceBase;
-      mem_a_mult[AIdxUncached].mask = tl_align_strb(uncached_req_mask, uncached_req_address[NonBurstSize-1:0]);
-      mem_a_mult[AIdxUncached].data = tl_align_store(uncached_req_data);
-
-      if (mem_a_ready_mult[AIdxUncached]) begin
-        uncached_req_sent_d = 1'b1;
-      end
-
-      if (mem_d_valid_access) begin
-        uncached_pending_d = 1'b0;
-        uncached_resp_valid = 1'b1;
-        if (mem_d.denied) begin
-          uncached_resp_exception = 1'b1;
-        end else begin
-          uncached_resp_data = tl_align_load(mem_d.data, uncached_req_address[NonBurstSize-1:0]);
-        end
-      end
-    end
-
-    if (uncached_req_valid) begin
-      uncached_pending_d = 1'b1;
-      uncached_req_sent_d = 1'b0;
-    end
-  end
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      uncached_pending_q <= 1'b0;
-      uncached_req_sent_q <= 1'b0;
-    end else begin
-      uncached_pending_q <= uncached_pending_d;
-      uncached_req_sent_q <= uncached_req_sent_d;
-    end
-  end
-
-  // #endregion
-  //////////////////////////////////////////
 
   ////////////////////////
   // #region Main Logic //
@@ -1748,7 +1728,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
-    StateUncached,
     StateException
   } state_e;
 
@@ -1792,16 +1771,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     ex_valid = 1'b0;
     ex_exception = exception_t'('x);
 
-    acq_req_valid = 1'b0;
-    acq_req_param = 'x;
-    acq_req_address = 'x;
-
-    uncached_req_valid = 1'b0;
-    uncached_req_write = 'x;
-    uncached_req_size = 'x;
-    uncached_req_address = 'x;
-    uncached_req_mask = 'x;
-    uncached_req_data = 'x;
+    miss_req_valid = 1'b0;
+    miss_req_address = 'x;
+    miss_req_op = mem_op_e'('x);
+    miss_req_size = 'x;
+    miss_req_mask = 'x;
+    miss_req_data = 'x;
 
     wb_rel_req_valid = 1'b0;
     wb_rel_req_way = 'x;
@@ -1932,7 +1907,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           end
 
           state_d = StateFill;
-          acq_req_valid = 1'b1;
+          miss_req_valid = 1'b1;
 
           if (hit_tag.valid &&
               hit_tag.writable) begin
@@ -1971,60 +1946,32 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       StateFill: begin
-        acq_req_param = op_q != MEM_LOAD ? tl_pkg::NtoT : tl_pkg::NtoB;
-        acq_req_address = address_phys[PhysAddrLen-1:6];
+        miss_req_address = address_phys;
+        miss_req_op = op_q;
+        miss_req_size = size_q;
+        miss_req_mask = mask_q;
+        miss_req_data = value_q;
 
-        if (acq_resp_valid) begin
-          if (acq_resp_exception) begin
-            // In case of denied, this can be:
-            // * An actual access error
-            // * The target just denies AcquireBlock
-            // So if the op is MEM_LOAD or MEM_STORE, we try uncached access, otherwise it is an access error.
-            case (op_q)
-              MEM_LOAD, MEM_STORE: begin
-                uncached_req_valid = 1'b1;
-                state_d = StateUncached;
-              end
-              MEM_LR, MEM_SC, MEM_AMO: begin
-                ex_code_d = EXC_CAUSE_STORE_ACCESS_FAULT;
-                state_d = StateException;
-              end
-            endcase
-          end else begin
-            // Timer starts ticking for 16 cycles which gives us exclusive access to the cache line
-            // that we just acquired. This ensures forward progress.
-            // IMPORTANT: For this to work the timer must start in the same cycle that the refiller
-            // logic goes from "in progress" state to "idle".
-            access_lock_addr_d = address_q[LineWidth+:6];
-            access_lock_timer_d = 16;
-            state_d = StateReplay;
-          end
-        end
-      end
-
-      StateUncached: begin
-        uncached_req_write = !op_q[0];
-        uncached_req_size = size_q;
-        uncached_req_address = address_phys;
-        uncached_req_mask = mask_q;
-        uncached_req_data = value_q;
-
-        if (uncached_resp_valid) begin
-          if (uncached_resp_exception) begin
-            state_d = StateException;
-            ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
-          end
-          else begin
-            cache_d2h_o.req_ready = 1'b1;
-            resp_valid = 1'b1;
-            resp_value = align_load(
-                .value (uncached_resp_data),
-                .addr (address_q[2:0]),
-                .size (size_q),
-                .size_ext (size_ext_q)
-            );
-            state_d = StateIdle;
-          end
+        if (miss_resp_replay) begin
+          // Timer starts ticking for 16 cycles which gives us exclusive access to the cache line
+          // that we just acquired. This ensures forward progress.
+          // IMPORTANT: For this to work the timer must start in the same cycle that the refiller
+          // logic goes from "in progress" state to "idle".
+          access_lock_addr_d = address_q[LineWidth+:6];
+          access_lock_timer_d = 16;
+          state_d = StateReplay;
+        end else if (miss_resp_valid) begin
+          resp_valid = 1'b1;
+          resp_value = align_load(
+              .value (miss_resp_data),
+              .addr (address_q[2:0]),
+              .size (size_q),
+              .size_ext (size_ext_q)
+          );
+          state_d = StateIdle;
+        end else if (miss_resp_exception) begin
+          ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_ACCESS_FAULT : EXC_CAUSE_STORE_ACCESS_FAULT;
+          state_d = StateException;
         end
       end
 
