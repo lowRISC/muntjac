@@ -1,4 +1,5 @@
 `include "tl_util.svh"
+`include "prim_assert.sv"
 
 // Non-coherent I$ (Adapted from muntjac_icache_coherent)
 module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
@@ -29,13 +30,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     output logic hpm_tlb_miss_o,
 
     // Channel for I$
-    `TL_DECLARE_HOST_PORT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem),
-    // Channel for PTW
-    `TL_DECLARE_HOST_PORT(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw)
+    `TL_DECLARE_HOST_PORT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem)
 );
 
   // This is the largest address width that we ever have to deal with.
-  localparam AddrLen = VirtAddrLen > PhysAddrLen ? VirtAddrLen : PhysAddrLen;
+  localparam LogicAddrLen = VirtAddrLen > PhysAddrLen ? VirtAddrLen : PhysAddrLen;
 
   localparam LineWidth = 6;
 
@@ -53,13 +52,86 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   if (SetsWidth > 6) $fatal(1, "PIPT cache's SetsWidth is bounded by 6");
 
   `TL_DECLARE(DataWidth, PhysAddrLen, SourceWidth, SinkWidth, mem);
-  `TL_DECLARE(64, PhysAddrLen, SourceWidth, SinkWidth, mem_ptw);
-  `TL_BIND_HOST_PORT(mem, mem);
-  `TL_BIND_HOST_PORT(mem_ptw, mem_ptw);
 
-  /////////////////////
-  // Type definition //
-  /////////////////////
+  // Registers mem_d so its content will hold until we consumed it.
+  tl_regslice #(
+    .DataWidth (DataWidth),
+    .AddrWidth (PhysAddrLen),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .GrantMode (2)
+  ) mem_reg (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT(host, mem),
+    `TL_FORWARD_HOST_PORT(device, mem)
+  );
+
+  assign mem_b_ready = 1'b1;
+  assign mem_c_valid = 1'b0;
+  assign mem_c       = 'x;
+  assign mem_e_valid = 1'b0;
+  assign mem_e       = 'x;
+
+  /////////////////////////////////////////
+  // #region Burst tracker instantiation //
+
+  wire mem_a_last;
+  wire mem_d_last;
+
+  logic [OffsetWidth-1:0] mem_d_idx;
+
+  tl_burst_tracker #(
+    .AddrWidth (PhysAddrLen),
+    .DataWidth (DataWidth),
+    .SourceWidth (SourceWidth),
+    .SinkWidth (SinkWidth),
+    .MaxSize (6)
+  ) mem_burst_tracker (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_TAP_PORT(link, mem),
+    .req_len_o (),
+    .prb_len_o (),
+    .rel_len_o (),
+    .gnt_len_o (),
+    .req_idx_o (),
+    .prb_idx_o (),
+    .rel_idx_o (),
+    .gnt_idx_o (mem_d_idx),
+    .req_left_o (),
+    .prb_left_o (),
+    .rel_left_o (),
+    .gnt_left_o (),
+    .req_first_o (),
+    .prb_first_o (),
+    .rel_first_o (),
+    .gnt_first_o (),
+    .req_last_o (mem_a_last),
+    .prb_last_o (),
+    .rel_last_o (),
+    .gnt_last_o (mem_d_last)
+  );
+
+  // #endregion
+  /////////////////////////////////////////
+
+  //////////////////////////////
+  // #region Helper functions //
+
+  function automatic logic [63:0] tl_align_load(
+      input logic [DataWidth-1:0] value,
+      input logic [NonBurstSize-1:0] addr
+  );
+    logic [NumInterleave-1:0][63:0] split = value;
+    return split[addr >> 3];
+  endfunction
+
+  // #endregion
+  //////////////////////////////
+
+  /////////////////////////////
+  // #region Type definition //
 
   typedef struct packed {
     // Tag, excluding the bits used for direct-mapped access and last 6 bits of offset.
@@ -67,9 +139,11 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     logic valid;
   } tag_t;
 
-  ////////////////////////
-  // CPU Facing signals //
-  ////////////////////////
+  // #endregion
+  /////////////////////////////
+
+  ////////////////////////////////
+  // #region CPU Facing signals //
 
   wire             req_valid    = cache_h2d_i.req_valid;
   wire [63:0]      req_address  = cache_h2d_i.req_pc;
@@ -91,417 +165,417 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   assign cache_d2h_o.resp_exception = ex_valid;
   assign cache_d2h_o.resp_ex_code   = resp_ex_code;
 
-  //////////////////////////////////
-  // MEM Channel D Demultiplexing //
-  //////////////////////////////////
+  // #endregion
+  ////////////////////////////////
 
-  wire                 mem_grant_valid  = mem_d_valid;
-  wire [DataWidth-1:0] mem_grant_data   = mem_d.data;
-  wire tl_d_op_e       mem_grant_opcode = mem_d.opcode;
-  wire                 mem_grant_denied = mem_d.denied;
+  ///////////////////////////////////
+  // #region A channel arbitration //
 
-  logic mem_grant_ready;
-  assign mem_d_ready = mem_grant_ready;
+  typedef `TL_A_STRUCT(DataWidth, PhysAddrLen, SourceWidth, SinkWidth) req_t;
 
-  assign mem_b_ready = 1'b1;
-  assign mem_c_valid = 1'b0;
-  assign mem_c       = 'x;
-  assign mem_e_valid = 1'b0;
-  assign mem_e       = 'x;
+  localparam ANums = 2;
+  localparam AIdxPtw    = 0;
+  localparam AIdxRefill = 1;
+
+  // Grouped signals before multiplexing/arbitration
+  req_t [ANums-1:0] mem_a_mult;
+  logic [ANums-1:0] mem_a_valid_mult;
+  logic [ANums-1:0] mem_a_ready_mult;
+
+  // Signals for arbitration
+  logic [ANums-1:0] mem_a_arb_grant;
+  logic             mem_a_locked;
+  logic [ANums-1:0] mem_a_selected;
+
+  openip_round_robin_arbiter #(.WIDTH(ANums)) mem_a_arb (
+    .clk     (clk_i),
+    .rstn    (rst_ni),
+    .enable  (mem_a_valid && mem_a_ready && !mem_a_locked),
+    .request (mem_a_valid_mult),
+    .grant   (mem_a_arb_grant)
+  );
+
+  // Perform arbitration, and make sure that until we encounter mem_a_last we keep the connection stable.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      mem_a_locked <= 1'b0;
+      mem_a_selected <= '0;
+    end
+    else begin
+      if (mem_a_valid && mem_a_ready) begin
+        if (!mem_a_locked) begin
+          mem_a_locked   <= 1'b1;
+          mem_a_selected <= mem_a_arb_grant;
+        end
+        if (mem_a_last) begin
+          mem_a_locked <= 1'b0;
+        end
+      end
+    end
+  end
+
+  wire [ANums-1:0] mem_a_select = mem_a_locked ? mem_a_selected : mem_a_arb_grant;
+
+  for (genvar i = 0; i < ANums; i++) begin
+    assign mem_a_ready_mult[i] = mem_a_select[i] && mem_a_ready;
+  end
+
+  // Do the post-arbitration multiplexing
+  always_comb begin
+    mem_a = req_t'('x);
+    mem_a_valid = 1'b0;
+    for (int i = ANums - 1; i >= 0; i--) begin
+      if (mem_a_select[i]) begin
+        mem_a = mem_a_mult[i];
+        mem_a_valid = mem_a_valid_mult[i];
+      end
+    end
+  end
+
+  // #endregion
+  ///////////////////////////////////
+
+  //////////////////////////////////////
+  // #region D channel demultiplexing //
+
+  wire mem_d_valid_refill  = mem_d_valid && mem_d.source != PtwSourceBase;
+  wire mem_d_valid_ptw     = mem_d_valid && mem_d.source == PtwSourceBase;
+
+  logic mem_d_ready_refill;
+  logic mem_d_ready_ptw;
+  assign mem_d_ready = mem_d_valid_refill ? mem_d_ready_refill : (mem_d_valid_ptw ? mem_d_ready_ptw : 1'b1);
+
+  // #endregion
+  //////////////////////////////////////
 
   //////////////////////////////
-  // Cache access arbitration //
-  //////////////////////////////
+  // #region Lock arbitration //
+
+  logic flush_tracker_valid;
+  logic refill_tracker_valid;
 
   logic refill_lock_acq;
-  // probe_lock_rel is not defined because probe always transfer the lock to write-back module.
-  logic access_lock_acq;
-  // access_lock_rel, flush_lock_rel is not always paired with access_lock_req. When a dirty cache
-  // line needs to be evicted/flushed, it will transfer the lock to the write-back module.
-  logic access_lock_rel;
   logic flush_lock_acq;
-  logic flush_lock_rel;
 
-  // Refill logic giving lock to access
-  logic refill_lock_move;
+  wire nothing_in_progress = !(refill_tracker_valid || flush_tracker_valid);
 
-  typedef enum logic [1:0] {
-    LockHolderNone,
-    LockHolderRefill,
-    LockHolderAccess,
-    LockHolderFlush
-  } lock_holder_e;
-
-  logic refill_lock_acq_pending_q, refill_lock_acq_pending_d;
-  logic access_lock_acq_pending_q, access_lock_acq_pending_d;
-  logic flush_lock_acq_pending_q, flush_lock_acq_pending_d;
-  lock_holder_e lock_holder_q, lock_holder_d;
-
-  wire refill_locked  = lock_holder_q == LockHolderRefill;
-  wire access_locking = lock_holder_d == LockHolderAccess;
-  wire flush_locking  = lock_holder_d == LockHolderFlush;
+  logic refill_locking;
+  logic flush_locking;
 
   // Arbitrate on the new holder of the lock
   always_comb begin
-    lock_holder_d = lock_holder_q;
-    refill_lock_acq_pending_d = refill_lock_acq_pending_q || refill_lock_acq;
-    access_lock_acq_pending_d = access_lock_acq_pending_q || access_lock_acq;
-    flush_lock_acq_pending_d = flush_lock_acq_pending_q || flush_lock_acq;
+    refill_locking = 1'b0;
+    flush_locking = 1'b0;
 
-    if (access_lock_rel || flush_lock_rel) begin
-      lock_holder_d = LockHolderNone;
-    end
-
-    if (refill_lock_move) begin
-      lock_holder_d = LockHolderAccess;
-    end
-
-    if (lock_holder_d == LockHolderNone) begin
+    if (nothing_in_progress) begin
       priority case (1'b1)
         // This blocks channel D, so it must have highest priority by TileLink rule
-        refill_lock_acq_pending_d: begin
-          lock_holder_d = LockHolderRefill;
-          refill_lock_acq_pending_d = 1'b0;
+        refill_lock_acq: begin
+          refill_locking = 1'b1;
         end
-        // This should have no priority difference from access as they are mutually exclusive.
-        flush_lock_acq_pending_d: begin
-          lock_holder_d = LockHolderFlush;
-          flush_lock_acq_pending_d = 1'b0;
-        end
-        access_lock_acq_pending_d: begin
-          lock_holder_d = LockHolderAccess;
-          access_lock_acq_pending_d = 1'b0;
+        flush_lock_acq: begin
+          flush_locking = 1'b1;
         end
         default:;
       endcase
     end
   end
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      refill_lock_acq_pending_q <= 1'b0;
-      access_lock_acq_pending_q <= 1'b0;
-      flush_lock_acq_pending_q <= 1'b0;
-      lock_holder_q <= LockHolderFlush;
-    end else begin
-      refill_lock_acq_pending_q <= refill_lock_acq_pending_d;
-      access_lock_acq_pending_q <= access_lock_acq_pending_d;
-      flush_lock_acq_pending_q <= flush_lock_acq_pending_d;
-      lock_holder_q <= lock_holder_d;
-    end
-  end
+  // #endregion
+  //////////////////////////////
 
-  ////////////////////////////
-  // Cache access multiplex //
-  ////////////////////////////
+  ///////////////////////////////////
+  // #region SRAM access multiplex //
 
-  logic [AddrLen-2-1:0]   access_read_addr;
-  logic                   access_read_req_tag;
-  logic                   access_read_req_data;
-  logic                   access_read_physical;
-  logic [WaysWidth-1:0]   access_write_way;
-  logic [SetsWidth+4-1:0] access_write_addr;
-  logic                   access_write_req_tag;
-  tag_t                   access_write_tag;
+  logic                      access_tag_read_req;
+  logic                      access_tag_read_gnt;
+  logic [LogicAddrLen-6-1:0] access_tag_read_addr;
+  logic                      access_tag_read_physical;
 
-  logic [WaysWidth-1:0]           refill_write_way;
-  logic [SetsWidth+4-1:0]         refill_write_addr;
-  logic                           refill_write_req_tag;
-  tag_t                           refill_write_tag;
-  logic                           refill_write_req_data;
-  logic [NumInterleave-1:0][31:0] refill_write_data;
+  logic                      access_data_read_req;
+  logic                      access_data_read_gnt;
+  logic [LogicAddrLen-2-1:0] access_data_read_addr;
 
-  logic [NumWays-1:0]    flush_write_ways;
-  logic [SetsWidth-1:0]  flush_write_index;
-  logic                  flush_write_req_tag;
-  tag_t                  flush_write_tag;
+  logic                           refill_tag_write_req;
+  logic                           refill_tag_write_gnt;
+  logic [SetsWidth-1:0]           refill_tag_write_addr;
+  logic [WaysWidth-1:0]           refill_tag_write_way;
+  tag_t                           refill_tag_write_data;
 
-  logic read_req_tag;
-  logic read_req_data;
-  logic read_physical;
-  logic [AddrLen-2-1:0] read_addr;
+  logic                           refill_data_write_req;
+  logic                           refill_data_write_gnt;
+  logic [SetsWidth+4-1:0]         refill_data_write_addr;
+  logic [WaysWidth-1:0]           refill_data_write_way;
+  logic [NumInterleave-1:0][31:0] refill_data_write_data;
 
-  logic [SetsWidth+4-1:0] write_addr;
-  tag_t read_tag [NumWays];
-  tag_t write_tag;
-  logic write_req_tag;
-  logic write_req_data;
-  logic write_req_data_interleave;
-  logic [NumWays-1:0] write_ways;
-  logic [NumWays-1:0] write_ways_interleave;
-  logic [31:0] read_data_preinterleave [NumWays];
-  logic [31:0] read_data [NumWays];
-  logic [NumInterleave-1:0][31:0] write_data;
-  logic [NumInterleave-1:0][31:0] write_data_interleave;
+  logic                  flush_tag_write_req;
+  logic                  flush_tag_write_gnt;
+  logic [SetsWidth-1:0]  flush_tag_write_addr;
+  logic [NumWays-1:0]    flush_tag_write_ways;
+  tag_t                  flush_tag_write_data;
+
+  logic                              tag_write_req;
+  logic                              tag_read_req;
+  logic [LogicAddrLen-LineWidth-1:0] tag_addr;
+  logic [NumWays-1:0]                tag_write_ways;
+  tag_t                              tag_write_data;
+  logic                              tag_read_physical;
+  tag_t                              tag_read_data [NumWays];
+
+  logic                           data_write_req;
+  logic                           data_read_req;
+  logic [SetsWidth+4-1:0]         data_addr;
+  logic [WaysWidth-1:0]           data_way;
+  logic [NumInterleave-1:0][31:0] data_write_data;
+  logic                           data_wide;
+  logic [31:0]                    data_read_data [NumWays];
 
   always_comb begin
-    read_req_tag = 1'b0;
-    read_req_data = 1'b0;
-    read_addr = 'x;
-    read_physical = 1'b1;
+    refill_tag_write_gnt = 1'b0;
+    flush_tag_write_gnt = 1'b0;
+    access_tag_read_gnt = 1'b0;
 
-    // Multiplex with _d version here because read happens the next cycle.
-    unique case (lock_holder_d)
-      LockHolderAccess: begin
-        read_req_tag = access_read_req_tag;
-        read_req_data = access_read_req_data;
-        read_addr = access_read_addr;
-        read_physical = access_read_physical;
+    tag_write_req = 1'b0;
+    tag_read_req = 1'b0;
+    tag_addr = 'x;
+    tag_write_ways = '0;
+    tag_write_data = tag_t'('x);
+    tag_read_physical = 1'b1;
+
+    priority case (1'b1)
+      refill_tag_write_req: begin
+        refill_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_addr[SetsWidth-1:0] = refill_tag_write_addr;
+        for (int i = 0; i < NumWays; i++) tag_write_ways[i] = refill_tag_write_way == i;
+        tag_write_data = refill_tag_write_data;
+      end
+
+      flush_tag_write_req: begin
+        flush_tag_write_gnt = 1'b1;
+        tag_write_req = 1'b1;
+        tag_addr[SetsWidth-1:0] = flush_tag_write_addr;
+        tag_write_ways = flush_tag_write_ways;
+        tag_write_data = flush_tag_write_data;
+      end
+
+      access_tag_read_req: begin
+        access_tag_read_gnt = 1'b1;
+        tag_read_req = 1'b1;
+        tag_addr = access_tag_read_addr;
+        tag_read_physical = access_tag_read_physical;
       end
       default:;
     endcase
+
+    // These logic assumes that all their requests are handled immediately.
+    `ASSERT(refill_tag_write, refill_tag_write_req |-> refill_tag_write_gnt);
+    `ASSERT(flush_tag_write, flush_tag_write_req |-> flush_tag_write_gnt);
   end
 
-  logic read_physical_latch;
-  logic [AddrLen-2-1:0] read_addr_latch;
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-          read_physical_latch <= 1'b1;
-          read_addr_latch <= 'x;
-      end else begin
-          if (read_req_tag || read_req_data) begin
-              read_physical_latch <= read_physical;
-              read_addr_latch <= read_addr;
-          end
+  always_comb begin
+    refill_data_write_gnt = 1'b0;
+    access_data_read_gnt = 1'b0;
+
+    data_write_req = 1'b0;
+    data_read_req = 1'b0;
+    data_addr = 'x;
+    data_way = 'x;
+    data_write_data = 'x;
+    data_wide = 1'b0;
+
+    priority case (1'b1)
+      refill_data_write_req: begin
+        refill_data_write_gnt = 1'b1;
+        data_write_req = 1'b1;
+        data_addr = refill_data_write_addr;
+        data_way = refill_data_write_way;
+        data_write_data = refill_data_write_data;
+        data_wide = 1'b1;
       end
+
+      access_data_read_req: begin
+        access_data_read_gnt = 1'b1;
+        data_read_req = 1'b1;
+        data_addr = access_data_read_addr;
+      end
+      default:;
+    endcase
+
+    if (data_wide) begin
+      data_addr = data_addr ^ (data_way & InterleaveMask);
+    end
+
+    `ASSERT(refill_data_write, refill_data_write_req |-> refill_data_write_gnt);
+  end
+
+  logic tag_read_physical_latch;
+  logic [LogicAddrLen-6-1:0] tag_read_addr_latch;
+  logic [3:0] data_read_addr_latch;
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      tag_read_physical_latch <= 1'b1;
+      tag_read_addr_latch <= 'x;
+      data_read_addr_latch <= 'x;
+    end else begin
+      if (tag_read_req) begin
+        tag_read_physical_latch <= tag_read_physical;
+        tag_read_addr_latch <= tag_addr;
+      end
+      if (data_read_req) begin
+        data_read_addr_latch <= data_addr[3:0];
+      end
+    end
   end
 
   // Interleave the read data
+  logic [31:0] data_read_data_interleave [NumWays];
   for (genvar i = 0; i < NumWays; i++) begin
-    assign read_data[i] = read_data_preinterleave[i ^ (read_addr_latch & InterleaveMask)];
+    assign data_read_data[i] = data_read_data_interleave[i ^ (data_read_addr_latch & InterleaveMask)];
   end
 
-  always_comb begin
-    write_addr = 'x;
-    write_req_tag = 1'b0;
-    write_req_data = 1'b0;
-    write_req_data_interleave = 1'b0;
-    write_ways = '0;
-    write_data = 'x;
-    write_tag = tag_t'('x);
-
-    // Unlike read, write can happen at the cycle of lock release. However the writer must ensure
-    // that the new lock acquirer will not access the same address.
-    unique case (lock_holder_q)
-      LockHolderRefill: begin
-        write_addr = refill_write_addr ^ (refill_write_way & InterleaveMask);
-        write_req_tag = refill_write_req_tag;
-        write_req_data = refill_write_req_data;
-        write_req_data_interleave = 1'b1;
-        for (int i = 0; i < NumWays; i++) write_ways[i] = refill_write_way == i;
-        write_data = refill_write_data;
-        write_tag = refill_write_tag;
-      end
-      LockHolderFlush: begin
-        write_addr = {flush_write_index, 3'dx};
-        write_req_tag = flush_write_req_tag;
-        write_ways = flush_write_ways;
-        write_tag = flush_write_tag;
-      end
-      LockHolderAccess: begin
-        write_addr = access_write_addr;
-        write_req_tag = access_write_req_tag;
-        for (int i = 0; i < NumWays; i++) write_ways[i] = access_write_way == i;
-        write_tag = access_write_tag;
-      end
-      default:;
-    endcase
-  end
-
-  // Interleave the write ways
+  // Interleave the write ways and data
+  logic [NumWays-1:0] data_write_ways_interleave;
+  logic [NumInterleave-1:0][31:0] data_write_data_interleave;
   for (genvar i = 0; i < NumWays; i++) begin
-    assign write_ways_interleave[i] = write_req_data_interleave ? write_ways[(i &~ InterleaveMask) | (write_addr & InterleaveMask)] : write_ways[i ^ (write_addr & InterleaveMask)];
+    assign data_write_ways_interleave[i] = (data_way &~ InterleaveMask) == (i &~ InterleaveMask);
   end
   for (genvar i = 0; i < NumInterleave; i++) begin
-    assign write_data_interleave[i] = write_data[i ^ (write_addr & InterleaveMask)];
+    assign data_write_data_interleave[i] = data_write_data[i ^ (data_addr & InterleaveMask)];
   end
 
-  ////////////////////////
-  // SRAM Instantiation //
-  ////////////////////////
+  // #endregion
+  ///////////////////////////////////
 
-  // When a read/write to the same address happens in the same cycle, they may cause conflict.
-  // While it is possible to keep track of the previous address and stall for one cycle if
-  // possible, it is generally difficult to ensure correctness when there are so many components
-  // that can access this SRAM. So we instead choose to use bypass here.
-  //
-  // The bypassed tag/data is shared across all ways but the valid bits are private to each ways
-  // because of write enable signals.
+  ////////////////////////////////
+  // #region SRAM Instantiation //
 
-  tag_t                           tag_bypass;
-  logic [NumInterleave-1:0][31:0] data_bypass;
+  for (genvar i = 0; i < NumWays; i++) begin: ram
 
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      tag_bypass <= tag_t'('x);
-      data_bypass <= 'x;
-    end else begin
-      if (read_req_tag) begin
-        tag_bypass <= write_tag;
-      end
-      if (read_req_data) begin
-        data_bypass <= write_data_interleave;
-      end
-    end
-  end
-
-  for (genvar i = 0; i < NumWays; i++) begin
-
-    logic tag_bypass_valid;
-    logic data_bypass_valid;
-
-    tag_t        tag_raw;
-    logic [31:0] data_raw;
-
-    wire [SetsWidth+4-1:0] effective_write_addr = write_addr ^ (write_req_data_interleave ? (i & InterleaveMask) : 0);
-
-    always_ff @(posedge clk_i or negedge rst_ni) begin
-      if (!rst_ni) begin
-        tag_bypass_valid <= 1'b0;
-        data_bypass_valid <= 1'b0;
-      end else begin
-        if (read_req_tag) begin
-          tag_bypass_valid <= 1'b0;
-          if (write_req_tag && write_ways[i] && write_addr[SetsWidth+4-1:4] == read_addr[SetsWidth+4-1:4]) begin
-            tag_bypass_valid <= 1'b1;
-          end
-        end
-        if (read_req_data) begin
-          data_bypass_valid <= 1'b0;
-          if (write_req_data && write_ways_interleave[i] && effective_write_addr == read_addr[SetsWidth+4-1:0]) begin
-            data_bypass_valid <= 1'b1;
-          end
-        end
-      end
-    end
-
-    assign read_tag[i] = tag_bypass_valid ? tag_bypass : tag_raw;
-    assign read_data_preinterleave[i] = data_bypass_valid ? data_bypass[i & InterleaveMask] : data_raw;
-
-    prim_generic_ram_simple_2p #(
+    prim_ram_1p #(
         .Width           ($bits(tag_t)),
         .Depth           (2 ** SetsWidth),
         .DataBitsPerMask ($bits(tag_t))
     ) tag_ram (
-        .clk_a_i   (clk_i),
-        .clk_b_i   (clk_i),
-
-        .a_req_i   (read_req_tag),
-        .a_addr_i  (read_addr[SetsWidth+4-1:4]),
-        .a_rdata_o (tag_raw),
-
-        .b_req_i   (write_req_tag && write_ways[i]),
-        .b_addr_i  (write_addr[SetsWidth+4-1:4]),
-        .b_wdata_i (write_tag),
-        .b_wmask_i ('1)
+        .clk_i   (clk_i),
+        .req_i   (tag_read_req || tag_write_req),
+        .write_i (tag_write_req && tag_write_ways[i]),
+        .addr_i  (tag_addr[SetsWidth-1:0]),
+        .wdata_i (tag_write_data),
+        .wmask_i ('1),
+        .rdata_o (tag_read_data[i])
     );
 
-    prim_generic_ram_simple_2p #(
+    wire [SetsWidth+4-1:0] data_addr_effective = data_addr ^ (data_wide ? (i & InterleaveMask) : 0);
+
+    prim_ram_1p #(
         .Width           (32),
         .Depth           (2 ** (SetsWidth + 4)),
-        .DataBitsPerMask (8)
+        .DataBitsPerMask (32)
     ) data_ram (
-        .clk_a_i   (clk_i),
-        .clk_b_i   (clk_i),
-
-        .a_req_i   (read_req_data),
-        .a_addr_i  (read_addr[SetsWidth+4-1:0]),
-        .a_rdata_o (data_raw),
-
-        .b_req_i   (write_req_data && write_ways_interleave[i]),
-        .b_addr_i  (effective_write_addr),
-        .b_wdata_i (write_data_interleave[i & InterleaveMask]),
-        .b_wmask_i ('1)
+        .clk_i   (clk_i),
+        .req_i   (data_read_req || data_write_req),
+        .write_i (data_write_req && data_write_ways_interleave[i]),
+        .addr_i  (data_addr_effective),
+        .wdata_i (data_write_data_interleave[i & InterleaveMask]),
+        .wmask_i ('1),
+        .rdata_o (data_read_data_interleave[i])
     );
   end
 
-  //////////////////
-  // Refill Logic //
-  //////////////////
+  // #endregion
+  ////////////////////////////////
+
+  //////////////////////////
+  // #region Refill Logic //
 
   logic [PhysAddrLen-7:0] refill_req_address;
   logic [WaysWidth-1:0]   refill_req_way;
 
-  logic [OffsetWidth-1:0] refill_index_q, refill_index_d;
-
-  typedef enum logic [1:0] {
+  typedef enum logic {
     RefillStateIdle,
-    RefillStateProgress,
-    RefillStateComplete
+    RefillStateProgress
   } refill_state_e;
 
   refill_state_e refill_state_q = RefillStateIdle, refill_state_d;
 
-  logic mem_grant_last;
+  logic refill_tracker_valid_d;
 
   always_comb begin
-    refill_write_way = 'x;
-    refill_write_addr = 'x;
-    refill_write_req_tag = 1'b0;
-    refill_write_tag = tag_t'('x);
-    refill_write_req_data = 1'b0;
-    refill_write_data = 'x;
+    refill_tag_write_req = 1'b0;
+    refill_tag_write_addr = 'x;
+    refill_tag_write_way = 'x;
+    refill_tag_write_data = tag_t'('x);
 
+    refill_data_write_req = 1'b0;
+    refill_data_write_addr = 'x;
+    refill_data_write_way = 'x;
+    refill_data_write_data = 'x;
+
+    refill_tracker_valid_d = refill_tracker_valid;
     refill_lock_acq = 1'b0;
-    refill_lock_move = 1'b0;
-    mem_grant_ready = 1'b0;
+    mem_d_ready_refill = 1'b0;
 
-    mem_grant_last = 1'b0;
-
-    refill_index_d = refill_index_q;
     refill_state_d = refill_state_q;
 
     unique case (refill_state_q)
       RefillStateIdle: begin
-        if (mem_grant_valid) begin
-          refill_index_d = mem_grant_opcode == AccessAckData ? 0 : (2 ** OffsetWidth - 1);
-
+        if (mem_d_valid_refill) begin
           refill_lock_acq = 1'b1;
-          refill_state_d = RefillStateProgress;
-        end
-      end
-      RefillStateProgress: begin
-        mem_grant_ready = refill_locked;
-        refill_write_way = refill_req_way;
-        refill_write_addr = {refill_req_address[SetsWidth-1:0], 4'(refill_index_q << InterleaveWidth)};
-
-        refill_write_req_data = mem_grant_valid && mem_grant_opcode == AccessAckData && !mem_grant_denied;
-        refill_write_data = mem_grant_data;
-
-        // Update the metadata. This should only be done once, we can do it in either time.
-        refill_write_req_tag = mem_grant_valid && &refill_index_q && !mem_grant_denied;
-        refill_write_tag.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
-        refill_write_tag.valid = 1'b1;
-
-        if (mem_grant_valid && mem_grant_ready) begin
-          refill_index_d = refill_index_q + 1;
-          if (&refill_index_q) begin
-            mem_grant_last = 1'b1;
-            refill_state_d = RefillStateComplete;
+          if (refill_locking) begin
+            refill_state_d = RefillStateProgress;
+            refill_tracker_valid_d = 1'b1;
           end
         end
       end
-      RefillStateComplete: begin
-        refill_index_d = 0;
-        refill_lock_move = 1'b1;
-        refill_state_d = RefillStateIdle;
+      RefillStateProgress: begin
+        if (mem_d_valid_refill) begin
+          mem_d_ready_refill = 1'b1;
+
+          // If the beat contains data, write it.
+          if (!mem_d.denied) begin
+            refill_data_write_req = 1'b1;
+            refill_data_write_way = refill_req_way;
+            refill_data_write_addr = {refill_req_address[SetsWidth-1:0], 4'(mem_d_idx << InterleaveWidth)};
+            refill_data_write_data = mem_d.data;
+          end
+
+          // Update the metadata. This should only be done once, we can do it in either time.
+          if (mem_d_last && !mem_d.denied) begin
+            refill_tag_write_req = 1'b1;
+            refill_tag_write_way = refill_req_way;
+            refill_tag_write_addr = refill_req_address[SetsWidth-1:0];
+            refill_tag_write_data.tag = refill_req_address[PhysAddrLen-7:SetsWidth];
+            refill_tag_write_data.valid = 1'b1;
+          end
+
+          if (mem_d_ready_refill) begin
+            if (mem_d_last) begin
+              refill_tracker_valid_d = 1'b0;
+              refill_state_d = RefillStateIdle;
+            end
+          end
+        end
       end
     endcase
   end
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
-      refill_index_q <= 0;
       refill_state_q <= RefillStateIdle;
+      refill_tracker_valid <= 1'b0;
     end else begin
-      refill_index_q <= refill_index_d;
       refill_state_q <= refill_state_d;
+      refill_tracker_valid <= refill_tracker_valid_d;
     end
   end
 
-  ///////////////////////////////
-  // Address Translation Logic //
-  ///////////////////////////////
+  // #endregion
+  //////////////////////////
+
+  ///////////////////////////////////////
+  // #region Address Translation Logic //
 
   logic [PhysAddrLen-13:0] ppn_pulse;
   page_prot_t              ppn_perm_pulse;
@@ -535,6 +609,9 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       .ptw_resp_perm_i  (ptw_resp_perm)
   );
 
+  logic                    ptw_a_valid;
+  logic [NonBurstSize-1:0] ptw_a_address;
+
   muntjac_ptw #(
     .PhysAddrLen (PhysAddrLen)
   ) ptw (
@@ -546,30 +623,36 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       .resp_valid_o      (ptw_resp_valid),
       .resp_ppn_o        (ptw_resp_ppn),
       .resp_perm_o       (ptw_resp_perm),
-      .mem_req_ready_i   (mem_ptw_a_ready),
-      .mem_req_valid_o   (mem_ptw_a_valid),
-      .mem_req_address_o (mem_ptw_a.address),
-      .mem_resp_valid_i  (mem_ptw_d_valid),
-      .mem_resp_data_i   (mem_ptw_d.data)
+      .mem_req_ready_i   (mem_a_ready_mult[AIdxPtw]),
+      .mem_req_valid_o   (mem_a_valid_mult[AIdxPtw]),
+      .mem_req_address_o (mem_a_mult[AIdxPtw].address),
+      .mem_resp_valid_i  (mem_d_valid_ptw && ptw_a_valid),
+      .mem_resp_data_i   (tl_align_load(mem_d.data, ptw_a_address))
   );
 
-  assign mem_ptw_a.opcode = Get;
-  assign mem_ptw_a.param = 0;
-  assign mem_ptw_a.size = 1;
-  assign mem_ptw_a.source = PtwSourceBase;
-  assign mem_ptw_a.mask = '1;
-  assign mem_ptw_a.corrupt = 1'b0;
-  assign mem_ptw_a.data = 'x;
+  assign mem_d_ready_ptw = ptw_a_valid;
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      ptw_a_valid <= 1'b0;
+      ptw_a_address <= 'x;
+    end else begin
+      if (mem_d_valid_ptw) begin
+        ptw_a_valid <= 1'b0;
+      end
+      if (mem_a_valid_mult[AIdxPtw] && mem_a_ready_mult[AIdxPtw]) begin
+        ptw_a_valid <= 1'b1;
+        ptw_a_address <= mem_a_mult[AIdxPtw].address;
+      end
+    end
+  end
 
-  assign mem_ptw_b_ready = 1'b1;
-
-  assign mem_ptw_c_valid = 1'b0;
-  assign mem_ptw_c       = 'x;
-
-  assign mem_ptw_d_ready = 1'b1;
-
-  assign mem_ptw_e_valid = 1'b0;
-  assign mem_ptw_e       = 'x;
+  assign mem_a_mult[AIdxPtw].opcode = Get;
+  assign mem_a_mult[AIdxPtw].param = 0;
+  assign mem_a_mult[AIdxPtw].size = 1;
+  assign mem_a_mult[AIdxPtw].source = PtwSourceBase;
+  assign mem_a_mult[AIdxPtw].mask = '1;
+  assign mem_a_mult[AIdxPtw].corrupt = 1'b0;
+  assign mem_a_mult[AIdxPtw].data = 'x;
 
   // PPN response is just single pulse. The logic below extends it.
   logic [43:0] ppn_latch;
@@ -597,13 +680,15 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   wire [43:0]      ppn       = ppn_valid_pulse ? ppn_pulse : ppn_latch;
   wire page_prot_t ppn_perm  = ppn_valid_pulse ? ppn_perm_pulse : ppn_perm_latch;
 
-  ///////////////////////////
-  // Cache tag comparision //
-  ///////////////////////////
+  // #endregion
+  ///////////////////////////////////////
 
-  // Physical address of read_addr_latch.
-  // Note: If read_physical_latch is 0, the user needs to ensure ppn_valid is 1.
-  wire [PhysAddrLen-2-1:0] read_addr_phys = {read_physical_latch ? read_addr_latch[AddrLen-2-1:10] : ppn, read_addr_latch[9:0]};
+  ///////////////////////////////////
+  // #region Cache tag comparision //
+
+  // Physical address of tag_read_addr_latch.
+  // Note: If tag_read_physical_latch is 0, the user needs to ensure ppn_valid is 1.
+  wire [PhysAddrLen-6-1:0] tag_read_addr_latch_phys = {tag_read_physical_latch ? tag_read_addr_latch[LogicAddrLen-6-1:6] : ppn, tag_read_addr_latch[5:0]};
 
   logic [WaysWidth-1:0] evict_way_q, evict_way_d;
 
@@ -616,8 +701,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     // Find cache line that hits
     hit = '0;
     for (int i = 0; i < NumWays; i++) begin
-      if (read_tag[i].valid &&
-          read_tag[i].tag == read_addr_phys[PhysAddrLen-2-1:SetsWidth+4]) begin
+      if (tag_read_data[i].valid &&
+          tag_read_data[i].tag == tag_read_addr_latch_phys[PhysAddrLen-6-1:SetsWidth]) begin
         hit[i] = 1'b1;
       end
     end
@@ -627,7 +712,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
     // Empty way fallback
     for (int i = NumWays - 1; i >= 0; i--) begin
-      if (!read_tag[i].valid) begin
+      if (!tag_read_data[i].valid) begin
         hit_way = i;
       end
     end
@@ -639,30 +724,34 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     end
   end
 
-  wire tag_t hit_tag = read_tag[hit_way];
+  wire tag_t hit_tag = tag_read_data[hit_way];
+  wire [31:0] hit_data = data_read_data[hit_way];
 
-  /////////////////
-  // Flush Logic //
-  /////////////////
+  // #endregion
+  ///////////////////////////////////
+
+  /////////////////////////
+  // #region Flush Logic //
 
   typedef enum logic [1:0] {
     FlushStateReset,
     FlushStateIdle,
-    FlushStateCheck,
+    FlushStateLock,
     FlushStateDone
   } flush_state_e;
 
   flush_state_e flush_state_q = FlushStateReset, flush_state_d;
+  logic flush_tracker_valid_d;
   logic [SetsWidth-1:0] flush_index_q, flush_index_d;
 
   always_comb begin
-    flush_write_ways = 'x;
-    flush_write_index = 'x;
-    flush_write_req_tag = 1'b0;
-    flush_write_tag = tag_t'('x);
+    flush_tag_write_ways = 'x;
+    flush_tag_write_addr = 'x;
+    flush_tag_write_req = 1'b0;
+    flush_tag_write_data = tag_t'('x);
 
+    flush_tracker_valid_d = flush_tracker_valid;
     flush_lock_acq = 1'b0;
-    flush_lock_rel = 1'b0;
 
     flush_ready = 1'b0;
 
@@ -672,28 +761,31 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     unique case (flush_state_q)
       // Reset all states to invalid, discard changes if any.
       FlushStateReset: begin
-        flush_write_ways = '1;
-        flush_write_index = flush_index_q;
-        flush_write_req_tag = 1'b1;
-        flush_write_tag.valid = 1'b0;
+        flush_tag_write_ways = '1;
+        flush_tag_write_addr = flush_index_q;
+        flush_tag_write_req = 1'b1;
+        flush_tag_write_data.valid = 1'b0;
 
         flush_index_d = flush_index_q + 1;
 
         if (&flush_index_q) begin
-          flush_lock_rel = 1'b1;
+          flush_tracker_valid_d = 1'b0;
           flush_state_d = FlushStateDone;
         end
       end
 
-      // Read the tag to prepare for the dirtiness check.
-      // This also serves as the idle state as flush_locking would normally stay low.
       FlushStateIdle: begin
+        if (flush_valid) begin
+          flush_state_d = FlushStateLock;
+        end
+      end
+
+      FlushStateLock: begin
+        flush_lock_acq = 1'b1;
+
         if (flush_locking) begin
           flush_state_d = FlushStateReset;
-        end
-
-        if (flush_valid) begin
-          flush_lock_acq = 1'b1;
+          flush_tracker_valid_d = 1'b1;
         end
       end
 
@@ -707,16 +799,96 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       flush_state_q <= FlushStateReset;
+      flush_tracker_valid <= 1'b1;
       flush_index_q <= '0;
     end else begin
       flush_state_q <= flush_state_d;
+      flush_tracker_valid <= flush_tracker_valid_d;
       flush_index_q <= flush_index_d;
     end
   end
 
-  ////////////////
-  // Main Logic //
-  ////////////////
+  // #endregion
+  /////////////////////////
+
+  ///////////////////////////////////////////////////
+  // #region Cache Miss Handling Logic (Slow Path) //
+
+  typedef enum logic {
+    MissStateIdle,
+    MissStateFill
+  } miss_state_e;
+
+  miss_state_e miss_state_q, miss_state_d;
+
+  logic                    miss_req_valid;
+  logic [PhysAddrLen-1:0]  miss_req_address;
+
+  logic miss_resp_replay;
+  logic miss_resp_exception;
+
+  logic miss_refill_sent_q, miss_refill_sent_d;
+
+  always_comb begin
+    miss_resp_replay = 1'b0;
+    miss_resp_exception = 1'b0;
+
+    mem_a_valid_mult[AIdxRefill] = 1'b0;
+    mem_a_mult[AIdxRefill] = 'x;
+
+    miss_state_d = miss_state_q;
+    miss_refill_sent_d = miss_refill_sent_q;
+
+    unique case (miss_state_q)
+      MissStateIdle: begin
+        if (miss_req_valid) begin
+          miss_state_d = MissStateFill;
+          miss_refill_sent_d = 1'b0;
+        end
+      end
+      MissStateFill: begin
+        mem_a_valid_mult[AIdxRefill] = !miss_refill_sent_q;
+        mem_a_mult[AIdxRefill].opcode = Get;
+        mem_a_mult[AIdxRefill].param = 0;
+        mem_a_mult[AIdxRefill].size = LineWidth;
+        mem_a_mult[AIdxRefill].address = {miss_req_address[PhysAddrLen-1:6], {LineWidth{1'b0}}};
+        mem_a_mult[AIdxRefill].source = SourceBase;
+        mem_a_mult[AIdxRefill].mask = '1;
+        mem_a_mult[AIdxRefill].corrupt = 1'b0;
+        if (mem_a_ready_mult[AIdxRefill]) miss_refill_sent_d = 1'b1;
+
+        if (mem_d_valid_refill) begin
+          if (mem_d_ready_refill) begin
+            if (mem_d_last) begin
+              miss_state_d = MissStateIdle;
+              if (mem_d.denied) begin
+                miss_resp_exception = 1'b1;
+              end else begin
+                miss_resp_replay = 1'b1;
+              end
+            end
+          end
+        end
+      end
+      default:;
+    endcase
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      miss_state_q <= MissStateIdle;
+      miss_refill_sent_q <= 1'b0;
+    end else begin
+      miss_state_q <= miss_state_d;
+      miss_refill_sent_q <= miss_refill_sent_d;
+    end
+  end
+
+  // #endregion
+  ///////////////////////////////////////////////////
+
+  ////////////////////////
+  // #region Main Logic //
 
   typedef enum logic [3:0] {
     StateIdle,
@@ -724,7 +896,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     StateReplay,
     StateWaitTLB,
     StateFill,
-    StateExceptionLocked,
     StateException,
     StateFlush
   } state_e;
@@ -733,9 +904,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   // Information about the exception to be reported in StateException
   exc_cause_e ex_code_q, ex_code_d;
-
-  // Fill-related logic
-  logic req_sent_q, req_sent_d;
 
   // Helper signal to detect if req_address is a canonical address
   wire canonical_virtual  = ~|req_address[63:VirtAddrLen-1] | &req_address[63:VirtAddrLen-1];
@@ -746,8 +914,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic        prv_q, prv_d;
   logic        sum_q, sum_d;
 
-  wire [31:0] hit_data = read_data[hit_way];
-
   logic [WaysWidth-1:0] way_q, way_d;
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
@@ -757,28 +923,21 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     resp_value = 'x;
     ex_valid = 1'b0;
     resp_ex_code = exc_cause_e'('x);
-    mem_a_valid = 1'b0;
-    mem_a = 'x;
-    mem_a.source = SourceBase;
-    mem_a.corrupt = 1'b0;
+
+    miss_req_valid = 1'b0;
+    miss_req_address = 'x;
+
+    flush_valid = 1'b0;
 
     refill_req_address = address_phys[PhysAddrLen-1:6];
     refill_req_way = way_q;
 
-    access_read_req_tag = 1'b0;
-    access_read_req_data = 1'b0;
-    access_read_addr = 'x;
-    access_read_physical = !req_atp[63];
+    access_tag_read_req = 1'b0;
+    access_tag_read_addr = 'x;
+    access_tag_read_physical = !req_atp[63];
 
-    access_write_way = hit_way;
-    access_write_addr = address_q[2+:SetsWidth+4];
-    access_write_req_tag = 1'b0;
-    access_write_tag = hit_tag;
-
-    access_lock_acq = 1'b0;
-    access_lock_rel = 1'b0;
-
-    flush_valid = 1'b0;
+    access_data_read_req = 1'b0;
+    access_data_read_addr = 'x;
 
     state_d = state_q;
     address_d = address_q;
@@ -788,18 +947,19 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     evict_way_d = evict_way_q;
     way_d = way_q;
     ex_code_d = ex_code_q;
-    req_sent_d = req_sent_q;
 
     unique case (state_q)
       StateIdle:;
 
       StateFetch: begin
-        // Release the access lock. In this state we either complete an access, or we need to
-        // wait for refill/TLB access. In either case we will need to release the lock and
-        // re-acquire later to prevent deadlock.
-        access_lock_rel = 1'b1;
-
-        if (atp_mode_q && !ppn_valid) begin
+        // The fast path of the access logic:
+        // * Has lowest priority on read; it does not check if a conflicting operation is in progress
+        //   before reading the tag (and data) for a shorter critical path. So in this state we need
+        //   to first check if there is a conflict, and if so we need to replay the access.
+        if (!nothing_in_progress) begin
+          // If lock is held by someone, it indicates that we races with another logic, replay.
+          state_d = StateReplay;
+        end else if (atp_mode_q && !ppn_valid) begin
           // TLB miss, wait for it to be ready again.
           state_d = StateWaitTLB;
         end
@@ -813,8 +973,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
           state_d = StateException;
           ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
         end else if (|hit) begin
-          // Cache valid with required permission.
-
           resp_valid = 1'b1;
           resp_value = hit_data;
           state_d = StateIdle;
@@ -824,50 +982,35 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
             evict_way_d = evict_way_q + 1;
           end
 
-          req_sent_d = 1'b0;
           state_d = StateFill;
+          miss_req_valid = 1'b1;
         end
       end
 
       StateReplay: begin
-        access_read_req_tag = 1'b1;
-        access_read_req_data = 1'b1;
-        access_read_addr = address_d[AddrLen-1:2];
-        if (access_locking) state_d = StateFetch;
+        if (nothing_in_progress) begin
+          access_tag_read_req = 1'b1;
+          access_data_read_req = 1'b1;
+          access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
+          access_data_read_addr = address_d[LogicAddrLen-1:2];
+
+          if (access_tag_read_gnt && access_data_read_gnt) state_d = StateFetch;
+        end
       end
 
       StateWaitTLB: begin
         if (ppn_valid) begin
-          access_lock_acq = 1'b1;
           state_d = StateReplay;
         end
       end
 
       StateFill: begin
-        mem_a_valid = !req_sent_q;
-        mem_a.opcode = Get;
-        mem_a.param = 0;
-        mem_a.size = 6;
-        mem_a.address = {address_phys[PhysAddrLen-1:6], 6'd0};
-        mem_a.mask = '1;
-        if (mem_a_ready) begin
-          req_sent_d = 1'b1;
-        end
+        miss_req_address = address_phys;
 
-        if (mem_grant_last) begin
-          if (mem_grant_denied) begin
-            ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
-            state_d = StateExceptionLocked;
-          end else begin
-            // Refiller will give us the lock after refilling completed, so no need to deal with lock here.
-            state_d = StateReplay;
-          end
-        end
-      end
-
-      StateExceptionLocked: begin
-        if (lock_holder_q == LockHolderAccess) begin
-          access_lock_rel = 1'b1;
+        if (miss_resp_replay) begin
+          state_d = StateReplay;
+        end else if (miss_resp_exception) begin
+          ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
           state_d = StateException;
         end
       end
@@ -880,7 +1023,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
       StateFlush: begin
         if (flush_ready) begin
-          access_lock_acq = 1'b1;
           state_d = StateReplay;
         end
       end
@@ -893,30 +1035,31 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       sum_d = req_sum;
 
       // Access the cache
-      access_lock_acq = 1'b1;
-      access_read_req_tag = 1'b1;
-      access_read_req_data = 1'b1;
-      access_read_addr = address_d[AddrLen-1:2];
+      access_tag_read_req = 1'b1;
+      access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
+      access_data_read_req = 1'b1;
+      access_data_read_addr = address_d[LogicAddrLen-1:2];
 
-      state_d = StateFetch;
+      if (access_tag_read_gnt && access_data_read_gnt) begin
+        state_d = StateFetch;
+      end else begin
+        // If we failed to perform both tag and data read this cycle, move into replay state.
+        state_d = StateReplay;
+      end
 
-      // If we failed to acquire the lock this cycle, move into replay state.
-      if (!access_locking) state_d = StateReplay;
+      if (req_reason ==? 4'b1x11) begin
+        flush_valid = 1'b1;
+        state_d = StateFlush;
+      end
 
       if (req_atp[63] && !canonical_virtual) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = EXC_CAUSE_INSTR_PAGE_FAULT;
       end
 
       if (!req_atp[63] && !canonical_physical) begin
-        state_d = StateExceptionLocked;
+        state_d = StateException;
         ex_code_d = EXC_CAUSE_INSTR_ACCESS_FAULT;
-      end
-
-      if (req_reason ==? 4'b1x11) begin
-        access_lock_acq = 1'b0;
-        flush_valid = 1'b1;
-        state_d = StateFlush;
       end
     end
   end
@@ -930,7 +1073,6 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       sum_q <= 1'bx;
       evict_way_q <= 0;
       way_q <= 'x;
-      req_sent_q <= '0;
       ex_code_q <= exc_cause_e'('x);
     end else begin
       state_q <= state_d;
@@ -940,10 +1082,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       sum_q <= sum_d;
       evict_way_q <= evict_way_d;
       way_q <= way_d;
-      req_sent_q <= req_sent_d;
       ex_code_q <= ex_code_d;
     end
   end
+
+  // #endregion
+  ////////////////////////
 
   if (EnableHpm) begin
     always_ff @(posedge clk_i or negedge rst_ni) begin
