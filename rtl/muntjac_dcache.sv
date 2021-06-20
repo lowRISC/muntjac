@@ -444,7 +444,8 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   wire mem_d_valid_ptw     = mem_d_valid && mem_d.source == PtwSourceBase;
 
   logic mem_d_ready_refill;
-  assign mem_d_ready = mem_d_valid_refill ? mem_d_ready_refill : 1'b1;
+  logic mem_d_ready_ptw;
+  assign mem_d_ready = mem_d_valid_refill ? mem_d_ready_refill : (mem_d_valid_ptw ? mem_d_ready_ptw : 1'b1);
 
   // #endregion
   //////////////////////////////////////
