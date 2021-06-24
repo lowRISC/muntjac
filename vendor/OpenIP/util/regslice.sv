@@ -109,9 +109,9 @@ module openip_regslice #(
             end
             else begin
                 // Data is read out
-                if (r_ready) valid <= 1'b0;
+                if (r_valid && r_ready) valid <= 1'b0;
                 // Data is written in
-                if (w_valid) valid <= 1'b1;
+                if (w_valid && w_ready) valid <= 1'b1;
             end
 
         assign r_data = buffer;
