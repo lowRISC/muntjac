@@ -1610,6 +1610,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   miss_state_e miss_state_q, miss_state_d;
 
   logic                    miss_req_valid;
+  logic                    miss_req_upgrade;
   mem_op_e                 miss_req_op;
   logic [PhysAddrLen-1:0]  miss_req_address;
   logic [1:0]              miss_req_size;
@@ -1621,6 +1622,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic miss_resp_valid;
   logic [63:0] miss_resp_data;
 
+  logic miss_upgrade_q, miss_upgrade_d;
   logic miss_refill_sent_q, miss_refill_sent_d;
   logic miss_uncached_sent_q, miss_uncached_sent_d;
 
@@ -1634,6 +1636,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     mem_a_mult[AIdxRefill] = 'x;
 
     miss_state_d = miss_state_q;
+    miss_upgrade_d = miss_upgrade_q;
     miss_refill_sent_d = miss_refill_sent_q;
     miss_uncached_sent_d = miss_uncached_sent_q;
 
@@ -1641,13 +1644,14 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       MissStateIdle: begin
         if (miss_req_valid) begin
           miss_state_d = MissStateFill;
+          miss_upgrade_d = miss_req_upgrade;
           miss_refill_sent_d = 1'b0;
         end
       end
       MissStateFill: begin
         mem_a_valid_mult[AIdxRefill] = !miss_refill_sent_q;
         mem_a_mult[AIdxRefill].opcode = AcquireBlock;
-        mem_a_mult[AIdxRefill].param = miss_req_op != MEM_LOAD ? tl_pkg::NtoT : tl_pkg::NtoB;
+        mem_a_mult[AIdxRefill].param = miss_req_op != MEM_LOAD ? (miss_upgrade_q ? tl_pkg::BtoT : tl_pkg::NtoT) : tl_pkg::NtoB;
         mem_a_mult[AIdxRefill].size = LineWidth;
         mem_a_mult[AIdxRefill].address = {miss_req_address[PhysAddrLen-1:6], {LineWidth{1'b0}}};
         mem_a_mult[AIdxRefill].source = SourceBase;
@@ -1708,10 +1712,12 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       miss_state_q <= MissStateIdle;
+      miss_upgrade_q <= 1'b0;
       miss_refill_sent_q <= 1'b0;
       miss_uncached_sent_q <= 1'b0;
     end else begin
       miss_state_q <= miss_state_d;
+      miss_upgrade_q <= miss_upgrade_d;
       miss_refill_sent_q <= miss_refill_sent_d;
       miss_uncached_sent_q <= miss_uncached_sent_d;
     end
@@ -1773,6 +1779,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
     ex_exception = exception_t'('x);
 
     miss_req_valid = 1'b0;
+    miss_req_upgrade = 1'bx;
     miss_req_address = 'x;
     miss_req_op = mem_op_e'('x);
     miss_req_size = 'x;
@@ -1909,6 +1916,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
           state_d = StateFill;
           miss_req_valid = 1'b1;
+          miss_req_upgrade = |hit;
 
           if (hit_tag.valid &&
               hit_tag.writable) begin
