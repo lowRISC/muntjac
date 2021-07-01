@@ -130,6 +130,10 @@ module core_wrapper import muntjac_pkg::*; #(
   localparam [SinkWidth-1:0] IoSinkBase = 2;
   localparam [SinkWidth-1:0] IoSinkMask = 0;
 
+  logic hpm_acq_count;
+  logic hpm_rel_count;
+  logic hpm_miss;
+
   `TL_DECLARE_ARR(64, 56, 4, SinkWidth, mem_tlc, [1:0]);
   muntjac_llc #(
     .AddrWidth(56),
@@ -144,6 +148,9 @@ module core_wrapper import muntjac_pkg::*; #(
   ) llc (
     .clk_i,
     .rst_ni,
+    .hpm_acq_count_o (hpm_acq_count),
+    .hpm_rel_count_o (hpm_rel_count),
+    .hpm_miss_o (hpm_miss),
     `TL_CONNECT_DEVICE_PORT_IDX(host, mem_tlc, [0]),
     `TL_CONNECT_HOST_PORT(device, mem_tlc_term)
   );
@@ -183,7 +190,7 @@ module core_wrapper import muntjac_pkg::*; #(
   );
 
   instr_trace_t dbg_o;
-  
+
   muntjac_core #(
     .SourceWidth (4),
     .SinkWidth (SinkWidth),
@@ -197,6 +204,7 @@ module core_wrapper import muntjac_pkg::*; #(
     .irq_external_m_i,
     .irq_external_s_i,
     .hart_id_i,
+    .hpm_event_i ({hpm_miss, hpm_rel_count, hpm_acq_count, 3'b0, 3'b0, 1'b0}),
     .dbg_o
   );
 
