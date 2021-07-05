@@ -587,6 +587,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   logic [PhysAddrLen-13:0] ptw_resp_ppn;
   page_prot_t              ptw_resp_perm;
 
+  logic flush_tlb_resp;
+
   muntjac_tlb #(
     .PhysAddrLen (PhysAddrLen)
   ) tlb (
@@ -599,8 +601,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       .resp_ppn_o       (ppn_pulse),
       .resp_perm_o      (ppn_perm_pulse),
       .flush_req_i      (flush_valid),
-      // FIXME: Properly respond to flush signals if TLB cannot be flushed in a single cycle
-      .flush_resp_o     (),
+      .flush_resp_o     (flush_tlb_resp),
       .ptw_req_ready_i  (1'b1),
       .ptw_req_valid_o  (ptw_req_valid),
       .ptw_req_vpn_o    (ptw_req_vpn),
@@ -742,6 +743,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
 
   flush_state_e flush_state_q = FlushStateReset, flush_state_d;
   logic flush_tracker_valid_d;
+  logic flush_tlb_pending_q, flush_tlb_pending_d;
   logic [SetsWidth-1:0] flush_index_q, flush_index_d;
 
   always_comb begin
@@ -756,7 +758,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     flush_ready = 1'b0;
 
     flush_state_d = flush_state_q;
+    flush_tlb_pending_d = flush_tlb_pending_q;
     flush_index_d = flush_index_q;
+
+    if (flush_tlb_resp) flush_tlb_pending_d = 1'b0;
 
     unique case (flush_state_q)
       // Reset all states to invalid, discard changes if any.
@@ -777,6 +782,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       FlushStateIdle: begin
         if (flush_valid) begin
           flush_state_d = FlushStateLock;
+          flush_tlb_pending_d = 1'b1;
         end
       end
 
@@ -790,8 +796,10 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
       end
 
       FlushStateDone: begin
-        flush_ready = 1'b1;
-        flush_state_d = FlushStateIdle;
+        if (!flush_tlb_pending_q) begin
+          flush_ready = 1'b1;
+          flush_state_d = FlushStateIdle;
+        end
       end
     endcase
   end
@@ -800,10 +808,12 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     if (!rst_ni) begin
       flush_state_q <= FlushStateReset;
       flush_tracker_valid <= 1'b1;
+      flush_tlb_pending_q <= 1'b0;
       flush_index_q <= '0;
     end else begin
       flush_state_q <= flush_state_d;
       flush_tracker_valid <= flush_tracker_valid_d;
+      flush_tlb_pending_q <= flush_tlb_pending_d;
       flush_index_q <= flush_index_d;
     end
   end
