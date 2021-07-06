@@ -7,14 +7,13 @@ module muntjac_tlb import muntjac_pkg::*; #(
     input  logic                    clk_i,
     input  logic                    rst_ni,
 
-    input  logic [63:0]             satp_i,
-
     // TLB Lookup Request (Pulse)
     input  logic                    req_valid_i,
+    input  logic [AsidLen-1:0]      req_asid_i,
     input  logic [VirtAddrLen-13:0] req_vpn_i,
 
     // TLB Lookup Response (Pulse)
-    output logic                    resp_valid_o,
+    output logic                    resp_hit_o,
     output logic [PhysAddrLen-13:0] resp_ppn_o,
     output page_prot_t              resp_perm_o,
 
@@ -22,15 +21,12 @@ module muntjac_tlb import muntjac_pkg::*; #(
     input  logic                    flush_req_i,
     output logic                    flush_resp_o,
 
-    // PTW Request
-    input  logic                    ptw_req_ready_i,
-    output logic                    ptw_req_valid_o,
-    output logic [VirtAddrLen-13:0] ptw_req_vpn_o,
-
-    // PTW Response (Pulse)
-    input  logic                    ptw_resp_valid_i,
-    input  logic [PhysAddrLen-13:0] ptw_resp_ppn_i,
-    input  page_prot_t              ptw_resp_perm_i
+    // TLB Refill Request (Pulse)
+    input  logic                    refill_valid_i,
+    input  logic [AsidLen-1:0]      refill_asid_i,
+    input  logic [VirtAddrLen-13:0] refill_vpn_i,
+    input  logic [PhysAddrLen-13:0] refill_ppn_i,
+    input  page_prot_t              refill_perm_i
 );
 
   localparam IndexWidth = $clog2(NumEntry);
@@ -57,7 +53,7 @@ module muntjac_tlb import muntjac_pkg::*; #(
     for (int i = 0; i < NumEntry; i++) begin
       hits[i] = entries[i].prot.valid &&
                 entries[i].vpn == req_vpn_i &&
-                (entries[i].asid == satp_i[44 +: AsidLen] || entries[i].prot.is_global);
+                (entries[i].asid == req_asid_i || entries[i].prot.is_global);
     end
   end
 
@@ -72,30 +68,9 @@ module muntjac_tlb import muntjac_pkg::*; #(
     end
   end
 
-  ///////////////////////
-  // TLB Miss Handling //
-  ///////////////////////
-
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      ptw_req_vpn_o <= 'x;
-      ptw_req_valid_o <= 1'b0;
-    end else begin
-      // Clear valid signal on handshake
-      if (ptw_req_ready_i) ptw_req_valid_o <= 1'b0;
-
-      if (req_valid_i) begin
-        ptw_req_vpn_o <= req_vpn_i;
-        if (!hit) begin
-          ptw_req_valid_o <= 1'b1;
-        end
-      end
-    end
-  end 
-
-  ////////////////
-  // TLB Refill //
-  ////////////////
+  //////////////////////////
+  // TLB Refill and Flush //
+  //////////////////////////
 
   logic [IndexWidth-1:0] repl_index;
 
@@ -108,19 +83,19 @@ module muntjac_tlb import muntjac_pkg::*; #(
       end
     end else begin
       for (int i = 0; i < NumEntry; i++) begin
-        if (ptw_resp_valid_i && repl_index == i) begin
+        if (refill_valid_i && repl_index == i) begin
           entries[i] <= tlb_entry_t'{
-            ptw_resp_perm_i,
-            ptw_req_vpn_o,
-            satp_i[44 +: AsidLen],
-            ptw_resp_ppn_i
+            refill_perm_i,
+            refill_vpn_i,
+            refill_asid_i,
+            refill_ppn_i
           };
         end
         if (flush_req_i) begin
           entries[i].prot.valid <= 1'b0;
         end
       end
-      if (ptw_resp_valid_i) begin
+      if (refill_valid_i) begin
         repl_index <= repl_index == NumEntry - 1 ? 0 : repl_index + 1;
       end
     end
@@ -156,10 +131,8 @@ module muntjac_tlb import muntjac_pkg::*; #(
     end
   end
 
-  // When the TLB is not hit, the miss logic will send a request to PTW.
-  // When PTW sends back its response, we both add it to the TLB and forward to our requestor.
-  assign resp_valid_o = hit_q ? 1'b1       : ptw_resp_valid_i;
-  assign resp_ppn_o   = hit_q ? hit_ppn_q  : ptw_resp_ppn_i;
-  assign resp_perm_o  = hit_q ? hit_perm_q : ptw_resp_perm_i;
+  assign resp_hit_o   = hit_q;
+  assign resp_ppn_o   = hit_ppn_q;
+  assign resp_perm_o  = hit_perm_q;
 
 endmodule

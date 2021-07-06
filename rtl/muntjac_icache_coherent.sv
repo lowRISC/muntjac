@@ -792,38 +792,45 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
   ///////////////////////////////////////
   // #region Address Translation Logic //
 
-  logic [PhysAddrLen-13:0] ppn_pulse;
-  page_prot_t              ppn_perm_pulse;
-  logic                    ppn_valid_pulse;
+  logic                    tlb_resp_valid;
+  logic                    tlb_resp_hit;
+  logic [PhysAddrLen-13:0] tlb_resp_ppn;
+  page_prot_t              tlb_resp_perm;
 
-  logic                    ptw_req_valid;
+  logic flush_tlb_resp;
+
   logic [VirtAddrLen-13:0] ptw_req_vpn;
   logic                    ptw_resp_valid;
   logic [PhysAddrLen-13:0] ptw_resp_ppn;
   page_prot_t              ptw_resp_perm;
-
-  logic flush_tlb_resp;
 
   muntjac_tlb #(
     .PhysAddrLen (PhysAddrLen)
   ) tlb (
       .clk_i            (clk_i),
       .rst_ni           (rst_ni),
-      .satp_i           (req_atp),
       .req_valid_i      (req_valid && req_atp[63]),
+      .req_asid_i       (req_atp[44 +: 16]),
       .req_vpn_i        (req_address[38:12]),
-      .resp_valid_o     (ppn_valid_pulse),
-      .resp_ppn_o       (ppn_pulse),
-      .resp_perm_o      (ppn_perm_pulse),
+      .resp_hit_o       (tlb_resp_hit),
+      .resp_ppn_o       (tlb_resp_ppn),
+      .resp_perm_o      (tlb_resp_perm),
       .flush_req_i      (flush_valid),
       .flush_resp_o     (flush_tlb_resp),
-      .ptw_req_ready_i  (1'b1),
-      .ptw_req_valid_o  (ptw_req_valid),
-      .ptw_req_vpn_o    (ptw_req_vpn),
-      .ptw_resp_valid_i (ptw_resp_valid),
-      .ptw_resp_ppn_i   (ptw_resp_ppn),
-      .ptw_resp_perm_i  (ptw_resp_perm)
+      .refill_valid_i   (ptw_resp_valid),
+      .refill_asid_i    (req_atp[44 +: 16]),
+      .refill_vpn_i     (ptw_req_vpn),
+      .refill_ppn_i     (ptw_resp_ppn),
+      .refill_perm_i    (ptw_resp_perm)
   );
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      tlb_resp_valid <= 1'b0;
+    end else begin
+      tlb_resp_valid <= req_valid && req_atp[63];
+    end
+  end
 
   logic                    ptw_a_valid;
   logic [NonBurstSize-1:0] ptw_a_address;
@@ -833,7 +840,7 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
   ) ptw (
       .clk_i             (clk_i),
       .rst_ni            (rst_ni),
-      .req_valid_i       (ptw_req_valid),
+      .req_valid_i       (tlb_resp_valid && !tlb_resp_hit),
       .req_vpn_i         (ptw_req_vpn),
       .req_pt_ppn_i      (req_atp[PhysAddrLen-13:0]),
       .resp_valid_o      (ptw_resp_valid),
@@ -869,6 +876,11 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
   assign mem_a_mult[AIdxPtw].mask = '1;
   assign mem_a_mult[AIdxPtw].corrupt = 1'b0;
   assign mem_a_mult[AIdxPtw].data = 'x;
+
+  // Combine TLB and PTW output.
+  wire [PhysAddrLen-13:0] ppn_pulse       = tlb_resp_valid ? tlb_resp_ppn  : ptw_resp_ppn;
+  wire                    ppn_valid_pulse = tlb_resp_valid ? tlb_resp_hit  : ptw_resp_valid;
+  wire page_prot_t        ppn_perm_pulse  = tlb_resp_valid ? tlb_resp_perm : ptw_resp_perm;
 
   // PPN response is just single pulse. The logic below extends it.
   logic [43:0] ppn_latch;
@@ -1270,6 +1282,8 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
     evict_way_d = evict_way_q;
     way_d = way_q;
     ex_code_d = ex_code_q;
+
+    ptw_req_vpn = address_q[VirtAddrLen-1:12];
 
     unique case (state_q)
       StateIdle:;
