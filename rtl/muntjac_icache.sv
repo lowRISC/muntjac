@@ -12,10 +12,13 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
     parameter int unsigned PhysAddrLen = 56,
     parameter int unsigned SourceWidth = 1,
     parameter int unsigned SinkWidth   = 1,
-    parameter bit          EnableHpm   = 0,
-
     parameter bit [SourceWidth-1:0] SourceBase  = 0,
-    parameter bit [SourceWidth-1:0] PtwSourceBase = 0
+    parameter bit [SourceWidth-1:0] PtwSourceBase = 0,
+
+    parameter int unsigned TlbNumWays = 32,
+    parameter int unsigned TlbSetsWidth = 0,
+
+    parameter bit          EnableHpm   = 0
 ) (
     input  logic clk_i,
     input  logic rst_ni,
@@ -590,6 +593,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   page_prot_t              ptw_resp_perm;
 
   muntjac_tlb #(
+    .NumWays (TlbNumWays),
+    .SetsWidth (TlbSetsWidth),
     .PhysAddrLen (PhysAddrLen)
   ) tlb (
       .clk_i            (clk_i),

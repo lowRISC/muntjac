@@ -10,6 +10,11 @@ module muntjac_core import muntjac_pkg::*; #(
 
   parameter rv64f_e RV64F = RV64FNone,
 
+  parameter int unsigned DTlbNumWays = 4,
+  parameter int unsigned DTlbSetsWidth = 3,
+  parameter int unsigned ITlbNumWays = 4,
+  parameter int unsigned ITlbSetsWidth = 3,
+
   // Number of additional hardware performance monitor counters other than mcycle and minstret.
   parameter int unsigned MHPMCounterNum = 0,
   parameter bit          MHPMICacheEnable = 1'b0,
@@ -119,6 +124,8 @@ module muntjac_core import muntjac_pkg::*; #(
     .SinkWidth (SinkWidth),
     .SourceBase (IcacheSourceBase),
     .PtwSourceBase (IptwSourceBase),
+    .TlbNumWays (ITlbNumWays),
+    .TlbSetsWidth (ITlbSetsWidth),
     .EnableHpm (MHPMICacheEnable)
   ) icache_inst (
     .clk_i,
@@ -138,6 +145,8 @@ module muntjac_core import muntjac_pkg::*; #(
     .SinkWidth (SinkWidth),
     .SourceBase (DcacheSourceBase),
     .PtwSourceBase (DptwSourceBase),
+    .TlbNumWays (DTlbNumWays),
+    .TlbSetsWidth (DTlbSetsWidth),
     .EnableHpm (MHPMDCacheEnable)
   ) dcache_inst (
     .clk_i,
