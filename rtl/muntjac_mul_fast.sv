@@ -14,8 +14,7 @@ module muntjac_mul_fast import muntjac_pkg::*; (
     output logic [63:0] resp_value_o
 );
 
-  // This multiplication unit will split operation into 17x17 multiplication, so that the 18x18
-  // or 18x25 DSP units on FPGA can be utilised. We only use 1 of those DSP units.
+  // This multiplication unit will split operation into 33x33 multiplication.
   //
   // MULW -> 2 cycles
   // MUL  -> 4 cycles
