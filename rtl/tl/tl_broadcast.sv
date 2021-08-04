@@ -6,18 +6,6 @@ module tl_broadcast import tl_pkg::*; #(
   parameter SourceWidth = 1,
   parameter SinkWidth = 1,
 
-  // Address property table.
-  // This table is used to determine if a given address range is cacheable or writable.
-  // 2'b00 -> Normal
-  // 2'b01 -> Readonly (e.g. ROM)
-  // 2'b10 -> I/O
-  // When ranges overlap, range that is specified with larger index takes priority.
-  // If no ranges match, the property is assumed to be normal.
-  parameter int unsigned NumAddressRange = 1,
-  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressBase = '0,
-  parameter bit [NumAddressRange-1:0][AddrWidth-1:0] AddressMask = '0,
-  parameter bit [NumAddressRange-1:0][1:0]           AddressProperty = '0,
-
   // Source ID table for cacheable hosts.
   // These IDs are used for sending out Probe messages.
   // Ranges must not overlap.
@@ -307,43 +295,12 @@ module tl_broadcast import tl_pkg::*; #(
     assign req_selected[i] = (host_a.source &~ SourceMask[i]) == SourceBase[i];
   end
 
-  // Check if the request is allowed.
-  logic       req_allowed;
-  logic [1:0] req_address_property;
-  always_comb begin
-    // Decode the property of the address requested.
-    req_address_property = 0;
-    for (int i = 0; i < NumAddressRange; i++) begin
-      if ((host_a.address &~ AddressMask[i]) == AddressBase[i]) begin
-        req_address_property = AddressProperty[i];
-      end
-    end
-
-    // Check the request with the address property.
-    req_allowed = 1'b1;
-    case (host_a.opcode)
-      AcquireBlock, AcquirePerm: begin
-        if (req_address_property == 2) begin
-          req_allowed = 1'b0;
-        end else if (req_address_property == 1 && host_a.param != NtoB) begin
-          req_allowed = 1'b0;
-        end
-      end
-      PutFullData: begin
-        if (req_address_property == 1) begin
-          req_allowed = 1'b0;
-        end
-      end
-    endcase
-  end
-
   // States of the cache.
   typedef enum logic [2:0] {
     StateIdle,
     StateInv,
     StateReq,
     StateGrant,
-    StateDeny,
     StateWait
   } state_e;
 
@@ -434,7 +391,7 @@ module tl_broadcast import tl_pkg::*; #(
               xact_type_d = host_a.param == NtoB ? XACT_ACQUIRE_TO_B : XACT_ACQUIRE_TO_T;
               probe_param = host_a.param == NtoB ? toB : toN;
             end
-            Get, PutFullData: begin
+            Get, PutPartialData, PutFullData: begin
               // Uncached requests have no GrantAck message.
               ack_done_d = 1'b1;
 
@@ -442,14 +399,6 @@ module tl_broadcast import tl_pkg::*; #(
               probe_param = host_a.opcode == Get ? toB : toN;
             end
           endcase
-
-          if (req_address_property != 0) begin
-            probe_valid = 1'b0;
-            state_d = host_a.opcode == AcquirePerm ? StateGrant : StateReq;
-            if (!req_allowed) begin
-              state_d = StateDeny;
-            end
-          end
         end
       end
 
@@ -488,20 +437,6 @@ module tl_broadcast import tl_pkg::*; #(
         host_gnt_mult[1].source = source_q;
         host_gnt_mult[1].size = host_a.size;
         host_gnt_mult[1].denied = 1'b0;
-        if (host_gnt_ready_mult[1] && host_a_valid && host_req_last) begin
-          grant_done_d = 1'b1;
-          state_d = StateWait;
-        end
-      end
-
-      StateDeny: begin
-        host_a_ready = host_a_valid && host_req_last ? host_gnt_ready_mult[1] : 1'b1;
-        host_gnt_valid_mult[1] = host_a_valid && host_req_last;
-        host_gnt_mult[1].opcode = opcode_q == PutFullData ? AccessAck : Grant;
-        host_gnt_mult[1].param = toN;
-        host_gnt_mult[1].source = source_q;
-        host_gnt_mult[1].size = host_a.size;
-        host_gnt_mult[1].denied = 1'b1;
         if (host_gnt_ready_mult[1] && host_a_valid && host_req_last) begin
           grant_done_d = 1'b1;
           state_d = StateWait;
