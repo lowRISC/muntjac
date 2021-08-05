@@ -1,0 +1,29 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// Lint waivers for Verilator
+// See https://www.veripool.org/projects/verilator/wiki/Manual-verilator#CONFIGURATION-FILES
+// for documentation.
+//
+// Important: This file must included *before* any other Verilog file is read.
+// Otherwise, only global waivers are applied, but not file-specific waivers.
+
+`verilator_config
+
+// Macro-generated signals
+lint_off -rule UNUSED -file "*" -match "*'*_a_ready'*"
+lint_off -rule UNUSED -file "*" -match "*'*_a_valid'*"
+lint_off -rule UNUSED -file "*" -match "*'*_a'*"
+lint_off -rule UNUSED -file "*" -match "*'*_b_ready'*"
+lint_off -rule UNUSED -file "*" -match "*'*_b_valid'*"
+lint_off -rule UNUSED -file "*" -match "*'*_b'*"
+lint_off -rule UNUSED -file "*" -match "*'*_c_ready'*"
+lint_off -rule UNUSED -file "*" -match "*'*_c_valid'*"
+lint_off -rule UNUSED -file "*" -match "*'*_c'*"
+lint_off -rule UNUSED -file "*" -match "*'*_d_ready'*"
+lint_off -rule UNUSED -file "*" -match "*'*_d_valid'*"
+lint_off -rule UNUSED -file "*" -match "*'*_d'*"
+lint_off -rule UNUSED -file "*" -match "*'*_e_ready'*"
+lint_off -rule UNUSED -file "*" -match "*'*_e_valid'*"
+lint_off -rule UNUSED -file "*" -match "*'*_e'*"
