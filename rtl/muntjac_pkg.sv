@@ -321,8 +321,8 @@ typedef enum logic [3:0] {
   HPM_EVENT_L1_DCACHE_MISS = 5,
   HPM_EVENT_L1_DTLB_MISS = 6,
   HPM_EVENT_L2_ACQ_COUNT = 7,
-  HPM_EVENT_L1_REL_COUNT = 8,
-  HPM_EVENT_L1_MISS = 9
+  HPM_EVENT_L2_REL_COUNT = 8,
+  HPM_EVENT_L2_MISS = 9
 } hpm_event_e;
 
 parameter int unsigned HPM_EVENT_NUM = 10;
