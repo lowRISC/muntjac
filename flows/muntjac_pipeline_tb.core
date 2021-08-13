@@ -9,7 +9,6 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:muntjac:pipeline
-    file_type: systemVerilogSource
 
   files_verilator:
     files:
@@ -17,25 +16,13 @@ filesets:
     file_type: systemVerilogSource
 
   files_verilator_harness:
+    depend:
+      - lowrisc:muntjac:verilator_sim
     files:
-      - verilator/src/binary_parser.h: {is_include_file: true}
-      - verilator/src/data_block.h: {is_include_file: true}
       - verilator/src/data_cache_port.h: {is_include_file: true}
-      - verilator/src/exceptions.h: {is_include_file: true}
       - verilator/src/instruction_cache_port.h: {is_include_file: true}
-      - verilator/src/logs.h: {is_include_file: true}
-      - verilator/src/main_memory.h: {is_include_file: true}
-      - verilator/src/memory_port.h: {is_include_file: true}
       - verilator/src/page_table_entry.h: {is_include_file: true}
       - verilator/src/page_table_walker.h: {is_include_file: true}
-      - verilator/src/simulation.h: {is_include_file: true}
-      - verilator/src/types.h: {is_include_file: true}
-      - verilator/src/virtual_addressing.h: {is_include_file: true}
-      - verilator/src/binary_parser.cc
-      - verilator/src/data_block.cc
-      - verilator/src/exceptions.cc
-      - verilator/src/main_memory.cc
-      - verilator/src/memory_port.cc
       - verilator/src/page_table_walker.cc
       - verilator/src/pipeline_harness.cc
     file_type: cppSource
@@ -121,5 +108,6 @@ targets:
           - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
           - "-o muntjac_pipeline"
           - "--trace --trace-structs"
+          - "--assert"
           - "-O3"  # Verilator optimisation
           - "-CFLAGS -O3"  # compiler optimisation

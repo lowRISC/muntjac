@@ -1,0 +1,73 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:muntjac:tl_tb:0.1"
+description: "Test of TileLink IP"
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:tl:adapter_bram
+      - lowrisc:tl:adapter_tlul
+      - lowrisc:tl:adapter
+      - lowrisc:tl:broadcast
+      - lowrisc:tl:fifo_async
+      - lowrisc:tl:fifo_sync
+      - lowrisc:tl:io_terminator
+      - lowrisc:tl:ram_terminator
+      - lowrisc:tl:regslice
+      - lowrisc:tl:socket_1n
+      - lowrisc:tl:socket_m1
+      - lowrisc:tl:assertions
+  
+  files_verilator:
+    files:
+      - tl_wrapper.sv
+    file_type: systemVerilogSource
+  
+  files_verilator_harness:
+    depend:
+      - lowrisc:muntjac:verilator_sim
+    files:
+      - tilelink.h: {is_include_file: true}
+      - tl_harness.cc
+    file_type: cppSource
+
+  files_lint_verilator:
+    files:
+      - lint_waiver.vlt
+    #  - ../../flows/verilator/lint_waiver_tl.vlt
+    file_type: vlt
+
+targets:
+  default: &default_target
+    filesets:
+      - tool_verilator ? (files_lint_verilator)
+      - files_rtl
+      - files_verilator
+      - files_verilator_harness
+    toplevel: tl_wrapper
+
+  lint:
+    <<: *default_target
+    default_tool: verilator
+    tools:
+      verilator:
+        mode: lint-only
+        verilator_options:
+          - "-Wall"
+
+  sim:
+    <<: *default_target
+    default_tool: verilator
+    tools:
+      verilator:
+        mode: cc
+        verilator_options:
+          - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
+          - "-o muntjac_tl"
+          - "--trace --trace-structs"
+          - "--assert"
+          - "-O3"  # Verilator optimisation
+          - "-CFLAGS -O3"  # compiler optimisation

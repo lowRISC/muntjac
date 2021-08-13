@@ -1,5 +1,11 @@
 package tl_pkg;
 
+typedef enum logic [1:0] {
+  TL_UL          = 2'h0,
+  TL_UH          = 2'h1,
+  TL_C           = 2'h2
+} tl_protocol_e;
+
 typedef enum logic [2:0] {
   PutFullData    = 3'h0,
   PutPartialData = 3'h1,

@@ -1,0 +1,30 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:muntjac:verilator_sim:0.1"
+description: "Verilator simulation infrastructure"
+
+filesets:
+  files_verilator_sim:
+    files:
+      - verilator/src/binary_parser.h: {is_include_file: true}
+      - verilator/src/data_block.h: {is_include_file: true}
+      - verilator/src/exceptions.h: {is_include_file: true}
+      - verilator/src/logs.h: {is_include_file: true}
+      - verilator/src/main_memory.h: {is_include_file: true}
+      - verilator/src/memory_port.h: {is_include_file: true}
+      - verilator/src/simulation.h: {is_include_file: true}
+      - verilator/src/types.h: {is_include_file: true}
+      - verilator/src/virtual_addressing.h: {is_include_file: true}
+      - verilator/src/binary_parser.cc
+      - verilator/src/data_block.cc
+      - verilator/src/exceptions.cc
+      - verilator/src/main_memory.cc
+      - verilator/src/memory_port.cc
+    file_type: cppSource
+
+targets:
+  default:
+    filesets:
+      - files_verilator_sim

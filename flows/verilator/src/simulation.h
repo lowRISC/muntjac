@@ -24,15 +24,11 @@ public:
 
   Simulation(string name, int argc, char** argv) {
     this->name = name;
-    main_memory_latency = 10;
     timeout = 1000000;
-    csv_on = false;
     trace_on = false;
     cycle = 0.0;
-    exit_code = 0;
 
     parse_args(argc, argv);
-    read_binary(argc - binary_position, argv + binary_position);
   }
 
 protected:
@@ -40,8 +36,6 @@ protected:
   // To be implemented by subclasses.
   virtual void set_clock(int value) = 0;
   virtual void set_reset(int value) = 0;
-  virtual MemoryAddress get_program_counter() = 0;
-  virtual instr_trace_t get_trace_info() = 0;
   virtual void init() = 0;
   virtual void cycle_first_half() = 0;
   virtual void cycle_second_half() = 0;
@@ -52,6 +46,116 @@ public:
     return cycle;
   }
 
+  virtual void reset() {
+    set_reset(1);
+
+    for (int i=0; i<10; i++) {
+      set_clock(1);
+      dut.eval();
+      set_clock(0);
+      dut.eval();
+    }
+
+    set_reset(0);
+  }
+
+  void end_simulation() {
+    dut.final();
+  }
+
+protected:
+
+  virtual void parse_args(int argc, char** argv) {
+    // Check for simulation arguments. They all begin with a hyphen.
+    int arg = 0;
+    while ((arg < argc) && (argv[arg][0] == '-')) {
+      string arg_string = argv[arg];
+
+      if (arg_string.rfind("--timeout", 0) == 0) {
+        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
+        timeout = std::stoi(value);
+      }
+      else if (arg_string.rfind("--vcd", 0) == 0) {
+        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
+        trace_file = value;
+        trace_on = true;
+      }
+      else if (arg_string == "-v")
+        log_level = 1;
+      else if (arg_string == "-vv")
+        log_level = 2;
+      else if (arg_string == "--help") {
+        print_help();
+        exit(1);
+      }
+      else {
+        cerr << "Unsupported simulator argument: " << arg_string << endl;
+        exit(1);
+      }
+
+      arg++;
+    }
+  }
+
+  virtual void print_help() {
+    cout << "Muntjac simulator." << endl;
+    cout << endl;
+    cout << "Usage: " << name << " [simulator args] <program> [program args]" << endl;
+    cout << endl;
+    cout << "Simulator arguments:" << endl;
+    cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
+    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
+    cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
+    cout << "  --help\t\tDisplay this information and exit" << endl;
+  }
+
+protected:
+  // The component being tested.
+  DUT dut;
+
+// Simulation state.
+
+  // The name of this component.
+  string name;
+
+  // The current clock cycle.
+  double cycle;
+
+// Simulation parameters.
+
+  // Force end simulation after this many cycles.
+  uint64_t timeout;
+
+  // Generate VCD/FST trace file?
+  bool trace_on;
+  string trace_file;
+  VerilatedVcdC vcd_trace;
+
+};
+
+
+// A simulator which can execute RISC-V binaries.
+template<class DUT>
+class RISCVSimulation : public Simulation<DUT> {
+public:
+
+  RISCVSimulation(string name, int argc, char** argv) : 
+      Simulation<DUT>(name, argc, argv) {
+    main_memory_latency = 10;
+    csv_on = false;
+    exit_code = 0;
+
+    read_binary(argc - binary_position, argv + binary_position);
+  }
+
+protected:
+
+  // To be implemented by subclasses.
+  virtual MemoryAddress get_program_counter() = 0;
+  virtual instr_trace_t get_trace_info() = 0;
+
+public:
+
   int return_code() const {
     return exit_code;
   }
@@ -59,11 +163,10 @@ public:
   void run() {
     MemoryAddress pc = 0;
 
-    VerilatedVcdC trace;
-    if (trace_on) {
+    if (this->trace_on) {
       Verilated::traceEverOn(true);
-    	dut.trace(&trace, 100);
-    	trace.open(trace_file.c_str());
+    	this->dut.trace(&this->vcd_trace, 100);
+    	this->vcd_trace.open(this->trace_file.c_str());
     }
 
     ofstream csv;
@@ -75,25 +178,25 @@ public:
       csv << "pc,gpr,csr,binary,mode\n";
     }
 
-    init();
-    reset();
+    this->init();
+    this->reset();
+    
+    this->cycle_second_half();
 
-    cycle_second_half();
+    while (!Verilated::gotFinish() && this->cycle < this->timeout) {
+      this->set_clock(1);
+      this->cycle_first_half();
 
-    while (!Verilated::gotFinish() && cycle < timeout) {
-      set_clock(1);
-      cycle_first_half();
-
-      if (trace_on) {
-        trace.dump((uint64_t)(10*cycle));
+      if (this->trace_on) {
+        this->vcd_trace.dump((uint64_t)(10*this->cycle));
       }
 
-      cycle += 0.5;
-      set_clock(0);
-      cycle_second_half();
+      this->cycle += 0.5;
+      this->set_clock(0);
+      this->cycle_second_half();
 
-      if (trace_on) {
-        trace.dump((uint64_t)(10*cycle));
+      if (this->trace_on) {
+        this->vcd_trace.dump((uint64_t)(10*this->cycle));
       }
 
       if (get_program_counter() != pc) {
@@ -104,12 +207,12 @@ public:
           csv_output_line(csv);
       }
 
-      cycle += 0.5;
+      this->cycle += 0.5;
     }
 
-    if (trace_on) {
-      trace.flush();
-      trace.close();
+    if (this->trace_on) {
+      this->vcd_trace.flush();
+      this->vcd_trace.close();
     }
 
     if (csv_on) {
@@ -117,25 +220,18 @@ public:
       csv.close();
     }
 
-    if (cycle >= timeout) {
-      MUNTJAC_ERROR << "Simulation timed out after " << timeout << " cycles" << endl;
+    this->end_simulation();
+
+    if (this->cycle >= this->timeout) {
+      MUNTJAC_ERROR << "Simulation timed out after " << this->timeout << " cycles" << endl;
       exit(1);
     }
 
   }
 
   void reset() {
+    Simulation<DUT>::reset();
     set_entry_point(entry_point);
-    set_reset(1);
-
-    for (int i=0; i<10; i++) {
-      set_clock(1);
-      dut.eval();
-      set_clock(0);
-      dut.eval();
-    }
-
-    set_reset(0);
   }
 
   bool is_system_call(MemoryAddress address, uint64_t write_data) {
@@ -157,9 +253,9 @@ public:
     }
   }
 
-private:
+protected:
 
-  void parse_args(int argc, char** argv) {
+  virtual void parse_args(int argc, char** argv) {
     // Check for simulation arguments. They all begin with a hyphen.
     int arg = 0;
     while ((arg < argc) && (argv[arg][0] == '-')) {
@@ -171,12 +267,12 @@ private:
       }
       else if (arg_string.rfind("--timeout", 0) == 0) {
         string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        timeout = std::stoi(value);
+        this->timeout = std::stoi(value);
       }
       else if (arg_string.rfind("--vcd", 0) == 0) {
         string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        trace_file = value;
-        trace_on = true;
+        this->trace_file = value;
+        this->trace_on = true;
       }
       else if (arg_string.rfind("--csv", 0) == 0) {
         string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
@@ -207,6 +303,22 @@ private:
     binary_position = arg;
   }
 
+  virtual void print_help() {
+    cout << "Muntjac simulator." << endl;
+    cout << endl;
+    cout << "Usage: " << this->name << " [simulator args] <program> [program args]" << endl;
+    cout << endl;
+    cout << "Simulator arguments:" << endl;
+    cout << "  --csv=X\t\tDump a CSV trace to file X (mainly for riscv-dv)" << endl;
+    cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
+    cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
+    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
+    cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
+    cout << "  --help\t\tDisplay this information and exit" << endl;
+  }
+
+private:
+
   void csv_output_line(ofstream& file) {
     instr_trace_t trace = get_trace_info();
 
@@ -224,20 +336,6 @@ private:
     file << ",";
     file << std::setw(8) << trace.instr_word << ",";
     file << trace.mode << "\n";
-  }
-
-  void print_help() {
-    cout << "Muntjac simulator." << endl;
-    cout << endl;
-    cout << "Usage: " << name << " [simulator args] <program> [program args]" << endl;
-    cout << endl;
-    cout << "Simulator arguments:" << endl;
-    cout << "  --csv=X\t\tDump a CSV trace to file X (mainly for riscv-dv)" << endl;
-    cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
-    cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
-    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
-    cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
-    cout << "  --help\t\tDisplay this information and exit" << endl;
   }
 
   void read_binary(int argc, char** argv) {
@@ -259,8 +357,7 @@ private:
   }
 
 protected:
-  // The component being tested.
-  DUT dut;
+
   MainMemory memory;
 
 // Simulation parameters.
@@ -269,24 +366,12 @@ protected:
   int main_memory_latency;
 
 private:
-  // Force end simulation after this many cycles.
-  uint64_t timeout;
-
-  // Generate VCD/FST trace file?
-  bool trace_on;
-  string trace_file;
 
   // Generate CSV trace file?
   bool csv_on;
   string csv_file;
 
 // Simulation state.
-
-  // The name of this component.
-  string name;
-
-  // The current clock cycle.
-  double cycle;
 
   // Value to return when simulation finishes.
   int exit_code;

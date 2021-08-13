@@ -1,0 +1,22 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:tl:assertions:0.1"
+description: "Checker modules for TileLink components"
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:tl:common
+    files:
+      - tl_assert_util.svh: {is_include_file: true}
+      - tl_assert.sv
+      - tl_bind.sv
+      - tl_checker.sv
+    file_type: systemVerilogSource
+
+targets:
+  default:
+    filesets:
+      - files_rtl

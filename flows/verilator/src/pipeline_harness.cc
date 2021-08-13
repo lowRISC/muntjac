@@ -16,10 +16,10 @@
 typedef Vpipeline_wrapper DUT;
 
 
-class PipelineSimulation : public Simulation<DUT> {
+class PipelineSimulation : public RISCVSimulation<DUT> {
 public:
   PipelineSimulation(string name, int argc, char** argv) :
-      Simulation<DUT>(name, argc, argv),
+      RISCVSimulation<DUT>(name, argc, argv),
       instruction_port(dut, memory, main_memory_latency),
       data_port(dut, memory, main_memory_latency) {
     // Nothing

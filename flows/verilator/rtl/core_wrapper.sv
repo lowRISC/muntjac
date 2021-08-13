@@ -45,6 +45,19 @@ module core_wrapper import muntjac_pkg::*; #(
 
 );
 
+// TileLink structure:
+//                                 core
+//                                   | (ch_aggregate)
+//                                  llc
+//                                   | (mem)
+//                               socket_1n
+//                                   | (mem_split)
+//        mem_tlul_bridge -----------|----------- io_tlul_bridge
+//               | (mem_tlul)                           | (io_tlul)
+//     mem_tlul_bram_bridge                    io_tlul_bram_bridge
+//               |                                      |
+//              bram                                   bram
+
   localparam SinkWidth = 2;
 
   `TL_DECLARE(64, 56, 9, 1, mem_tlul);

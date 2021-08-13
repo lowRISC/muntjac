@@ -1,0 +1,32 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// Lint waivers for Verilator
+// See https://www.veripool.org/projects/verilator/wiki/Manual-verilator#CONFIGURATION-FILES
+// for documentation.
+//
+// Important: This file must included *before* any other Verilog file is read.
+// Otherwise, only global waivers are applied, but not file-specific waivers.
+
+`verilator_config
+
+// Blocking assignment is used inside a sequential block to simplify the
+// handling of simultaneous messages. As a debug module, clock frequency is of
+// secondary importance.
+lint_off -rule BLKSEQ -file "**/*/tl_assert.sv"
+
+// tl_checker.sv contains a number of closely-related modules.
+lint_off -rule DECLFILENAME -file "**/*/tl_checker.sv"
+
+// We define the same signals for all situations to make code cleaner, then
+// filter out some assertions later.
+lint_off -rule UNUSED -file "**/*/tl_assert.sv" -match "Signal is not used: '*ValidResp_S'"
+
+// Use implicit sign-extension for code clarity.
+lint_off -rule WIDTH -file "**/*/tl_assert.sv" -match "Operator SUB expects 56 bits on the LHS, but LHS's SEL generates 32 bits."
+lint_off -rule WIDTH -file "**/*/tl_assert.sv" -match "Operator SUB expects 56 bits on the LHS, but LHS's VARREF 'DataWidthInBytes' generates 32 bits."
+
+// TODO: temporary. The coverage signals are not hooked up properly yet.
+lint_off -rule UNUSED -file "**/*/tl_assert.sv" -match "Signal is not used: 'b2b*'"
+lint_off -rule UNUSED -file "**/*/tl_assert.sv" -match "Signal is not used: '*ValidNotAccepted_S'"

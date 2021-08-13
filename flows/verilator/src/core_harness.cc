@@ -140,10 +140,10 @@ private:
   DUT& dut;
 };
 
-class CoreSimulation : public Simulation<DUT> {
+class CoreSimulation : public RISCVSimulation<DUT> {
 public:
   CoreSimulation(string name, int argc, char** argv) :
-      Simulation<DUT>(name, argc, argv),
+      RISCVSimulation<DUT>(name, argc, argv),
       main_memory_port(dut, memory),
       io_memory_port(dut, memory) {
     // Nothing
