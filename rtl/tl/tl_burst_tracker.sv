@@ -20,31 +20,26 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
 
   // Total number of beats in the current burst.
   output logic [BurstLenWidth-1:0] req_len_o,
-  output logic [BurstLenWidth-1:0] prb_len_o,
   output logic [BurstLenWidth-1:0] rel_len_o,
   output logic [BurstLenWidth-1:0] gnt_len_o,
 
   // Index of the current beat in the current burst.
   output logic [BurstLenWidth-1:0] req_idx_o,
-  output logic [BurstLenWidth-1:0] prb_idx_o,
   output logic [BurstLenWidth-1:0] rel_idx_o,
   output logic [BurstLenWidth-1:0] gnt_idx_o,
 
   // Number of beats left after the current one.
   output logic [BurstLenWidth-1:0] req_left_o,
-  output logic [BurstLenWidth-1:0] prb_left_o,
   output logic [BurstLenWidth-1:0] rel_left_o,
   output logic [BurstLenWidth-1:0] gnt_left_o,
 
   // If the current beat is the first beat in the burst.
   output logic req_first_o,
-  output logic prb_first_o,
   output logic rel_first_o,
   output logic gnt_first_o,
 
   // If the current beat is the last beat in the burst.
   output logic req_last_o,
-  output logic prb_last_o,
   output logic rel_last_o,
   output logic gnt_last_o
 );
@@ -94,17 +89,6 @@ module tl_burst_tracker import tl_pkg::*; import prim_util_pkg::*; #(
       end
     end
   end
-
-  ///////////////////
-  // Probe channel //
-  ///////////////////
-
-  // We don't support multi-beat probe message.
-  assign prb_len_o = 0;
-  assign prb_idx_o = 0;
-  assign prb_left_o = 0;
-  assign prb_first_o = 1'b1;
-  assign prb_last_o = 1'b1;
 
   /////////////////////////////////
   // Release channel arbitration //

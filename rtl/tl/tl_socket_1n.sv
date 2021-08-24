@@ -42,7 +42,6 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  logic host_prb_last;
   logic host_gnt_last;
 
   tl_burst_tracker #(
@@ -56,23 +55,18 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
     .rst_ni,
     `TL_FORWARD_TAP_PORT_FROM_DEVICE(link, host),
     .req_len_o (),
-    .prb_len_o (),
     .rel_len_o (),
     .gnt_len_o (),
     .req_idx_o (),
-    .prb_idx_o (),
     .rel_idx_o (),
     .gnt_idx_o (),
     .req_left_o (),
-    .prb_left_o (),
     .rel_left_o (),
     .gnt_left_o (),
     .req_first_o (),
-    .prb_first_o (),
     .rel_first_o (),
     .gnt_first_o (),
     .req_last_o (),
-    .prb_last_o (host_prb_last),
     .rel_last_o (),
     .gnt_last_o (host_gnt_last)
   );
@@ -107,42 +101,18 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
   // Probe channel arbitration //
   ///////////////////////////////
 
-  // Signals for arbitration
   logic [NumLinks-1:0] prb_arb_grant;
-  logic                prb_locked;
-  logic [NumLinks-1:0] prb_selected;
 
   openip_round_robin_arbiter #(.WIDTH(NumLinks)) prb_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (host_b_valid && host_b_ready && !prb_locked),
+    .enable  (host_b_valid && host_b_ready),
     .request (device_b_valid),
     .grant   (prb_arb_grant)
   );
 
-  // Perform arbitration, and make sure that we keep the connection stable until handshake.
-  always_ff @(posedge clk_i or negedge rst_ni) begin
-    if (!rst_ni) begin
-      prb_locked <= 1'b0;
-      prb_selected <= '0;
-    end
-    else begin
-      if (host_b_valid && host_b_ready) begin
-        if (!prb_locked) begin
-          prb_locked   <= 1'b1;
-          prb_selected <= prb_arb_grant;
-        end
-        if (host_prb_last) begin
-          prb_locked <= 1'b0;
-        end
-      end
-    end
-  end
-
-  wire [NumLinks-1:0] prb_select = prb_locked ? prb_selected : prb_arb_grant;
-
   for (genvar i = 0; i < NumLinks; i++) begin
-    assign device_b_ready[i] = prb_select[i] && host_b_ready;
+    assign device_b_ready[i] = prb_arb_grant[i] && host_b_ready;
   end
 
   // Do the post-arbitration multiplexing
@@ -150,7 +120,7 @@ module tl_socket_1n import tl_pkg::*; import prim_util_pkg::*; #(
     host_b = 'x;
     host_b_valid = 1'b0;
     for (int i = NumLinks - 1; i >= 0; i--) begin
-      if (prb_select[i]) begin
+      if (prb_arb_grant[i]) begin
         host_b = device_b[i];
         host_b_valid = device_b_valid[i];
       end
