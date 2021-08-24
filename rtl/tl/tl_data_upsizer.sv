@@ -184,7 +184,6 @@ module tl_data_upsizer import tl_pkg::*; import prim_util_pkg::*; #(
   // B channel conversion //
   //////////////////////////
 
-  // We do not support B-channel data transfer so far, so just wire them up.
   assign device_b_ready = host_b_ready;
   assign host_b_valid   = device_b_valid;
   assign host_b.opcode  = device_b.opcode;
@@ -192,9 +191,6 @@ module tl_data_upsizer import tl_pkg::*; import prim_util_pkg::*; #(
   assign host_b.size    = device_b.size;
   assign host_b.source  = device_b.source[HostSourceWidth-1:0];
   assign host_b.address = device_b.address;
-  assign host_b.mask    = device_b.mask;
-  assign host_b.corrupt = device_b.corrupt;
-  assign host_b.data    = 'x;
 
   //////////////////////////
   // C channel conversion //

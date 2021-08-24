@@ -29,9 +29,6 @@
     logic           [`TL_SIZE_WIDTH-1:0] size   ; \
     logic             [SOURCE_WIDTH-1:0] source ; \
     logic               [ADDR_WIDTH-1:0] address; \
-    logic             [DATA_WIDTH/8-1:0] mask   ; \
-    logic                                corrupt; \
-    logic               [DATA_WIDTH-1:0] data   ; \
   }
 
 `define TL_C_STRUCT(DATA_WIDTH, ADDR_WIDTH, SOURCE_WIDTH, SINK_WIDTH) \
@@ -69,7 +66,7 @@
     ((DATA_WIDTH)+(DATA_WIDTH)/8+(ADDR_WIDTH)+(`TL_SIZE_WIDTH)+(SOURCE_WIDTH)+7)
 
 `define TL_B_WIDTH(DATA_WIDTH, ADDR_WIDTH, SOURCE_WIDTH, SINK_WIDTH) \
-    ((DATA_WIDTH)+(DATA_WIDTH)/8+(ADDR_WIDTH)+(`TL_SIZE_WIDTH)+(SOURCE_WIDTH)+7)
+    ((ADDR_WIDTH)+(`TL_SIZE_WIDTH)+(SOURCE_WIDTH)+6)
 
 `define TL_C_WIDTH(DATA_WIDTH, ADDR_WIDTH, SOURCE_WIDTH, SINK_WIDTH) \
     ((DATA_WIDTH)+(ADDR_WIDTH)+(`TL_SIZE_WIDTH)+(SOURCE_WIDTH)+7)

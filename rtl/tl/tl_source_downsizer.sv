@@ -137,9 +137,6 @@ module tl_source_downsizer import tl_pkg::*; #(
   assign host_b.size    = device_b.size;
   assign host_b.source  = device_b.source;
   assign host_b.address = device_b.address;
-  assign host_b.mask    = device_b.mask;
-  assign host_b.corrupt = device_b.corrupt;
-  assign host_b.data    = 'x;
 
   //////////////////////////
   // C channel conversion //

@@ -146,9 +146,6 @@ module tl_adapter import tl_pkg::*; #(
     assign size_cvt_b.size    = source_cvt_b.size;
     assign size_cvt_b.source  = source_cvt_b.source;
     assign size_cvt_b.address = source_cvt_b.address;
-    assign size_cvt_b.mask    = source_cvt_b.mask;
-    assign size_cvt_b.corrupt = source_cvt_b.corrupt;
-    assign size_cvt_b.data    = source_cvt_b.data;
 
     assign size_cvt_c_ready     = source_cvt_c_ready;
     assign source_cvt_c_valid   = size_cvt_c_valid;
@@ -211,9 +208,6 @@ module tl_adapter import tl_pkg::*; #(
     assign source_cvt_b.size    = sink_cvt_b.size;
     assign source_cvt_b.source  = sink_cvt_b.source;
     assign source_cvt_b.address = sink_cvt_b.address;
-    assign source_cvt_b.mask    = sink_cvt_b.mask;
-    assign source_cvt_b.corrupt = sink_cvt_b.corrupt;
-    assign source_cvt_b.data    = sink_cvt_b.data;
 
     assign source_cvt_c_ready = sink_cvt_c_ready;
     assign sink_cvt_c_valid   = source_cvt_c_valid;
@@ -262,9 +256,6 @@ module tl_adapter import tl_pkg::*; #(
   assign sink_cvt_b.size    = device_b.size;
   assign sink_cvt_b.source  = device_b.source;
   assign sink_cvt_b.address = device_b.address;
-  assign sink_cvt_b.mask    = device_b.mask;
-  assign sink_cvt_b.corrupt = device_b.corrupt;
-  assign sink_cvt_b.data    = device_b.data;
 
   assign sink_cvt_c_ready = device_c_ready;
   assign device_c_valid   = sink_cvt_c_valid;

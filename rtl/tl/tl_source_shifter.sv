@@ -50,9 +50,6 @@ module tl_source_shifter #(
   assign host_b.param   = device_b.param;
   assign host_b.size    = device_b.size;
   assign host_b.address = device_b.address;
-  assign host_b.mask    = device_b.mask;
-  assign host_b.corrupt = device_b.corrupt;
-  assign host_b.data    = device_b.data;
 
   assign host_b.source = device_b.source & SourceMask;
 
