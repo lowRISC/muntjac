@@ -3,20 +3,21 @@
 
 // TL-UH to AXI bridge.
 //
+// SinkWidth is fixed to 1 because sink is unused for TL-UH link.
+//
 // TODO: This module has a combinational path from valid to ready, which is not
 //       allowed for AXI.
 module tl_axi_adapter import tl_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned SourceWidth = 1,
-  parameter  int unsigned SinkWidth   = 1,
   parameter  int unsigned MaxSize     = 6,
   parameter  int unsigned IdWidth     = SourceWidth
 ) (
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, 1, host),
   `AXI_DECLARE_HOST_PORT(DataWidth, AddrWidth, IdWidth, device)
 );
 
@@ -29,7 +30,7 @@ module tl_axi_adapter import tl_pkg::*; #(
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
   localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, 1, host);
   `AXI_DECLARE(DataWidth, AddrWidth, IdWidth, device);
   `AXI_BIND_HOST_PORT(device, device);
 
@@ -38,7 +39,7 @@ module tl_axi_adapter import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .AddrWidth (AddrWidth),
     .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (1),
     .RequestMode (2)
   ) host_reg (
     .clk_i,
@@ -58,7 +59,7 @@ module tl_axi_adapter import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .AddrWidth (AddrWidth),
     .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (1),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,
@@ -98,7 +99,7 @@ module tl_axi_adapter import tl_pkg::*; #(
   ////////////////////////////////////////
   // #region Host D Channel arbitration //
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) host_d_t;
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, 1) host_d_t;
 
   localparam HostDNums = 2;
   localparam HostDIdxB = 0;

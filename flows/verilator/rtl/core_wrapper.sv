@@ -53,7 +53,6 @@ module core_wrapper import muntjac_pkg::*; #(
   tl_adapter_bram #(
     .DataWidth (64),
     .SourceWidth(9),
-    .SinkWidth (1),
     .BramAddrWidth (53)
   ) mem_tlul_bram_bridge (
     .clk_i,
@@ -70,7 +69,6 @@ module core_wrapper import muntjac_pkg::*; #(
   tl_adapter_bram #(
     .DataWidth (64),
     .SourceWidth(7),
-    .SinkWidth (1),
     .BramAddrWidth (53)
   ) io_tlul_bram_bridge (
     .clk_i,

@@ -1,18 +1,19 @@
 `include "tl_util.svh"
 
-// An adpater that converts an TL-UL interface to a BRAM interface.
+// An adapter that converts an TL-UL interface to a BRAM interface.
+//
+// SinkWidth is fixed to 1 because sink is unused for TL-UL link.
 module tl_adapter_bram #(
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned SourceWidth = 1,
-  parameter  int unsigned SinkWidth   = 1,
   parameter  int unsigned BramAddrWidth    = 12,
   localparam int unsigned DataWidthInBytes = DataWidth / 8
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, 1, host),
 
   output logic                        bram_en_o,
   output logic                        bram_we_o,
@@ -29,7 +30,7 @@ module tl_adapter_bram #(
   // Static checks of interface matching
   if (NonBurstSize + BramAddrWidth > AddrWidth) $fatal(1, "AddrWidth mismatch");
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, 1, host);
   `TL_BIND_DEVICE_PORT(host, host);
 
   /////////////////////
