@@ -3,32 +3,34 @@
 // This module terminates a TL-C link and converts it to a TL-UH link.
 // It will deny all cache line permission transfers and only allow uncached memory
 // accesses through.
+//
+// DeviceSinkWidth is fixed to 1 because sink is unused for TL-UH link.
 module tl_io_terminator import tl_pkg::*; import muntjac_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned SourceWidth = 1,
-  parameter  int unsigned SinkWidth   = 1,
+  parameter  int unsigned HostSinkWidth = 1,
   parameter  int unsigned MaxSize     = 6,
 
-  parameter  bit [SinkWidth-1:0] SinkBase = 0,
-  parameter  bit [SinkWidth-1:0] SinkMask = 0
+  parameter  bit [HostSinkWidth-1:0] SinkBase = 0,
+  parameter  bit [HostSinkWidth-1:0] SinkMask = 0
 ) (
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, HostSinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, 1, device)
 );
 
   localparam SinkNums = SinkMask + 1;
   localparam SinkBits = prim_util_pkg::vbits(SinkNums);
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, HostSinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, 1, device);
   `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) host_d_t;
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, HostSinkWidth) host_d_t;
 
   /////////////////////////////////////////
   // #region Burst tracker instantiation //
@@ -40,7 +42,7 @@ module tl_io_terminator import tl_pkg::*; import muntjac_pkg::*; #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
     .SourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (HostSinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,

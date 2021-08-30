@@ -48,7 +48,7 @@ module core_wrapper import muntjac_pkg::*; #(
   localparam SinkWidth = 2;
 
   `TL_DECLARE(64, 56, 9, SinkWidth, mem_tlul);
-  `TL_DECLARE(64, 56, 7, SinkWidth, io_tlul);
+  `TL_DECLARE(64, 56, 7, 1, io_tlul);
 
   tl_adapter_bram #(
     .DataWidth (64),
@@ -70,7 +70,7 @@ module core_wrapper import muntjac_pkg::*; #(
   tl_adapter_bram #(
     .DataWidth (64),
     .SourceWidth(7),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (1),
     .BramAddrWidth (53)
   ) io_tlul_bram_bridge (
     .clk_i,
@@ -85,7 +85,7 @@ module core_wrapper import muntjac_pkg::*; #(
   );
 
   `TL_DECLARE(64, 56, 6, SinkWidth, mem);
-  `TL_DECLARE(64, 56, 4, SinkWidth, io);
+  `TL_DECLARE(64, 56, 4, 1, io);
 
   tl_adapter_tlul #(
     .HostSourceWidth (6),
@@ -101,7 +101,7 @@ module core_wrapper import muntjac_pkg::*; #(
   tl_adapter_tlul #(
     .HostSourceWidth (6),
     .DeviceSourceWidth (9),
-    .SinkWidth (SinkWidth)
+    .SinkWidth (1)
   ) io_tlul_bridge (
     .clk_i,
     .rst_ni,
@@ -160,7 +160,7 @@ module core_wrapper import muntjac_pkg::*; #(
     .AddrWidth(56),
     .DataWidth(64),
     .SourceWidth(4),
-    .SinkWidth (SinkWidth),
+    .HostSinkWidth (SinkWidth),
     .SinkBase (IoSinkBase)
   ) io_term (
     .clk_i,
