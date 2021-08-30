@@ -4,22 +4,24 @@
 // It assumes the device-going link has properties like memory.
 // This module can only be connected to a single host. For multiple hosts
 // a directory-based cache or a broadcaster should be used.
+//
+// DeviceSinkWidth is fixed to 1 because sink is unused for TL-UH link.
 module tl_ram_terminator import tl_pkg::*; #(
   parameter  int unsigned DataWidth         = 64,
   parameter  int unsigned AddrWidth         = 56,
   parameter  int unsigned HostSourceWidth   = 1,
   parameter  int unsigned DeviceSourceWidth = 1,
-  parameter  int unsigned SinkWidth         = 1,
+  parameter  int unsigned HostSinkWidth     = 1,
   parameter  int unsigned MaxSize           = 6,
 
-  parameter  bit [SinkWidth-1:0] SinkBase = 0,
-  parameter  bit [SinkWidth-1:0] SinkMask = 0
+  parameter  bit [HostSinkWidth-1:0] SinkBase = 0,
+  parameter  bit [HostSinkWidth-1:0] SinkMask = 0
 ) (
   input  logic       clk_i,
   input  logic       rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, 1, device)
 );
 
   localparam SinkNums = SinkMask + 1;
@@ -32,12 +34,12 @@ module tl_ram_terminator import tl_pkg::*; #(
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
   localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
 
-  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
-  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, 1, device);
   `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth) host_d_t;
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth) host_d_t;
 
   function automatic logic [DataWidthInBytes-1:0] get_mask(
     input logic [NonBurstSize-1:0] address,
@@ -73,7 +75,7 @@ module tl_ram_terminator import tl_pkg::*; #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
     .SourceWidth (HostSourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (HostSinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,
@@ -100,7 +102,7 @@ module tl_ram_terminator import tl_pkg::*; #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
     .SourceWidth (DeviceSourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (1),
     .MaxSize (MaxSize)
   ) device_burst_tracker (
     .clk_i,
@@ -222,7 +224,7 @@ module tl_ram_terminator import tl_pkg::*; #(
   //////////////////////////////////////////
   // #region Device A Channel arbitration //
 
-  typedef `TL_A_STRUCT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth) device_a_t;
+  typedef `TL_A_STRUCT(DataWidth, AddrWidth, DeviceSourceWidth, 1) device_a_t;
 
   localparam DeviceANums = 2;
   localparam DeviceAIdxAcq = 0;

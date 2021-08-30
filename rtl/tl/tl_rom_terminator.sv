@@ -3,22 +3,24 @@
 // This module terminates a TL-C link and converts it to a TL-UH link.
 // It will deny all requests that need write permission. It will allow Get requests through and
 // convert readonly Acquire to Get.
+//
+// DeviceSinkWidth is fixed to 1 because sink is unused for TL-UH link.
 module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned HostSourceWidth = 1,
   parameter  int unsigned DeviceSourceWidth = 1,
-  parameter  int unsigned SinkWidth   = 1,
+  parameter  int unsigned HostSinkWidth = 1,
   parameter  int unsigned MaxSize     = 6,
 
-  parameter  bit [SinkWidth-1:0] SinkBase = 0,
-  parameter  bit [SinkWidth-1:0] SinkMask = 0
+  parameter  bit [HostSinkWidth-1:0] SinkBase = 0,
+  parameter  bit [HostSinkWidth-1:0] SinkMask = 0
 ) (
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, 1, device)
 );
 
   localparam SinkNums = SinkMask + 1;
@@ -28,12 +30,12 @@ module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
     $fatal(1, "Not enough SourceWidth");
   end
 
-  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
-  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, 1, device);
   `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth) host_d_t;
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth) host_d_t;
 
   /////////////////////////////////////////
   // #region Burst tracker instantiation //
@@ -45,7 +47,7 @@ module tl_rom_terminator import tl_pkg::*; import muntjac_pkg::*; #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
     .SourceWidth (HostSourceWidth),
-    .SinkWidth (SinkWidth),
+    .SinkWidth (HostSinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
     .clk_i,
