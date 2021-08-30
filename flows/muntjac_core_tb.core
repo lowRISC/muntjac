@@ -10,7 +10,6 @@ filesets:
     depend:
       - lowrisc:tl:socket_1n
       - lowrisc:tl:adapter_bram
-      - lowrisc:tl:adapter_tlul
       - lowrisc:tl:io_terminator
       - lowrisc:tl:ram_terminator
       - lowrisc:muntjac:llc

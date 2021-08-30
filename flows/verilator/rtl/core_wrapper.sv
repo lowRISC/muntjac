@@ -87,10 +87,19 @@ module core_wrapper import muntjac_pkg::*; #(
   `TL_DECLARE(64, 56, 6, 1, mem);
   `TL_DECLARE(64, 56, 4, 1, io);
 
-  tl_adapter_tlul #(
+  tl_adapter #(
+    .HostDataWidth (64),
+    .DeviceDataWidth (64),
+    .HostAddrWidth (56),
+    .DeviceAddrWidth (56),
     .HostSourceWidth (6),
     .DeviceSourceWidth (9),
-    .SinkWidth (1),
+    .HostSinkWidth (1),
+    .DeviceSinkWidth (1),
+    .HostMaxSize (6),
+    .DeviceMaxSize (3),
+    .HostFifo (1'b0),
+    .DeviceFifo (1'b1)
   ) mem_tlul_bridge (
     .clk_i,
     .rst_ni,
@@ -98,10 +107,19 @@ module core_wrapper import muntjac_pkg::*; #(
     `TL_CONNECT_HOST_PORT(device, mem_tlul)
   );
 
-  tl_adapter_tlul #(
+  tl_adapter #(
+    .HostDataWidth (64),
+    .DeviceDataWidth (64),
+    .HostAddrWidth (56),
+    .DeviceAddrWidth (56),
     .HostSourceWidth (6),
     .DeviceSourceWidth (9),
-    .SinkWidth (1)
+    .HostSinkWidth (1),
+    .DeviceSinkWidth (1),
+    .HostMaxSize (6),
+    .DeviceMaxSize (3),
+    .HostFifo (1'b0),
+    .DeviceFifo (1'b1)
   ) io_tlul_bridge (
     .clk_i,
     .rst_ni,
