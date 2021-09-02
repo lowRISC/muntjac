@@ -179,7 +179,7 @@ module tl_adapter import tl_pkg::*; #(
     tl_sink_upsizer #(
       .DataWidth (DeviceDataWidth),
       .AddrWidth (HostAddrWidth),
-      .SourceWidth (DeviceSinkWidth),
+      .SourceWidth (DeviceSourceWidth),
       .HostSinkWidth (HostSinkWidth),
       .DeviceSinkWidth (DeviceSinkWidth),
       .MaxSize (DeviceMaxSize)
