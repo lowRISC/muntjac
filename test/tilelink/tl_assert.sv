@@ -40,36 +40,31 @@ module tl_assert import tl_pkg::*; #(
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_accepted);
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_declined);
 
-  // TODO: this is for functional coverage: not tested yet.
+  // Capture the last accepted/declined beats from a named channel.
+  // TODO: this is for functional coverage. Not tested yet.
+  // TODO: focus on non-continuous matches.
+  // TODO: accepted being valid doesn't make declined invalid.
+  `define COVERAGE_CAPTURE(CHANNEL)                                      \
+    if (tl_``CHANNEL``_valid) begin                             \
+      prev_accepted_``CHANNEL``_valid <= tl_``CHANNEL``_ready;  \
+      prev_declined_``CHANNEL``_valid <= !tl_``CHANNEL``_ready; \
+                                                                \
+      if (tl_``CHANNEL``_ready) begin                           \
+        prev_accepted_``CHANNEL`` <= tl_``CHANNEL``;            \
+      end else begin                                            \
+        prev_declined_``CHANNEL`` <= tl_``CHANNEL``;            \
+      end                                                       \
+    end
+
   always_ff @(posedge clk_i) begin
-    // TODO: check that this is getting the previous state, not the current one.
-    // `TL_ASSIGN_NB_FROM_TAP(tl, tl);
-    `TL_ASSIGN_NB(prev_tl, tl);
-
-    // TODO: do this at posedge valid? We're looking for non-continuous matches.
-    if (tl_a_valid) begin
-      // TODO: this is wrong - one being valid doesn't make the other invalid.
-      prev_accepted_a_valid <= tl_a_ready;
-      prev_declined_a_valid <= !tl_a_ready;
-
-      if (tl_a_ready) begin
-        prev_accepted_a <= tl_a;
-      end else begin
-        prev_declined_a <= tl_a;
-      end
-    end
-
-    if (tl_d_valid) begin
-      prev_accepted_d_valid <= tl_d_ready;
-      prev_declined_d_valid <= !tl_d_ready;
-
-      if (tl_d_ready) begin
-        prev_accepted_d <= tl_d;
-      end else begin
-        prev_declined_d <= tl_d;
-      end
-    end
+    `COVERAGE_CAPTURE(a);
+    `COVERAGE_CAPTURE(b);
+    `COVERAGE_CAPTURE(c);
+    `COVERAGE_CAPTURE(d);
+    `COVERAGE_CAPTURE(e);
   end
+
+  `undef COVERAGE_CAPTURE
 
   ////////////////////////////////////
   // Keep track of pending requests //
@@ -161,6 +156,7 @@ module tl_assert import tl_pkg::*; #(
       end
 
       // 2. Capture new inputs.
+      `TL_ASSIGN_B(prev_tl, tl);
       `TL_ASSIGN_B_FROM_TAP(tl, tl);
 
       // 3. Update outstanding requests.
@@ -217,7 +213,7 @@ module tl_assert import tl_pkg::*; #(
   // A channel                           //
   /////////////////////////////////////////
 
-  `SEQUENCE(aValid_S, tl_a_valid);
+  `SEQUENCE(aAccepted_S, tl_a_valid && tl_a_ready);
 
   // a.opcode
   `SEQUENCE(aLegalOpcodeTLUL_S,
@@ -355,7 +351,7 @@ module tl_assert import tl_pkg::*; #(
   // B channel                           //
   /////////////////////////////////////////
 
-  `SEQUENCE(bValid_S, tl_b_valid);
+  `SEQUENCE(bAccepted_S, tl_b_valid && tl_b_ready);
   `SEQUENCE(bEnabled_S, Protocol == TL_C);
 
   // b.opcode
@@ -478,7 +474,7 @@ module tl_assert import tl_pkg::*; #(
   // C channel                           //
   /////////////////////////////////////////
 
-  `SEQUENCE(cValid_S, tl_c_valid);
+  `SEQUENCE(cAccepted_S, tl_c_valid && tl_c_ready);
   `SEQUENCE(cEnabled_S, Protocol == TL_C);
 
   // c.opcode
@@ -557,7 +553,7 @@ module tl_assert import tl_pkg::*; #(
   // D channel                           //
   /////////////////////////////////////////
 
-  `SEQUENCE(dValid_S, tl_d_valid);
+  `SEQUENCE(dAccepted_S, tl_d_valid && tl_d_ready);
 
   // d.opcode
   `SEQUENCE(dLegalOpcodeTLUL_S,
@@ -611,7 +607,7 @@ module tl_assert import tl_pkg::*; #(
 
   // Some TileLink topologies allow Host ports to see responses destined for
   // other Host ports. Ignore these.
-  `SEQUENCE(dValidResp_S, dValid_S `AND dRespMustHaveReq_S);
+  `SEQUENCE(dValidResp_S, dAccepted_S `AND dRespMustHaveReq_S);
 
   // d.param
   `SEQUENCE(dLegalParam_S, 
@@ -670,7 +666,7 @@ module tl_assert import tl_pkg::*; #(
   // E channel                           //
   /////////////////////////////////////////
 
-  `SEQUENCE(eValid_S, tl_e_valid);
+  `SEQUENCE(eAccepted_S, tl_e_valid && tl_e_ready);
   `SEQUENCE(eEnabled_S, Protocol == TL_C);
 
   // e.opcode
@@ -687,10 +683,10 @@ module tl_assert import tl_pkg::*; #(
 
   // Some TileLink topologies allow Device ports to see responses destined for
   // other Device ports. Ignore these.
-  `SEQUENCE(eValidResp_S, eValid_S `AND eRespMustHaveReq_S);
+  `SEQUENCE(eValidResp_S, eAccepted_S `AND eRespMustHaveReq_S);
 
   // We may only respond to a complete request.
-  `SEQUENCE(eCompleteResp_S, eValid_S);
+  `SEQUENCE(eCompleteResp_S, eAccepted_S);
   `SEQUENCE(eCompleteReq_S,
     (d_pending[tl_e.sink].tl.opcode == Grant) ||
     (d_pending[tl_e.sink].tl.opcode == GrantData && d_pending[tl_e.sink].beats == expected_beats(d_pending[tl_e.sink].tl.size))
@@ -704,42 +700,42 @@ module tl_assert import tl_pkg::*; #(
   // For Hosts, all signals coming from the Device side have an assumed property
   if (EndpointType == "Host") begin : gen_host
     // A channel
-    `S_ASSERT(aLegalOpcode_A,     `IMPLIES(aValid_S, aLegalOpcode_S))
-    `S_ASSERT(aLegalParam_A,      `IMPLIES(aValid_S, aLegalParam_S))
-    `S_ASSERT(aSizeLTEBusWidth_A, `IMPLIES(aValid_S, aSizeLTEBusWidth_S))
-    `S_ASSERT(aSizeGTEMask_A,     `IMPLIES(aValid_S, aSizeGTEMask_S))
-    `S_ASSERT(aSizeMatchesMask_A, `IMPLIES(aValid_S, aSizeMatchesMask_S))
-    `S_ASSERT(aNumBeats_A,        `IMPLIES(aValid_S, aNumBeats_S))
-    `S_ASSERT(aAddrSizeAligned_A, `IMPLIES(aValid_S, aAddrSizeAligned_S))
-    `S_ASSERT(aAddrMultibeatInc_A,`IMPLIES(aValid_S, aAddressMultibeatInc_S))
-    `S_ASSERT(aMultibeatCtrlConst_A,`IMPLIES(aValid_S, aMultibeatCtrlConst_S))
-    `S_ASSERT(aContigMask_A,      `IMPLIES(aValid_S, aContigMask_S))
-    `S_ASSERT(aFullMaskUsed_A,    `IMPLIES(aValid_S, aFullMaskUsed_S))
-    `S_ASSERT(aMaskAligned_A,     `IMPLIES(aValid_S, aMaskAligned_S))
-    `S_ASSERT(aDataKnown_A,       `IMPLIES(aValid_S, aDataKnown_S))
-    `S_ASSERT(aLegalCorrupt_A,    `IMPLIES(aValid_S, aLegalCorrupt_S))
+    `S_ASSERT(aLegalOpcode_A,     `IMPLIES(aAccepted_S, aLegalOpcode_S))
+    `S_ASSERT(aLegalParam_A,      `IMPLIES(aAccepted_S, aLegalParam_S))
+    `S_ASSERT(aSizeLTEBusWidth_A, `IMPLIES(aAccepted_S, aSizeLTEBusWidth_S))
+    `S_ASSERT(aSizeGTEMask_A,     `IMPLIES(aAccepted_S, aSizeGTEMask_S))
+    `S_ASSERT(aSizeMatchesMask_A, `IMPLIES(aAccepted_S, aSizeMatchesMask_S))
+    `S_ASSERT(aNumBeats_A,        `IMPLIES(aAccepted_S, aNumBeats_S))
+    `S_ASSERT(aAddrSizeAligned_A, `IMPLIES(aAccepted_S, aAddrSizeAligned_S))
+    `S_ASSERT(aAddrMultibeatInc_A,`IMPLIES(aAccepted_S, aAddressMultibeatInc_S))
+    `S_ASSERT(aMultibeatCtrlConst_A,`IMPLIES(aAccepted_S, aMultibeatCtrlConst_S))
+    `S_ASSERT(aContigMask_A,      `IMPLIES(aAccepted_S, aContigMask_S))
+    `S_ASSERT(aFullMaskUsed_A,    `IMPLIES(aAccepted_S, aFullMaskUsed_S))
+    `S_ASSERT(aMaskAligned_A,     `IMPLIES(aAccepted_S, aMaskAligned_S))
+    `S_ASSERT(aDataKnown_A,       `IMPLIES(aAccepted_S, aDataKnown_S))
+    `S_ASSERT(aLegalCorrupt_A,    `IMPLIES(aAccepted_S, aLegalCorrupt_S))
 
     // B channel
-    `S_ASSUME(bEnabled_M,         `IMPLIES(bValid_S, bEnabled_S))
-    `S_ASSUME(bLegalOpcode_M,     `IMPLIES(bValid_S, bLegalOpcode_S))
-    `S_ASSUME(bLegalParam_M,      `IMPLIES(bValid_S, bLegalParam_S))
-    `S_ASSUME(bSizeGTEMask_M,     `IMPLIES(bValid_S, bSizeGTEMask_S))
-    `S_ASSUME(bContigMask_M,      `IMPLIES(bValid_S, bContigMask_S))
-    `S_ASSUME(bFullMaskUsed_M,    `IMPLIES(bValid_S, bFullMaskUsed_S))
-    `S_ASSUME(bMaskAligned_M,     `IMPLIES(bValid_S, bMaskAligned_S))
-    `S_ASSUME(bDataKnown_M,       `IMPLIES(bValid_S, bDataKnown_S))
-    `S_ASSUME(bLegalCorrupt_M,    `IMPLIES(bValid_S, bLegalCorrupt_S))
+    `S_ASSUME(bEnabled_M,         `IMPLIES(bAccepted_S, bEnabled_S))
+    `S_ASSUME(bLegalOpcode_M,     `IMPLIES(bAccepted_S, bLegalOpcode_S))
+    `S_ASSUME(bLegalParam_M,      `IMPLIES(bAccepted_S, bLegalParam_S))
+    `S_ASSUME(bSizeGTEMask_M,     `IMPLIES(bAccepted_S, bSizeGTEMask_S))
+    `S_ASSUME(bContigMask_M,      `IMPLIES(bAccepted_S, bContigMask_S))
+    `S_ASSUME(bFullMaskUsed_M,    `IMPLIES(bAccepted_S, bFullMaskUsed_S))
+    `S_ASSUME(bMaskAligned_M,     `IMPLIES(bAccepted_S, bMaskAligned_S))
+    `S_ASSUME(bDataKnown_M,       `IMPLIES(bAccepted_S, bDataKnown_S))
+    `S_ASSUME(bLegalCorrupt_M,    `IMPLIES(bAccepted_S, bLegalCorrupt_S))
 
     // C channel
-    `S_ASSERT(cEnabled_A,         `IMPLIES(cValid_S, cEnabled_S))
-    `S_ASSERT(cLegalOpcode_A,     `IMPLIES(cValid_S, cLegalOpcode_S))
-    `S_ASSERT(cLegalParam_A,      `IMPLIES(cValid_S, cLegalParam_S))
-    `S_ASSERT(cNumBeats_A,        `IMPLIES(cValid_S, cNumBeats_S))
-    `S_ASSERT(cAddrSizeAligned_A, `IMPLIES(cValid_S, cAddrSizeAligned_S))
-    `S_ASSERT(cAddrMultibeatInc_A,`IMPLIES(cValid_S, cAddressMultibeatInc_S))
-    `S_ASSERT(cMultibeatCtrlConst_A,`IMPLIES(cValid_S, cMultibeatCtrlConst_S))
-    // `S_ASSERT(cDataKnown_A,       `IMPLIES(cValid_S, cDataKnown_S))
-    `S_ASSERT(cLegalCorrupt_A,    `IMPLIES(cValid_S, cLegalCorrupt_S))
+    `S_ASSERT(cEnabled_A,         `IMPLIES(cAccepted_S, cEnabled_S))
+    `S_ASSERT(cLegalOpcode_A,     `IMPLIES(cAccepted_S, cLegalOpcode_S))
+    `S_ASSERT(cLegalParam_A,      `IMPLIES(cAccepted_S, cLegalParam_S))
+    `S_ASSERT(cNumBeats_A,        `IMPLIES(cAccepted_S, cNumBeats_S))
+    `S_ASSERT(cAddrSizeAligned_A, `IMPLIES(cAccepted_S, cAddrSizeAligned_S))
+    `S_ASSERT(cAddrMultibeatInc_A,`IMPLIES(cAccepted_S, cAddressMultibeatInc_S))
+    `S_ASSERT(cMultibeatCtrlConst_A,`IMPLIES(cAccepted_S, cMultibeatCtrlConst_S))
+    // `S_ASSERT(cDataKnown_A,       `IMPLIES(cAccepted_S, cDataKnown_S))
+    `S_ASSERT(cLegalCorrupt_A,    `IMPLIES(cAccepted_S, cLegalCorrupt_S))
 
     // D channel
     // Host ports may see responses sent elsewhere. Use dValidResp precondition
@@ -747,7 +743,7 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSUME(dLegalOpcode_M,     `IMPLIES(dValidResp_S, dLegalOpcode_S))
     `S_ASSUME(dMatchingOpcode_M,  `IMPLIES(dValidResp_S, dMatchingOpcode_S))
     `S_ASSUME(dLegalParam_M,      `IMPLIES(dValidResp_S, dLegalParam_S))
-    // `S_ASSUME(dRespMustHaveReq_M,  `IMPLIES(dValid_S, dRespMustHaveReq_S))
+    // `S_ASSUME(dRespMustHaveReq_M,  `IMPLIES(dAccepted_S, dRespMustHaveReq_S))
     `S_ASSUME(dCompleteReqResp_M, `IMPLIES(dValidResp_S, dCompleteReqResp_S))
     `S_ASSUME(dSizeEqReqSize_M,   `IMPLIES(dValidResp_S, dSizeEqReqSize_S))
     `S_ASSUME(dNumBeats_M,        `IMPLIES(dValidResp_S, dNumBeats_S))
@@ -757,64 +753,64 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSUME(dDeniedImpliesCorrupt_M, `IMPLIES(dValidResp_S, dDeniedImpliesCorrupt_S))
   
     // E channel
-    `S_ASSERT(eEnabled_A,         `IMPLIES(eValid_S, eEnabled_S))
-    `S_ASSERT(eLegalOpcode_A,     `IMPLIES(eValid_S, eLegalOpcode_S))
-    `S_ASSERT(eMatchingOpcode_A,  `IMPLIES(eValid_S, eMatchingOpcode_S))
-    `S_ASSERT(eRespMustHaveReq_A, `IMPLIES(eValid_S, eRespMustHaveReq_S))
-    `S_ASSERT(eCompleteReqResp_A, `IMPLIES(eValid_S, eCompleteReqResp_S))
+    `S_ASSERT(eEnabled_A,         `IMPLIES(eAccepted_S, eEnabled_S))
+    `S_ASSERT(eLegalOpcode_A,     `IMPLIES(eAccepted_S, eLegalOpcode_S))
+    `S_ASSERT(eMatchingOpcode_A,  `IMPLIES(eAccepted_S, eMatchingOpcode_S))
+    `S_ASSERT(eRespMustHaveReq_A, `IMPLIES(eAccepted_S, eRespMustHaveReq_S))
+    `S_ASSERT(eCompleteReqResp_A, `IMPLIES(eAccepted_S, eCompleteReqResp_S))
 
   // For Devices, all signals coming from the Host side have an assumed property
   end else if (EndpointType == "Device") begin : gen_device
     // A channel
-    `S_ASSUME(aLegalOpcode_M,     `IMPLIES(aValid_S, aLegalOpcode_S))
-    `S_ASSUME(aLegalParam_M,      `IMPLIES(aValid_S, aLegalParam_S))
-    `S_ASSUME(aSizeLTEBusWidth_M, `IMPLIES(aValid_S, aSizeLTEBusWidth_S))
-    `S_ASSUME(aSizeGTEMask_M,     `IMPLIES(aValid_S, aSizeGTEMask_S))
-    `S_ASSUME(aSizeMatchesMask_M, `IMPLIES(aValid_S, aSizeMatchesMask_S))
-    `S_ASSUME(aNumBeats_M,        `IMPLIES(aValid_S, aNumBeats_S))
-    `S_ASSUME(aAddrSizeAligned_M, `IMPLIES(aValid_S, aAddrSizeAligned_S))
-    `S_ASSUME(aAddrMultibeatInc_M,`IMPLIES(aValid_S, aAddressMultibeatInc_S))
-    `S_ASSUME(aMultibeatCtrlConst_M,`IMPLIES(aValid_S, aMultibeatCtrlConst_S))
-    `S_ASSUME(aContigMask_M,      `IMPLIES(aValid_S, aContigMask_S))
-    `S_ASSUME(aFullMaskUsed_M,    `IMPLIES(aValid_S, aFullMaskUsed_S))
-    `S_ASSUME(aMaskAligned_M,     `IMPLIES(aValid_S, aMaskAligned_S))
-    `S_ASSUME(aDataKnown_M,       `IMPLIES(aValid_S, aDataKnown_S))
-    `S_ASSUME(aLegalCorrupt_M,    `IMPLIES(aValid_S, aLegalCorrupt_S))
+    `S_ASSUME(aLegalOpcode_M,     `IMPLIES(aAccepted_S, aLegalOpcode_S))
+    `S_ASSUME(aLegalParam_M,      `IMPLIES(aAccepted_S, aLegalParam_S))
+    `S_ASSUME(aSizeLTEBusWidth_M, `IMPLIES(aAccepted_S, aSizeLTEBusWidth_S))
+    `S_ASSUME(aSizeGTEMask_M,     `IMPLIES(aAccepted_S, aSizeGTEMask_S))
+    `S_ASSUME(aSizeMatchesMask_M, `IMPLIES(aAccepted_S, aSizeMatchesMask_S))
+    `S_ASSUME(aNumBeats_M,        `IMPLIES(aAccepted_S, aNumBeats_S))
+    `S_ASSUME(aAddrSizeAligned_M, `IMPLIES(aAccepted_S, aAddrSizeAligned_S))
+    `S_ASSUME(aAddrMultibeatInc_M,`IMPLIES(aAccepted_S, aAddressMultibeatInc_S))
+    `S_ASSUME(aMultibeatCtrlConst_M,`IMPLIES(aAccepted_S, aMultibeatCtrlConst_S))
+    `S_ASSUME(aContigMask_M,      `IMPLIES(aAccepted_S, aContigMask_S))
+    `S_ASSUME(aFullMaskUsed_M,    `IMPLIES(aAccepted_S, aFullMaskUsed_S))
+    `S_ASSUME(aMaskAligned_M,     `IMPLIES(aAccepted_S, aMaskAligned_S))
+    `S_ASSUME(aDataKnown_M,       `IMPLIES(aAccepted_S, aDataKnown_S))
+    `S_ASSUME(aLegalCorrupt_M,    `IMPLIES(aAccepted_S, aLegalCorrupt_S))
 
     // B channel
-    `S_ASSERT(bEnabled_A,         `IMPLIES(bValid_S, bEnabled_S))
-    `S_ASSERT(bLegalOpcode_A,     `IMPLIES(bValid_S, bLegalOpcode_S))
-    `S_ASSERT(bLegalParam_A,      `IMPLIES(bValid_S, bLegalParam_S))
-    `S_ASSERT(bSizeGTEMask_A,     `IMPLIES(bValid_S, bSizeGTEMask_S))
-    `S_ASSERT(bContigMask_A,      `IMPLIES(bValid_S, bContigMask_S))
-    `S_ASSERT(bFullMaskUsed_A,    `IMPLIES(bValid_S, bFullMaskUsed_S))
-    `S_ASSERT(bMaskAligned_A,     `IMPLIES(bValid_S, bMaskAligned_S))
-    `S_ASSERT(bDataKnown_A,       `IMPLIES(bValid_S, bDataKnown_S))
-    `S_ASSERT(bLegalCorrupt_A,    `IMPLIES(bValid_S, bLegalCorrupt_S))
+    `S_ASSERT(bEnabled_A,         `IMPLIES(bAccepted_S, bEnabled_S))
+    `S_ASSERT(bLegalOpcode_A,     `IMPLIES(bAccepted_S, bLegalOpcode_S))
+    `S_ASSERT(bLegalParam_A,      `IMPLIES(bAccepted_S, bLegalParam_S))
+    `S_ASSERT(bSizeGTEMask_A,     `IMPLIES(bAccepted_S, bSizeGTEMask_S))
+    `S_ASSERT(bContigMask_A,      `IMPLIES(bAccepted_S, bContigMask_S))
+    `S_ASSERT(bFullMaskUsed_A,    `IMPLIES(bAccepted_S, bFullMaskUsed_S))
+    `S_ASSERT(bMaskAligned_A,     `IMPLIES(bAccepted_S, bMaskAligned_S))
+    `S_ASSERT(bDataKnown_A,       `IMPLIES(bAccepted_S, bDataKnown_S))
+    `S_ASSERT(bLegalCorrupt_A,    `IMPLIES(bAccepted_S, bLegalCorrupt_S))
 
     // C channel
-    `S_ASSUME(cEnabled_M,         `IMPLIES(cValid_S, cEnabled_S))
-    `S_ASSUME(cLegalOpcode_M,     `IMPLIES(cValid_S, cLegalOpcode_S))
-    `S_ASSUME(cLegalParam_M,      `IMPLIES(cValid_S, cLegalParam_S))
-    `S_ASSUME(cNumBeats_M,        `IMPLIES(cValid_S, cNumBeats_S))
-    `S_ASSUME(cAddrSizeAligned_M, `IMPLIES(cValid_S, cAddrSizeAligned_S))
-    `S_ASSUME(cAddrMultibeatInc_M,`IMPLIES(cValid_S, cAddressMultibeatInc_S))
-    `S_ASSUME(cMultibeatCtrlConst_M,`IMPLIES(cValid_S, cMultibeatCtrlConst_S))
-    // `S_ASSUME(cDataKnown_M,       `IMPLIES(cValid_S, cDataKnown_S))
-    `S_ASSUME(cLegalCorrupt_M,    `IMPLIES(cValid_S, cLegalCorrupt_S))
+    `S_ASSUME(cEnabled_M,         `IMPLIES(cAccepted_S, cEnabled_S))
+    `S_ASSUME(cLegalOpcode_M,     `IMPLIES(cAccepted_S, cLegalOpcode_S))
+    `S_ASSUME(cLegalParam_M,      `IMPLIES(cAccepted_S, cLegalParam_S))
+    `S_ASSUME(cNumBeats_M,        `IMPLIES(cAccepted_S, cNumBeats_S))
+    `S_ASSUME(cAddrSizeAligned_M, `IMPLIES(cAccepted_S, cAddrSizeAligned_S))
+    `S_ASSUME(cAddrMultibeatInc_M,`IMPLIES(cAccepted_S, cAddressMultibeatInc_S))
+    `S_ASSUME(cMultibeatCtrlConst_M,`IMPLIES(cAccepted_S, cMultibeatCtrlConst_S))
+    // `S_ASSUME(cDataKnown_M,       `IMPLIES(cAccepted_S, cDataKnown_S))
+    `S_ASSUME(cLegalCorrupt_M,    `IMPLIES(cAccepted_S, cLegalCorrupt_S))
 
     // D channel
-    `S_ASSERT(dLegalOpcode_A,     `IMPLIES(dValid_S, dLegalOpcode_S))
-    `S_ASSERT(dMatchingOpcode_A,  `IMPLIES(dValid_S, dMatchingOpcode_S))
-    `S_ASSERT(dLegalParam_A,      `IMPLIES(dValid_S, dLegalParam_S))
-    `S_ASSERT(dRespMustHaveReq_A, `IMPLIES(dValid_S, dRespMustHaveReq_S))
-    `S_ASSERT(dCompleteReqResp_A, `IMPLIES(dValid_S, dCompleteReqResp_S))
-    `S_ASSERT(dSizeEqReqSize_A,   `IMPLIES(dValid_S, dSizeEqReqSize_S))
-    `S_ASSERT(dNumBeats_A,        `IMPLIES(dValid_S, dNumBeats_S))
-    `S_ASSERT(dDataKnown_A,       `IMPLIES(dValid_S, dDataKnown_S))
-    `S_ASSERT(dLegalCorrupt_A,    `IMPLIES(dValid_S, dLegalCorrupt_S))
-    `S_ASSERT(dLegalDenied_A,     `IMPLIES(dValid_S, dLegalDenied_S))
-    `S_ASSERT(dDeniedImpliesCorrupt_A, `IMPLIES(dValid_S, dDeniedImpliesCorrupt_S))
+    `S_ASSERT(dLegalOpcode_A,     `IMPLIES(dAccepted_S, dLegalOpcode_S))
+    `S_ASSERT(dMatchingOpcode_A,  `IMPLIES(dAccepted_S, dMatchingOpcode_S))
+    `S_ASSERT(dLegalParam_A,      `IMPLIES(dAccepted_S, dLegalParam_S))
+    `S_ASSERT(dRespMustHaveReq_A, `IMPLIES(dAccepted_S, dRespMustHaveReq_S))
+    `S_ASSERT(dCompleteReqResp_A, `IMPLIES(dAccepted_S, dCompleteReqResp_S))
+    `S_ASSERT(dSizeEqReqSize_A,   `IMPLIES(dAccepted_S, dSizeEqReqSize_S))
+    `S_ASSERT(dNumBeats_A,        `IMPLIES(dAccepted_S, dNumBeats_S))
+    `S_ASSERT(dDataKnown_A,       `IMPLIES(dAccepted_S, dDataKnown_S))
+    `S_ASSERT(dLegalCorrupt_A,    `IMPLIES(dAccepted_S, dLegalCorrupt_S))
+    `S_ASSERT(dLegalDenied_A,     `IMPLIES(dAccepted_S, dLegalDenied_S))
+    `S_ASSERT(dDeniedImpliesCorrupt_A, `IMPLIES(dAccepted_S, dDeniedImpliesCorrupt_S))
   
     // E channel
     // Device ports may see responses sent elsewhere. Use eValidResp precondition
@@ -822,7 +818,7 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSUME(eEnabled_M,         `IMPLIES(eValidResp_S, eEnabled_S))
     `S_ASSUME(eLegalOpcode_M,     `IMPLIES(eValidResp_S, eLegalOpcode_S))
     `S_ASSUME(eMatchingOpcode_M,  `IMPLIES(eValidResp_S, eMatchingOpcode_S))
-    // `S_ASSUME(eRespMustHaveReq_M, `IMPLIES(eValid_S, eRespMustHaveReq_S))
+    // `S_ASSUME(eRespMustHaveReq_M, `IMPLIES(eAccepted_S, eRespMustHaveReq_S))
     `S_ASSUME(eCompleteReqResp_M, `IMPLIES(eValidResp_S, eCompleteReqResp_S))
 
   end else begin : gen_unknown
@@ -875,88 +871,139 @@ module tl_assert import tl_pkg::*; #(
 
 
   ////////////////////////////////////
-  // SVA coverage //
+  // SVA coverage                   //
   ////////////////////////////////////
-  `define TLUL_COVER(SEQ) `S_COVER(``SEQ``_C, ``SEQ``_S)
 
-  // Host sends back2back requests
-  `SEQUENCE(b2bReq_S,
-    prev_tl_a_valid && prev_tl_a_ready && tl_a_valid
-  );
-
-  // Device sends back2back responses
-  `SEQUENCE(b2bRsp_S,
-    prev_tl_d_valid && prev_tl_d_ready && tl_d_valid
-  );
-
-  // Host sends back2back requests with same address
-  // UVM RAL can't issue this scenario, add this cover to make sure it's tested in some other seq
-  `SEQUENCE(b2bReqWithSameAddr_S,
-    prev_tl_a_valid && prev_tl_a_ready
-        && tl_a_valid && prev_tl_a.address == tl_a.address
-  );
-
-  // a_valid is dropped without a_ready
-  `SEQUENCE(aValidNotAccepted_S,
-    prev_tl_a_valid && !prev_tl_a_ready && !tl_a_valid
-  );
-
-  // d_valid is dropped without a_ready
-  `SEQUENCE(dValidNotAccepted_S,
-    prev_tl_d_valid && !prev_tl_d_ready && !tl_d_valid
-  );
-
-  // Host uses same source for back2back items
-  `SEQUENCE(b2bSameSource_S,
-    tl_a_valid && prev_accepted_a_valid && prev_accepted_a.source == tl_a.source
-  );
-
-  // A channel content is changed without being accepted
-  `define TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(NAME) \
-    `SEQUENCE(a_``NAME``ChangedNotAccepted_S, \
-      tl_a_valid && prev_declined_a_valid && \
-      prev_declined_a.``NAME`` != tl_a.``NAME`` \
+  // Back-to-back messages are sent on a channel
+  // TODO: multibeat messages shouldn't count
+  `define BACK_TO_BACK(CHANNEL) \
+    `SEQUENCE(``CHANNEL``BackToBack_S, \
+      prev_tl_``CHANNEL``_valid && prev_tl_``CHANNEL``_ready && tl_``CHANNEL``_valid \
     ); \
-    `TLUL_COVER(a_``NAME``ChangedNotAccepted)
+    `S_COVER(``CHANNEL``BackToBack_C, ``CHANNEL``BackToBack_S)
 
-  // D channel content is changed without being accepted
-  `define TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(NAME) \
-    `SEQUENCE(d_``NAME``ChangedNotAccepted_S, \
-      tl_d_valid && prev_declined_d_valid && \
-      prev_declined_d.``NAME`` != tl_d.``NAME`` \
+  // A valid signal is deasserted before it is accepted by the recipient.
+  // TODO: check that this is doing what we expect
+  `define VALID_NOT_ACCEPTED(CHANNEL) \
+    `SEQUENCE(``CHANNEL``ValidNotAccepted_S, \
+      prev_tl_``CHANNEL``_valid && !prev_tl_``CHANNEL``_ready && !tl_``CHANNEL``_valid \
     ); \
-    `TLUL_COVER(d_``NAME``ChangedNotAccepted)
+    `S_COVER(``CHANNEL``ValidNotAccepted_C, ``CHANNEL``ValidNotAccepted_S)
+  
+  // Content is changed without being accepted.
+  // TODO: check that this is doing what we expect
+  `define CHANGED_WITHOUT_ACCEPTED(CHANNEL, NAME) \
+    `SEQUENCE(``CHANNEL``_``NAME``ChangedNotAccepted_S, \
+      tl_``CHANNEL``_valid && prev_declined_``CHANNEL``_valid && \
+      prev_declined_``CHANNEL``.``NAME`` != tl_``CHANNEL``.``NAME`` \
+    ); \
+    `S_COVER(``CHANNEL``_``NAME``ChangedNotAccepted_C, ``CHANNEL``_``NAME``ChangedNotAccepted_S)
 
-  if (EndpointType == "Host") begin : gen_host_cov // DUT is host
-    `TLUL_COVER(b2bRsp)
-    `TLUL_COVER(dValidNotAccepted)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(data)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(opcode)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(size)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(source)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(sink)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(denied)
-    `TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED(corrupt)
-  end else if (EndpointType == "Device") begin : gen_device_cov // DUT is device
-    `TLUL_COVER(b2bReq)
-    `TLUL_COVER(b2bReqWithSameAddr)
-    `TLUL_COVER(aValidNotAccepted)
-    `TLUL_COVER(b2bSameSource)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(address)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(data)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(opcode)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(size)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(source)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(mask)
-    `TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED(corrupt)
-  end else begin : gen_unknown_cov
-    initial begin : p_unknonw_cov
-      `S_ASSERT_I(unknownConfig_A, 0 == 1)
-    end
+  // Consecutive messages on the same channel use the same value.
+  // TODO: multibeat messages shouldn't count.
+  `define CONSECUTIVE_MESSAGES_REPEAT(CHANNEL, NAME) \
+    `SEQUENCE(``CHANNEL``_``NAME``Repeated_S, \
+      tl_``CHANNEL``_valid && prev_accepted_``CHANNEL``_valid && \
+      tl_``CHANNEL``.``NAME`` == prev_accepted_``CHANNEL``.``NAME`` \
+    ); \
+    `S_COVER(``CHANNEL``_``NAME``Repeated_C, ``CHANNEL``_``NAME``Repeated_S)
+  
+  // Check that the `corrupt` bit is used.
+  `define CORRUPT_BIT_USED(CHANNEL) \
+    `S_COVER(``CHANNEL``Corrupt_C, tl_``CHANNEL``.corrupt)
+
+  // Check that the `denied` bit is used.
+  `define DENIED_BIT_USED(CHANNEL) \
+    `S_COVER(``CHANNEL``Denied_C, tl_``CHANNEL``.denied)
+  
+  // For every channel as a whole, we would like to see:
+  //   * Back-to-back messages (no period where valid is low)
+  //   * Valid messages being deasserted before they have been accepted
+  `define STANDARD_CHANNEL_COVERAGE(CHANNEL) \
+    `BACK_TO_BACK(CHANNEL) \
+    `VALID_NOT_ACCEPTED(CHANNEL)
+  
+  // For every field of every channel, we would like to see:
+  //   * The value {changes, stays the same} in consecutive messages
+  //   * The value {changes, stays the same} while waiting to be accepted
+  `define STANDARD_FIELD_COVERAGE(CHANNEL, NAME) \
+    `CONSECUTIVE_MESSAGES_REPEAT(CHANNEL, NAME) \
+    `CHANGED_WITHOUT_ACCEPTED(CHANNEL, NAME)
+
+  `STANDARD_CHANNEL_COVERAGE(a)
+  `STANDARD_FIELD_COVERAGE(a, opcode)
+  `STANDARD_FIELD_COVERAGE(a, param)
+  `STANDARD_FIELD_COVERAGE(a, size)
+  `STANDARD_FIELD_COVERAGE(a, source)
+  `STANDARD_FIELD_COVERAGE(a, address)
+  `STANDARD_FIELD_COVERAGE(a, mask)
+  `STANDARD_FIELD_COVERAGE(a, corrupt)
+  `STANDARD_FIELD_COVERAGE(a, data)
+  `CORRUPT_BIT_USED(a)
+
+  `STANDARD_CHANNEL_COVERAGE(d)
+  `STANDARD_FIELD_COVERAGE(d, opcode)
+  `STANDARD_FIELD_COVERAGE(d, param)
+  `STANDARD_FIELD_COVERAGE(d, size)
+  `STANDARD_FIELD_COVERAGE(d, source)
+  `STANDARD_FIELD_COVERAGE(d, sink)
+  `STANDARD_FIELD_COVERAGE(d, denied)
+  `STANDARD_FIELD_COVERAGE(d, corrupt)
+  `STANDARD_FIELD_COVERAGE(d, data)
+  `CORRUPT_BIT_USED(d)
+  `DENIED_BIT_USED(d)
+
+  if (Protocol == TL_C) begin : gen_tlc_channel_cov
+    `STANDARD_CHANNEL_COVERAGE(b)
+    `STANDARD_FIELD_COVERAGE(b, opcode)
+    `STANDARD_FIELD_COVERAGE(b, param)
+    `STANDARD_FIELD_COVERAGE(b, size)
+    `STANDARD_FIELD_COVERAGE(b, source)
+    `STANDARD_FIELD_COVERAGE(b, address)
+    `STANDARD_FIELD_COVERAGE(b, mask)
+    `STANDARD_FIELD_COVERAGE(b, corrupt)
+    `STANDARD_FIELD_COVERAGE(b, data)
+    `CORRUPT_BIT_USED(b)
+
+    `STANDARD_CHANNEL_COVERAGE(c)
+    `STANDARD_FIELD_COVERAGE(c, opcode)
+    `STANDARD_FIELD_COVERAGE(c, param)
+    `STANDARD_FIELD_COVERAGE(c, size)
+    `STANDARD_FIELD_COVERAGE(c, source)
+    `STANDARD_FIELD_COVERAGE(c, address)
+    `STANDARD_FIELD_COVERAGE(c, corrupt)
+    `STANDARD_FIELD_COVERAGE(c, data)
+    `CORRUPT_BIT_USED(c)
+
+    `STANDARD_CHANNEL_COVERAGE(e)
+    `STANDARD_FIELD_COVERAGE(e, sink)
   end
 
-  `undef TLUL_COVER
-  `undef TLUL_A_CHAN_CONTENT_CHANGED_WO_ACCEPTED
-  `undef TLUL_D_CHAN_CONTENT_CHANGED_WO_ACCEPTED
+  `undef BACK_TO_BACK
+  `undef VALID_NOT_ACCEPTED
+  `undef CHANGED_WITHOUT_ACCEPTED
+  `undef CONSECUTIVE_MESSAGES_REPEAT
+  `undef CORRUPT_BIT_USED
+  `undef DENIED_BIT_USED
+  `undef STANDARD_CHANNEL_COVERAGE
+  `undef STANDARD_FIELD_COVERAGE
+
+
+  // Look for simultaneous messages on all combinations of channels.
+  // Covergroups aren't supported by Verilator, so pack values into a signal
+  // instead.
+  logic [1:0] tluh_accepted;  // Also TL-UL.
+  logic [4:0] tlc_accepted;
+
+  assign tlc_accepted =  {aAccepted_S, bAccepted_S, cAccepted_S, dAccepted_S,
+                          eAccepted_S};
+  assign tluh_accepted = {aAccepted_S, dAccepted_S};
+
+  // TODO: current macro can't accept multibit properties.
+  if (Protocol == TL_C) begin : gen_tlc_simultaneous_cov
+    `S_COVER(tlc_simultaneous, tlc_accepted);
+  end else begin : gen_tluh_simultaneous_cov
+    `S_COVER(tluh_simultaneous, tluh_accepted);
+  end
 
 endmodule

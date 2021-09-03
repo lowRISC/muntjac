@@ -16,7 +16,7 @@ We currently require newer versions of [Verilator](https://www.veripool.org/wiki
 curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
 sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
 sudo apt-get update
-sudo apt-get install verilator-4.040
+sudo apt-get install verilator-4.200
 
 pip3 install -r python-requirements.txt
 ```

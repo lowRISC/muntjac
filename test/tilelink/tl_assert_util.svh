@@ -46,7 +46,6 @@
 `define ASSERT_RPT(__name)                                                  \
   $error("[ASSERT FAILED] [%m] %s (%s:%0d)", __name, `__FILE__, `__LINE__);
 
-// TODO: make synthesisable
 
 `define S_ASSERT(__name, __prop)                                                  \
   __name: assert property (@(negedge clk_i) disable iff (rst_ni === '0) (__prop)) \

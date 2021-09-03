@@ -69,5 +69,6 @@ targets:
           - "-o muntjac_tl"
           - "--trace --trace-structs"
           - "--assert"
+          - "--coverage-user"  # Also consider coverage-line and coverage-toggle
           - "-O3"  # Verilator optimisation
-          - "-CFLAGS -O3"  # compiler optimisation
+          - "-CFLAGS -Os"  # compiler optimisation

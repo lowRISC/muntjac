@@ -1062,6 +1062,9 @@ int main(int argc, char** argv) {
 
     sim.end_simulation();
 
+    // TODO: unique filename
+    Verilated::threadContextp()->coveragep()->write("coverage.dat");
+
     cout << "No assertions triggered" << endl;
   }
 
