@@ -8,6 +8,7 @@ description: "Verilator simulation infrastructure"
 filesets:
   files_verilator_sim:
     files:
+      - verilator/src/argument_parser.h: {is_include_file: true}
       - verilator/src/binary_parser.h: {is_include_file: true}
       - verilator/src/data_block.h: {is_include_file: true}
       - verilator/src/exceptions.h: {is_include_file: true}
@@ -17,6 +18,7 @@ filesets:
       - verilator/src/simulation.h: {is_include_file: true}
       - verilator/src/types.h: {is_include_file: true}
       - verilator/src/virtual_addressing.h: {is_include_file: true}
+      - verilator/src/argument_parser.cc
       - verilator/src/binary_parser.cc
       - verilator/src/data_block.cc
       - verilator/src/exceptions.cc

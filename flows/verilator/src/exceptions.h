@@ -43,4 +43,23 @@ private:
   const MemoryAddress address;
 };
 
+
+class SimulatorException : public std::exception {
+public:
+  SimulatorException(string description);
+  virtual const char* what() const noexcept;
+private:
+  const string message;
+};
+
+class InvalidArgumentException : public SimulatorException {
+public:
+  InvalidArgumentException(string argument, int position);
+  string get_name() const;
+  int get_position() const;
+private:
+  const string name;
+  const int position;
+};
+
 #endif  // EXCEPTIONS_H

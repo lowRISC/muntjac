@@ -18,8 +18,8 @@ typedef Vpipeline_wrapper DUT;
 
 class PipelineSimulation : public RISCVSimulation<DUT> {
 public:
-  PipelineSimulation(string name, int argc, char** argv) :
-      RISCVSimulation<DUT>(name, argc, argv),
+  PipelineSimulation(string name) :
+      RISCVSimulation<DUT>(name),
       instruction_port(dut, memory, main_memory_latency),
       data_port(dut, memory, main_memory_latency) {
     // Nothing
@@ -125,9 +125,11 @@ void system_call(MemoryAddress address, uint64_t write_data) {
 
 
 int main(int argc, char** argv) {
-  // Ignore the first argument (this binary).
-  PipelineSimulation sim("muntjac_pipeline", argc - 1, argv + 1);
+  PipelineSimulation sim("muntjac_pipeline");
   the_sim = &sim;
+
+  // Ignore the first argument (this simulator).
+  sim.parse_args(argc - 1, argv + 1);
 
   sim.run();
 

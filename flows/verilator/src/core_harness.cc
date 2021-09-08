@@ -142,8 +142,8 @@ private:
 
 class CoreSimulation : public RISCVSimulation<DUT> {
 public:
-  CoreSimulation(string name, int argc, char** argv) :
-      RISCVSimulation<DUT>(name, argc, argv),
+  CoreSimulation(string name) :
+      RISCVSimulation<DUT>(name),
       main_memory_port(dut, memory),
       io_memory_port(dut, memory) {
     // Nothing
@@ -242,9 +242,11 @@ void system_call(MemoryAddress address, uint64_t write_data) {
 
 
 int main(int argc, char** argv) {
-  // Ignore the first argument (this binary).
-  CoreSimulation sim("muntjac_core", argc - 1, argv + 1);
+  CoreSimulation sim("muntjac_core");
   the_sim = &sim;
+
+  // Ignore the first argument (this simulator).
+  sim.parse_args(argc - 1, argv + 1);
 
   sim.run();
 

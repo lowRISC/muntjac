@@ -4,21 +4,37 @@
 
 // Test harness for a TileLink network.
 
-#include "logs.h"
-#include "simulation.h"
+#include <vector>
 
 #include <verilated.h>
 #include "Vtl_wrapper.h"
 
+#include "logs.h"
+#include "simulation.h"
 #include "tilelink.h"
+
+using std::vector;
+class TileLinkSimulation;
 
 typedef Vtl_wrapper DUT;
 
+typedef void (*tl_test_fn)(TileLinkSimulation& sim);
+typedef struct {
+  tl_test_fn function;
+  string     description;
+} tl_test;
+
 class TileLinkSimulation : public Simulation<DUT> {
 public:
-  TileLinkSimulation(string name, int argc, char** argv) :
-      Simulation<DUT>(name, argc, argv) {
-    // Nothing
+  TileLinkSimulation(string name, int num_tests, tl_test* tests) :
+      Simulation<DUT>(name),
+      num_tests(num_tests),
+      tests(tests),
+      coverage_file("coverage.dat") {
+
+    this->args.set_description("Usage: " + name + " [simulator args] [tests to run]");
+    this->args.add_argument("--list-tests", "List all available tests");
+    this->args.add_argument("--coverage", "Dump coverage information to a file", ArgumentParser::ARGS_ONE);
   }
 
   // Wrapper functions.
@@ -417,6 +433,50 @@ public:
     cycle_second_half();
   }
 
+  void run() {
+    for (int test : tests_to_run) {
+      cout << "Test selected: " << tests[test].description << endl;
+      tests[test].function(*this);
+
+      // Add a few empty cycles to allow signals to propagate.
+      for (int wait=0; wait<100; wait++)
+        next_cycle();
+    }
+
+    end_simulation();
+
+    Verilated::threadContextp()->coveragep()->write(coverage_file.c_str());
+
+    cout << "No assertions triggered" << endl;
+  }
+
+  virtual void parse_args(int argc, char** argv) {
+    if (argc == 0) {
+      this->args.print_help();
+      exit(0);
+    }
+
+    Simulation<DUT>::parse_args(argc, argv);
+
+    if (this->args.found_arg("--list-tests")) {
+      list_tests();
+      exit(0);
+    }
+
+    if (this->args.found_arg("--coverage"))
+      coverage_file = this->args.get_arg("--coverage");
+
+    // If we found an unknown argument, assume it's the beginning of a list of
+    // tests to run.
+    if (this->args.get_args_parsed() < argc) {
+      for (int i=this->args.get_args_parsed(); i<argc; i++) {
+        int test = atoi(argv[i]);
+        assert(test < num_tests);
+        tests_to_run.push_back(test);
+      }
+    }
+  }
+
 protected:
 
   virtual void set_clock(int value) {dut.clk_i = value;}
@@ -439,6 +499,20 @@ protected:
 
     this->cycle += 0.5;
   }
+
+private:
+
+  void list_tests() const {
+    for (int i=0; i<num_tests; i++)
+      cout << "\t" << i << "\t" << tests[i].description << endl;
+  }
+
+  const int num_tests;
+  const tl_test* tests;
+
+  vector<int> tests_to_run;
+
+  string coverage_file;
 };
 
 
@@ -990,12 +1064,6 @@ void d_denied_without_corrupt(TileLinkSimulation& sim) {
   tl_d resp_received = sim.await_d(0);
 }
 
-typedef void (*tl_test_fn)(TileLinkSimulation& sim);
-typedef struct {
-  tl_test_fn function;
-  string     description;
-} tl_test;
-
 // TODO: more legal operation/param/channel combinations
 //       B/C/E channel tests (though assertions are mostly copied from A/D)
 #define NUM_TESTS 28
@@ -1031,42 +1099,16 @@ tl_test tests[NUM_TESTS] = {
 };
 
 int main(int argc, char** argv) {
-  // Ignore the first argument (this binary).
-  // TODO: argument parsing doesn't work properly at the moment: can't get a VCD
-  //       trace for a broken test.
-  TileLinkSimulation sim("tilelink", argc - 1, argv + 1);
+  TileLinkSimulation sim("tilelink", NUM_TESTS, tests);
   the_sim = &sim;
+
+  // Ignore the first argument (this simulator).
+  sim.parse_args(argc - 1, argv + 1);
 
   sim.init();
   sim.reset();
 
-  if (argc <= 1) {
-    cout << "Please select one or more tests:" << endl;
-    for (int i=0; i<NUM_TESTS; i++)
-      cout << "\t" << i << "\t" << tests[i].description << endl;
-    return 1;
-  }
-  else {
-    for (int i=1; i<argc; i++) {
-      int selected_test = atoi(argv[i]);
-
-      assert(selected_test < NUM_TESTS);
-
-      cout << "Test selected: " << tests[selected_test].description << endl;
-      tests[selected_test].function(sim);
-
-      // Add a few empty cycles to allow signals to propagate.
-      for (int wait=0; wait<100; wait++)
-        sim.next_cycle();
-    }
-
-    sim.end_simulation();
-
-    // TODO: unique filename
-    Verilated::threadContextp()->coveragep()->write("coverage.dat");
-
-    cout << "No assertions triggered" << endl;
-  }
+  sim.run();
 
   return 0;
 }

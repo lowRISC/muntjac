@@ -97,3 +97,30 @@ exc_cause_e PageFault::get_exception_code(MemoryOperation operation) const {
       break;
   }
 }
+
+
+SimulatorException::SimulatorException(string description) :
+    std::exception(),
+    message(description) {
+  // Nothing
+}
+
+const char* SimulatorException::what() const noexcept {
+  return message.c_str();
+}
+
+
+InvalidArgumentException::InvalidArgumentException(string argument, int position) :
+    SimulatorException("Invalid simulator argument: " + argument),
+    name(argument),
+    position(position) {
+  // Nothing
+}
+
+string InvalidArgumentException::get_name() const {
+  return name;
+}
+
+int InvalidArgumentException::get_position() const {
+  return position;
+}

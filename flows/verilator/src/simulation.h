@@ -11,7 +11,9 @@
 #include <verilated.h>
 #include <verilated_vcd_c.h>
 
+#include "argument_parser.h"
 #include "binary_parser.h"
+#include "exceptions.h"
 #include "logs.h"
 #include "main_memory.h"
 
@@ -22,13 +24,17 @@ template<class DUT>
 class Simulation {
 public:
 
-  Simulation(string name, int argc, char** argv) {
+  Simulation(string name) {
     this->name = name;
     timeout = 1000000;
     trace_on = false;
     cycle = 0.0;
 
-    parse_args(argc, argv);
+    args.add_argument("--timeout", "Force end of simulation after fixed number of cycles", ArgumentParser::ARGS_ONE);
+    args.add_argument("--vcd", "Dump VCD output to a file", ArgumentParser::ARGS_ONE);
+    args.add_argument("-v", "Display basic logging information as simulation proceeds");
+    args.add_argument("-vv", "Display detailed logging information as simulation proceeds");
+    args.add_argument("--help", "Display this information and exit");
   }
 
 protected:
@@ -63,50 +69,30 @@ public:
     dut.final();
   }
 
-protected:
-
+  // Call this from all subclasses.
   virtual void parse_args(int argc, char** argv) {
-    // Check for simulation arguments. They all begin with a hyphen.
-    int arg = 0;
-    while ((arg < argc) && (argv[arg][0] == '-')) {
-      string arg_string = argv[arg];
+    args.parse_args(argc, argv);
 
-      if (arg_string.rfind("--timeout", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        timeout = std::stoi(value);
-      }
-      else if (arg_string.rfind("--vcd", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        trace_file = value;
-        trace_on = true;
-      }
-      else if (arg_string == "-v")
-        log_level = 1;
-      else if (arg_string == "-vv")
-        log_level = 2;
-      else if (arg_string == "--help") {
-        print_help();
-        exit(1);
-      }
-      else {
-        cerr << "Unsupported simulator argument: " << arg_string << endl;
-        exit(1);
-      }
+    // TODO: parse args is often expected to throw an exception, so none of the
+    // following gets executed.
 
-      arg++;
+    if (args.found_arg("--timeout"))
+      timeout = std::stoi(args.get_arg("--timeout"));
+    
+    if (args.found_arg("--vcd")) {
+      trace_file = args.get_arg("--vcd");
+      trace_on = true;
     }
-  }
 
-  virtual void print_help() {
-    cout << "Muntjac simulator." << endl;
-    cout << endl;
-    cout << "Usage: " << name << " [simulator args] <program> [program args]" << endl;
-    cout << endl;
-    cout << "Simulator arguments:" << endl;
-    cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
-    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
-    cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
-    cout << "  --help\t\tDisplay this information and exit" << endl;
+    if (args.found_arg("-v"))
+      log_level = 1;
+    if (args.found_arg("-vv"))
+      log_level = 2;
+    
+    if (args.found_arg("--help")) {
+      args.print_help();
+      exit(0);
+    }
   }
 
 protected:
@@ -122,6 +108,8 @@ protected:
   double cycle;
 
 // Simulation parameters.
+
+  ArgumentParser args;
 
   // Force end simulation after this many cycles.
   uint64_t timeout;
@@ -139,13 +127,15 @@ template<class DUT>
 class RISCVSimulation : public Simulation<DUT> {
 public:
 
-  RISCVSimulation(string name, int argc, char** argv) : 
-      Simulation<DUT>(name, argc, argv) {
+  RISCVSimulation(string name) : 
+      Simulation<DUT>(name) {
     main_memory_latency = 10;
     csv_on = false;
     exit_code = 0;
 
-    read_binary(argc - binary_position, argv + binary_position);
+    this->args.set_description("Usage: " + name + " [simulator args] <program> [program args]");
+    this->args.add_argument("--memory-latency", "Set main memory latency to a given number of cycles", ArgumentParser::ARGS_ONE);
+    this->args.add_argument("--csv", "Dump a CSV trace to a file (mainly for riscv-dv)", ArgumentParser::ARGS_ONE);
   }
 
 protected:
@@ -253,68 +243,35 @@ public:
     }
   }
 
-protected:
-
   virtual void parse_args(int argc, char** argv) {
-    // Check for simulation arguments. They all begin with a hyphen.
-    int arg = 0;
-    while ((arg < argc) && (argv[arg][0] == '-')) {
-      string arg_string = argv[arg];
-
-      if (arg_string.rfind("--memory-latency", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        main_memory_latency = std::stoi(value);
-      }
-      else if (arg_string.rfind("--timeout", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        this->timeout = std::stoi(value);
-      }
-      else if (arg_string.rfind("--vcd", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        this->trace_file = value;
-        this->trace_on = true;
-      }
-      else if (arg_string.rfind("--csv", 0) == 0) {
-        string value = arg_string.substr(arg_string.find("=")+1, arg_string.size());
-        csv_file = value;
-        csv_on = true;
-      }
-      else if (arg_string == "-v")
-        log_level = 1;
-      else if (arg_string == "-vv")
-        log_level = 2;
-      else if (arg_string == "--help") {
-        print_help();
-        exit(1);
-      }
-      else {
-        cerr << "Unsupported simulator argument: " << arg_string << endl;
-        exit(1);
-      }
-
-      arg++;
+    if (argc == 0) {
+      this->args.print_help();
+      exit(0);
     }
 
-    if (arg == argc) {
-      print_help();
-      exit(1);
+    Simulation<DUT>::parse_args(argc, argv);
+
+    // If we found an unknown argument and it doesn't look like a flag, assume
+    // it's the binary to execute.
+    if (this->args.get_args_parsed() < argc) {
+      int pos = this->args.get_args_parsed();
+      string name(argv[pos]);
+
+      if (name[0] == '-')
+        throw InvalidArgumentException(name, pos);
+      else
+        binary_position = pos;
     }
 
-    binary_position = arg;
-  }
+    if (this->args.found_arg("--memory-latency"))
+      main_memory_latency = std::stoi(this->args.get_arg("--memory-latency"));
+    
+    if (this->args.found_arg("--csv")) {
+      csv_file = this->args.get_arg("--csv");
+      csv_on = true;
+    }
 
-  virtual void print_help() {
-    cout << "Muntjac simulator." << endl;
-    cout << endl;
-    cout << "Usage: " << this->name << " [simulator args] <program> [program args]" << endl;
-    cout << endl;
-    cout << "Simulator arguments:" << endl;
-    cout << "  --csv=X\t\tDump a CSV trace to file X (mainly for riscv-dv)" << endl;
-    cout << "  --memory-latency=X\tSet main memory latency to X cycles" << endl;
-    cout << "  --timeout=X\t\tForce end of simulation after X cycles" << endl;
-    cout << "  --vcd=X\t\tDump VCD output to file X" << endl;
-    cout << "  -v[v]\t\t\tDisplay additional information as simulation proceeds" << endl;
-    cout << "  --help\t\tDisplay this information and exit" << endl;
+    read_binary(argc - binary_position, argv + binary_position);
   }
 
 private:
