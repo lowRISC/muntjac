@@ -23,15 +23,17 @@ filesets:
   
   files_verilator:
     files:
-      - tl_wrapper.sv
+      - rtl/tl_wrapper.sv
     file_type: systemVerilogSource
   
   files_verilator_harness:
     depend:
       - lowrisc:muntjac:verilator_sim
     files:
-      - tilelink.h: {is_include_file: true}
-      - tl_harness.cc
+      - src/tilelink.h: {is_include_file: true}
+      - src/tl_harness.h: {is_include_file: true}
+      - src/tests.cc
+      - src/main.cc
     file_type: cppSource
 
   files_lint_verilator:

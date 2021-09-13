@@ -64,6 +64,6 @@ The default coverpoints are:
    * The value changed/stayed the same while waiting for a message to be accepted
 
 ## Extending
-To add new assertions, see [tl_assert.sv](tl_assert.sv).
+To add new assertions, see [tl_assert.sv](rtl/tl_assert.sv).
 
-To apply assertions to a new component, see [tl_checker.sv](tl_checker.sv) and [tl_bind.sv](tl_bind.sv).
+To apply assertions to a new component, see [tl_checker.sv](rtl/tl_checker.sv) and [tl_bind.sv](rtl/tl_bind.sv).
