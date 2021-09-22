@@ -23,6 +23,12 @@ bool is_system_call(MemoryAddress address, uint64_t write_data) {
 }
 void system_call(MemoryAddress address, uint64_t write_data) {}
 
+// Be careful using this: it changes the simulation time, so is not suitable
+// for parallel operations.
+void next_cycle() {
+  the_sim->next_cycle();
+}
+
 
 int main(int argc, char** argv) {
   TileLinkSimulation sim("tilelink", tests);

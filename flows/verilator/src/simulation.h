@@ -9,7 +9,16 @@
 #include <iostream>
 #include <fstream>
 #include <verilated.h>
-#include <verilated_vcd_c.h>
+
+// Verilator doesn't allow VCD and FST tracing simultaneously.
+// FST is faster and smaller, but only supported by GTKWave.
+// See the *_tb.core files to change which flag is set.
+#ifdef FST_ENABLE
+  #include "verilated_fst_c.h"
+#endif 
+#ifdef VCD_ENABLE
+  #include <verilated_vcd_c.h>
+#endif
 
 #include "argument_parser.h"
 #include "binary_parser.h"
@@ -27,14 +36,21 @@ public:
   Simulation(string name) {
     this->name = name;
     timeout = 1000000;
-    trace_on = false;
     cycle = 0.0;
 
     args.add_argument("--timeout", "Force end of simulation after fixed number of cycles", ArgumentParser::ARGS_ONE);
-    args.add_argument("--vcd", "Dump VCD output to a file", ArgumentParser::ARGS_ONE);
     args.add_argument("-v", "Display basic logging information as simulation proceeds");
     args.add_argument("-vv", "Display detailed logging information as simulation proceeds");
     args.add_argument("--help", "Display this information and exit");
+
+#ifdef FST_ENABLE
+    fst_on = false;
+    args.add_argument("--fst", "Dump FST output to a file (enable VCD in *_tb.core)", ArgumentParser::ARGS_ONE);
+#endif 
+#ifdef VCD_ENABLE
+    vcd_on = false;
+    args.add_argument("--vcd", "Dump VCD output to a file (enable FST in *_tb.core)", ArgumentParser::ARGS_ONE);
+#endif
   }
 
 protected:
@@ -45,6 +61,52 @@ protected:
   virtual void init() = 0;
   virtual void cycle_first_half() = 0;
   virtual void cycle_second_half() = 0;
+
+  // Initialise all active traces.
+  virtual void trace_init() {
+#ifdef VCD_ENABLE
+    if (vcd_on) {
+      Verilated::traceEverOn(true);
+    	dut.trace(&vcd_trace, 100);
+    	vcd_trace.open(vcd_filename.c_str());
+    }
+#endif 
+#ifdef FST_ENABLE
+    if (fst_on) {
+      Verilated::traceEverOn(true);
+    	dut.trace(&fst_trace, 100);
+    	fst_trace.open(fst_filename.c_str());
+    }
+#endif
+  }
+
+  // Dump information after state has changed.
+  virtual void trace_state_change() {
+#ifdef VCD_ENABLE
+    if (vcd_on)
+      vcd_trace.dump((uint64_t)(10*this->cycle));
+#endif 
+#ifdef FST_ENABLE
+    if (fst_on)
+      fst_trace.dump((uint64_t)(10*this->cycle));
+#endif
+  }
+
+  // Close all active traces.
+  virtual void trace_close() {
+#ifdef VCD_ENABLE
+    if (vcd_on) {
+      vcd_trace.flush();
+      vcd_trace.close();
+    }
+#endif
+#ifdef FST_ENABLE
+    if (fst_on) {
+      fst_trace.flush();
+      fst_trace.close();
+    }
+#endif
+  }
 
 public:
 
@@ -73,16 +135,22 @@ public:
   virtual void parse_args(int argc, char** argv) {
     args.parse_args(argc, argv);
 
-    // TODO: parse args is often expected to throw an exception, so none of the
-    // following gets executed.
-
     if (args.found_arg("--timeout"))
       timeout = std::stoi(args.get_arg("--timeout"));
     
-    if (args.found_arg("--vcd")) {
-      trace_file = args.get_arg("--vcd");
-      trace_on = true;
+#ifdef FST_ENABLE
+    if (args.found_arg("--fst")) {
+      fst_filename = args.get_arg("--fst");
+      fst_on = true;
     }
+#endif
+
+#ifdef VCD_ENABLE    
+    if (args.found_arg("--vcd")) {
+      vcd_filename = args.get_arg("--vcd");
+      vcd_on = true;
+    }
+#endif
 
     if (args.found_arg("-v"))
       log_level = 1;
@@ -114,10 +182,19 @@ protected:
   // Force end simulation after this many cycles.
   uint64_t timeout;
 
+private:
   // Generate VCD/FST trace file?
-  bool trace_on;
-  string trace_file;
+#ifdef VCD_ENABLE
+  bool vcd_on;
+  string vcd_filename;
   VerilatedVcdC vcd_trace;
+#endif
+
+#ifdef FST_ENABLE
+  bool fst_on;
+  string fst_filename;
+  VerilatedFstC fst_trace;
+#endif
 
 };
 
@@ -144,6 +221,43 @@ protected:
   virtual MemoryAddress get_program_counter() = 0;
   virtual instr_trace_t get_trace_info() = 0;
 
+  // Initialise all active traces.
+  virtual void trace_init() {
+    Simulation<DUT>::trace_init();
+
+    if (csv_on) {
+      csv_trace.open(csv_filename);
+
+      // This is a subset of the required fields for riscv-dv. The remaining
+      // ones are added in with a separate script which can decode instructions.
+      csv_trace << "pc,gpr,csr,binary,mode\n";
+    }
+  }
+
+  // Dump information after state has changed.
+  virtual void trace_state_change() {
+    Simulation<DUT>::trace_state_change();
+
+    // TODO: ensure this is happening on the expected clock edge.
+    if (get_program_counter() != pc) {
+      pc = get_program_counter();
+      MUNTJAC_LOG(1) << "PC: 0x" << std::hex << pc << std::dec << endl;
+
+      if (csv_on)
+        csv_output_line(csv_trace);
+    }
+  }
+
+  // Close all active traces.
+  virtual void trace_close() {
+    Simulation<DUT>::trace_close();
+
+    if (csv_on) {
+      csv_trace.flush();
+      csv_trace.close();
+    }
+  }
+
 public:
 
   int return_code() const {
@@ -151,22 +265,9 @@ public:
   }
 
   void run() {
-    MemoryAddress pc = 0;
+    pc = 0;
 
-    if (this->trace_on) {
-      Verilated::traceEverOn(true);
-    	this->dut.trace(&this->vcd_trace, 100);
-    	this->vcd_trace.open(this->trace_file.c_str());
-    }
-
-    ofstream csv;
-    if (csv_on) {
-      csv.open(csv_file);
-
-      // This is a subset of the required fields for riscv-dv. The remaining
-      // ones are added in with a separate script which can decode instructions.
-      csv << "pc,gpr,csr,binary,mode\n";
-    }
+    this->trace_init();
 
     this->init();
     this->reset();
@@ -176,41 +277,18 @@ public:
     while (!Verilated::gotFinish() && this->cycle < this->timeout) {
       this->set_clock(1);
       this->cycle_first_half();
-
-      if (this->trace_on) {
-        this->vcd_trace.dump((uint64_t)(10*this->cycle));
-      }
-
+      this->trace_state_change();
       this->cycle += 0.5;
+
       this->set_clock(0);
       this->cycle_second_half();
-
-      if (this->trace_on) {
-        this->vcd_trace.dump((uint64_t)(10*this->cycle));
-      }
-
-      if (get_program_counter() != pc) {
-        pc = get_program_counter();
-        MUNTJAC_LOG(1) << "PC: 0x" << std::hex << pc << std::dec << endl;
-
-        if (csv_on)
-          csv_output_line(csv);
-      }
-
+      this->trace_state_change();
       this->cycle += 0.5;
-    }
-
-    if (this->trace_on) {
-      this->vcd_trace.flush();
-      this->vcd_trace.close();
-    }
-
-    if (csv_on) {
-      csv.flush();
-      csv.close();
     }
 
     this->end_simulation();
+
+    this->trace_close();
 
     if (this->cycle >= this->timeout) {
       MUNTJAC_ERROR << "Simulation timed out after " << this->timeout << " cycles" << endl;
@@ -267,7 +345,7 @@ public:
       main_memory_latency = std::stoi(this->args.get_arg("--memory-latency"));
     
     if (this->args.found_arg("--csv")) {
-      csv_file = this->args.get_arg("--csv");
+      csv_filename = this->args.get_arg("--csv");
       csv_on = true;
     }
 
@@ -324,9 +402,12 @@ protected:
 
 private:
 
+  MemoryAddress pc;
+
   // Generate CSV trace file?
   bool csv_on;
-  string csv_file;
+  string csv_filename;
+  ofstream csv_trace;
 
 // Simulation state.
 

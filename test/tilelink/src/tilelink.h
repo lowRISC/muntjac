@@ -4,6 +4,12 @@
 
 #include <cstdint>
 
+typedef enum {
+    TL_UL,
+    TL_UH,
+    TL_C
+} tl_protocol_e;
+
 typedef struct {
     int      opcode;
     int      param;

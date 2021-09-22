@@ -117,3 +117,5 @@ targets:
           - "--assert"
           - "-O3"  # Verilator optimisation
           - "-CFLAGS -O3"  # compiler optimisation
+          - "-CFLAGS -DFST_ENABLE" # Either VCD_ENABLE or FST_ENABLE
+          - "--trace-fst"          # Only if FST_ENABLE above

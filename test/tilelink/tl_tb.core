@@ -31,6 +31,7 @@ filesets:
       - lowrisc:muntjac:verilator_sim
     files:
       - src/tilelink.h: {is_include_file: true}
+      - src/tl_channels.h: {is_include_file: true}
       - src/tl_harness.h: {is_include_file: true}
       - src/tests.cc
       - src/main.cc
@@ -74,3 +75,5 @@ targets:
           - "--coverage-user"  # Also consider coverage-line and coverage-toggle
           - "-O3"  # Verilator optimisation
           - "-CFLAGS -Os"  # compiler optimisation
+          - "-CFLAGS -DFST_ENABLE" # Either VCD_ENABLE or FST_ENABLE
+          - "--trace-fst"          # Only if FST_ENABLE above
