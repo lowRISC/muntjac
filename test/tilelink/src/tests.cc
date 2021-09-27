@@ -4,22 +4,19 @@
 
 #include "tl_harness.h"
 
-// TODO: unless we're inspecting the contents of requests/responses, let the
-//       simulator do more of the work.
-//  * host.a.modify_next_request(...)
-//  * host.a.send_default_request()
-//  * device.d.send_default_response()
 // TODO: for passing tests, run on many combinations of host/device
 // TODO: more legal operation/param/channel combinations
 // TODO: B/C/E channel tests (though assertions are mostly copied from A/D)
 
+// TODO: address which is aligned at host, but enters wider channel so becomes misaligned
+
 // Normal write operation (should pass).
 void valid_write_operation(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData;
   host.a.send(request);
 
   tl_a req_received = device.a.await();
@@ -28,23 +25,23 @@ void valid_write_operation(TileLinkSimulation& sim) {
   assert(req_received.mask == request.mask);
   assert(req_received.data == request.data);
 
-  tl_d response = device.d.default_response(req_received);
+  tl_d response = device.d.new_response(false, req_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
   assert(!resp_received.denied);
   assert(!resp_received.corrupt);
   assert(resp_received.source == request.source);
-  assert(resp_received.opcode == 0); // AccessAck (for Put requests)
+  assert(resp_received.opcode == AccessAck); // For Put requests
 }
 
 // Normal read operation (should pass).
 void valid_read_operation(TileLinkSimulation& sim) {
-  auto host = sim.host(1);
-  auto device = sim.device(0);
+  auto& host = sim.host(1);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4; // Get
+  tl_a request = host.a.new_request(false);
+  request.opcode = Get;
   host.a.send(request);
 
   tl_a req_received = device.a.await();
@@ -52,7 +49,7 @@ void valid_read_operation(TileLinkSimulation& sim) {
   assert(req_received.opcode == request.opcode);
   assert(req_received.mask == request.mask);
 
-  tl_d response = device.d.default_response(req_received);
+  tl_d response = device.d.new_response(false, req_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
@@ -60,15 +57,15 @@ void valid_read_operation(TileLinkSimulation& sim) {
   assert(!resp_received.corrupt);
   assert(resp_received.data == response.data);
   assert(resp_received.source == request.source);
-  assert(resp_received.opcode == 1); // AccessAckData (for Get and Atomic requests)
+  assert(resp_received.opcode == AccessAckData); // For Get and Atomic requests
 }
 
 // Send from host 1 to device 1 (should pass).
 void valid_dev1_operation(TileLinkSimulation& sim) {
-  auto host = sim.host(1);
-  auto device = sim.device(1);
+  auto& host = sim.host(1);
+  auto& device = sim.device(1);
 
-  tl_a request = host.a.default_request();
+  tl_a request = host.a.new_request(false);
   request.address = host.a.get_address(0x3000, 1);
   host.a.send(request);
 
@@ -78,14 +75,14 @@ void valid_dev1_operation(TileLinkSimulation& sim) {
   assert(req_received.mask == request.mask);
   assert(req_received.data == request.data);
 
-  tl_d response = device.d.default_response(req_received);
+  tl_d response = device.d.new_response(false, req_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
   assert(!resp_received.denied);
   assert(!resp_received.corrupt);
   assert(resp_received.source == request.source);
-  assert(resp_received.opcode == 0); // AccessAck (for Put requests)
+  assert(resp_received.opcode == AccessAck); // For Put requests
 }
 
 // Multiple simultaneous requests from multiple sources (should pass)
@@ -101,7 +98,7 @@ void multiple_valid_requests(TileLinkSimulation& sim) {
   host0.a.send(dev0_request);
   
   // host1 -> dev1 request
-  tl_a dev1_request = host1.a.default_request();
+  tl_a dev1_request = host1.a.new_request(false);
   dev1_request.address = host1.a.get_address(0x3000, 1);
   host1.a.send(dev1_request);
 
@@ -125,11 +122,11 @@ void multiple_valid_requests(TileLinkSimulation& sim) {
 
 // Write operation with 2 beats. Should pass on TL-C and TL-UH.
 void multibeat_tlc(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData;
   request.size = 4; // 2^4 = 16 bytes = 2 beats
   host.a.send(request);
 
@@ -144,7 +141,7 @@ void multibeat_tlc(TileLinkSimulation& sim) {
   tl_a req2_received = device.a.await();
   assert(req2_received.data == request2.data);
 
-  tl_d response = device.d.default_response(req2_received);
+  tl_d response = device.d.new_response(false, req2_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
@@ -152,11 +149,11 @@ void multibeat_tlc(TileLinkSimulation& sim) {
 
 // Write operation with 2 beats. Illegal on TL-UL, but adapter should help.
 void multibeat_tlul(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(2); // TL-UL
+  auto& host = sim.host(0);
+  auto& device = sim.device(2); // TL-UL
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData;
   request.size = 4; // 2^4 = 16 bytes = 2 beats
   request.address = host.a.get_address(0x3000, 2);
   host.a.send(request);
@@ -176,7 +173,7 @@ void multibeat_tlul(TileLinkSimulation& sim) {
   tl_a req2_received = device.a.await();
   assert(req2_received.data == request2.data);
 
-  tl_d response2 = device.d.default_response(req2_received);
+  tl_d response2 = device.d.new_response(false, req2_received);
   device.d.send(response2);
 
   tl_d resp2_received = host.d.await();
@@ -184,16 +181,16 @@ void multibeat_tlul(TileLinkSimulation& sim) {
 
 // Only requests with data payloads are allowed to be marked corrupt.
 void a_corrupt_payload(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData (so request contains data)
-  request.corrupt = 1;
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData; // So request contains data
+  request.corrupt = true;
   host.a.send(request);
 
   tl_a req_received = device.a.await();
-  tl_d response = device.d.default_response(req_received);
+  tl_d response = device.d.new_response(false, req_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
@@ -211,123 +208,92 @@ void all_passing_tests(TileLinkSimulation& sim) {
 
 // Illegal A opcode
 void a_illegal_opcode(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.address = host.a.get_address(0x3000, 2); // TL-UL
-  request.opcode = 2; // ArithmeticData - only illegal for TL-UL.
-
-  host.a.send(request);
+  // Send TL-UH request to TL-UL device.
+  host.a.queue_request(false, {{"opcode", (int)ArithmeticData},
+                               {"address", host.a.get_address(0x3000, 2)}});
+  
+  sim.run(false);
 }
 
 // Illegal A param
 void a_illegal_param(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.param = 2; // Reserved - only 0 is allowed.
-
-  host.a.send(request);
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"param",                 2}}); // Only 0 allowed
+  
+  sim.run(false);
 }
 
 // Size too small for mask
 void a_size_too_small(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.size = 1;   // 2**1 = 2 byte request
-  request.mask = 0xF; // 4 bits set implies 4 bytes requested
-  request.opcode = 4; // Get
-
-  host.a.send(request);
+  host.a.queue_request(false, {{"opcode", (int)Get},
+                               {"size",          1},   // 2**1 = 2 byte request
+                               {"mask",        0xF}}); // 4 bits implies 4 bytes
+  
+  sim.run(false);
 }
 
 // Size doesn't match mask when doing a "full" access
 void a_size_mask_mismatch(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.size = 3;   // 2**3 = 8 byte request
-  request.mask = 0xF; // 4 bits set implies 4 bytes requested
-  request.opcode = 0; // PutFullData
-
-  host.a.send(request);
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"size",          3},   // 2**3 = 8 byte request
+                               {"mask",        0xF}}); // 4 bits implies 4 bytes
+  
+  sim.run(false);
 }
 
 // Address not aligned to size
 void a_unaligned_address(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.size = 3;    // 2**3 = 8 byte request
-  request.address = 0x3001;
-
-  host.a.send(request);
+  host.a.queue_request(false, {{"size",         3},   // 2**3 = 8 byte request
+                               {"address", 0x3001}});
+  
+  sim.run(false);
 }
 
 // Multibeat requests must increment the address by the width of the bus.
 void a_multibeat_addr_inc(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
-  request.size = 4; // 2^4 = 16 bytes = 128 bits
-  host.a.send(request);
-
-  tl_a req_received = device.a.await();
-  assert(req_received.data == request.data);
-
-  tl_a request2 = request;
-  request2.address += 0;  // Not allowed
-  request2.data = 0x87654321;
-  host.a.send(request2);
-
-  tl_a req2_received = device.a.await();
-  assert(req2_received.data == request2.data);
-
-  tl_d response = device.d.default_response(req2_received);
-  device.d.send(response);
-
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"size",                  4}, // 2 beats
+                               {"address",          0x3000}});
+  host.a.change_next_beat({}); // Let first beat through as-is
+  host.a.change_next_beat({{"address", 0x3000}}); // Increment of 0
+  
+  sim.run(false);
 }
 
 // Multibeat requests must keep control signals constant (opcode, param, size,
 // source).
 void a_multibeat_ctrl_const(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
-  request.size = 4; // 2^4 = 16 bytes = 128 bits
-  host.a.send(request);
-
-  tl_a req_received = device.a.await();
-  assert(req_received.data == request.data);
-
-  tl_a request2 = request;
-  request2.address += 8;
-  request2.data = 0x87654321;
-  request2.size = 3;  // Not allowed
-  host.a.send(request2);
-
-  tl_a req2_received = device.a.await();
-  assert(req2_received.data == request2.data);
-
-  tl_d response = device.d.default_response(req2_received);
-  device.d.send(response);
-
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"size",          4}}); // 2**4 = 16 bytes = 2 beats
+  host.a.change_next_beat({}); // Let first beat through as-is
+  host.a.change_next_beat({{"size", 3}}); // Not allowed
+  
+  sim.run(false);
 }
 
 // Too many beats in burst request.
 void a_too_many_beats(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
+  // Need to use lower-level methods to force a late response.
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData;
   request.size = 4; // 2^4 = 16 bytes = 128 bits = 2 beats
   host.a.send(request);
 
@@ -350,7 +316,7 @@ void a_too_many_beats(TileLinkSimulation& sim) {
   tl_a req3_received = device.a.await();
   assert(req3_received.data == request3.data);
 
-  tl_d response = device.d.default_response(req3_received);
+  tl_d response = device.d.new_response(false, req3_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
@@ -358,18 +324,19 @@ void a_too_many_beats(TileLinkSimulation& sim) {
 
 // Too few beats in burst request.
 void a_too_few_beats(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
-
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
+  
+  // Need to use lower-level methods to force an early response.
+  tl_a request = host.a.new_request(false);
+  request.opcode = PutFullData;
   request.size = 4; // 2^4 = 16 bytes = 128 bits = 2 beats
   host.a.send(request);
 
   tl_a req_received = device.a.await();
   assert(req_received.data == request.data);
 
-  tl_d response = device.d.default_response(req_received);
+  tl_d response = device.d.new_response(false, req_received);
   device.d.send(response);
 
   tl_d resp_received = host.d.await();
@@ -377,123 +344,83 @@ void a_too_few_beats(TileLinkSimulation& sim) {
 
 // Non-contiguous mask
 void a_noncontiguous_mask(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4; // Get
-  request.size = 2;
-  request.mask = 0x33; // In binary: 00110011
+  host.a.queue_request(false, {{"opcode", (int)Get}, 
+                               {"size",          2},
+                               {"mask",       0x33}}); // In binary: 00110011
 
-  host.a.send(request);
+  sim.run(false);
 }
 
 // Multibeat requests must have all bits of the mask set high.
 void a_multibeat_bad_mask(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
-  request.size = 4; // 2^4 = 16 bytes = 128 bits
-  host.a.send(request);
-
-  tl_a req_received = device.a.await();
-  assert(req_received.data == request.data);
-
-  tl_a request2 = request;
-  request2.address += 8;
-  request2.data = 0x87654321;
-  request2.mask = 0xF0;  // Not allowed
-  host.a.send(request2);
-
-  tl_a req2_received = device.a.await();
-  assert(req2_received.data == request2.data);
-
-  tl_d response = device.d.default_response(req_received);
-  device.d.send(response);
-
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"size",          4}}); // 2**4 = 16 bytes = 2 beats
+  host.a.change_next_beat({}); // Let first beat through as-is
+  host.a.change_next_beat({{"mask", 0xF0}}); // Not allowed
+  
+  sim.run(false);
 }
 
 // Masks must be aligned with the bus width (64 bits in this case).
 // If a narrow request is made and the address is not also aligned with the bus
 // width, the mask (and data) must be offset within the bus.
 void a_misaligned_mask(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 0; // PutFullData
-  request.size = 0; // 1 byte
-  request.address = 0x3001; // Data and mask should be offset by 1: mask = 0x2
-  request.mask = 0x4;
-  host.a.send(request);
-
-  tl_a req_received = device.a.await();
-  tl_d response = device.d.default_response(req_received);
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData},
+                               {"size",          0},   // 2**0 = 1 byte request
+                               {"address",  0x3001},   // Offset = 1
+                               {"mask",        0x4}}); // Offset = 2 (mismatch)
+  
+  sim.run(false);
 }
 
 // Only requests with data payloads are allowed to be marked corrupt.
 void a_corrupt_without_payload(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4; // Get (so request contains no data)
-  request.corrupt = 1;
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)Get},
+                               {"corrupt",       1}});
+  
+  sim.run(false);
 }
 
 // Illegal D opcode
 void d_illegal_opcode(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  response.opcode = 2;
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData}});
+  device.d.change_next_beat({{"opcode", (int)HintAck}}); // Should be AccessAck
+  
+  sim.run(false);
 }
 
 // Illegal D param
 void d_illegal_param(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  response.param = 2;
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)PutFullData}});
+  device.d.change_next_beat({{"param", 2}}); // Should be 0
+  
+  sim.run(false);
 }
 
 // Response size differs from request size
 void d_size_mismatch(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  response.size = request.size - 1;
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"size", 3}});
+  device.d.change_next_beat({{"size", 2}});
+  
+  sim.run(false);
 }
 
 // Too many beats in burst response
@@ -501,77 +428,54 @@ void d_size_mismatch(TileLinkSimulation& sim) {
 // request will be cleared from the assertion state when the expected number of
 // beats have arrived.
 void d_too_many_beats(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4; // Get
-  request.size = 4; // 2**4 = 16 bytes = 2 beats
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
-
-  tl_d response2 = response;
-  response2.data = 0x87654321;
-  device.d.send(response2);
-  tl_d resp2_received = host.d.await();
-
-  tl_d response3 = response;
-  response3.data = 0x18273645;
-  device.d.send(response3);
-  tl_d resp3_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)Get},
+                               {"size",          4}, // 2**4 = 16 bytes = 2 beats
+                               {"address",  0x3000}});
+  device.d.change_next_beat({}); // Let first beat through as-is
+  device.d.change_next_beat({{"duplicate_beat", 0}}); // Duplicate second beat
+  device.d.change_next_beat({{"address", 0x3010}}); // Valid third beat address
+  
+  sim.run(false);
 }
 
 // Too few beats in burst response
 // This will probably get picked up as an "outstanding request at end of sim"
 void d_too_few_beats(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4; // Get
-  request.size = 4; // 2**4 = 16 bytes = 2 beats
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)Get},
+                               {"size",          4}}); // 2**4 = 16 bytes = 2 beats
+  device.d.change_next_beat({}); // Let first beat through as-is
+  device.d.change_next_beat({{"drop_beat", 0}}); // Drop the second beat
+  
+  sim.run(false);
 }
 
 // Response without request from same source
 void d_response_without_request(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  response.source = request.source + 1;
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false);
+  device.d.change_next_beat({{"source", 1}}); // Should be match host 0
+  
+  sim.run(false);
 }
 
 // Request denied without corrupting response.
 void d_denied_without_corrupt(TileLinkSimulation& sim) {
-  auto host = sim.host(0);
-  auto device = sim.device(0);
+  auto& host = sim.host(0);
+  auto& device = sim.device(0);
 
-  tl_a request = host.a.default_request();
-  request.opcode = 4;  // Get
-  host.a.send(request);
-  tl_a req_received = device.a.await();
-
-  tl_d response = device.d.default_response(req_received);
-  response.denied = 1;
-  response.corrupt = 0;
-  device.d.send(response);
-  tl_d resp_received = host.d.await();
+  host.a.queue_request(false, {{"opcode", (int)Get}});
+  device.d.change_next_beat({{"denied",  1},
+                             {"corrupt", 0}});
+  
+  sim.run(false);
 }
 
 vector<tl_test> tests = {

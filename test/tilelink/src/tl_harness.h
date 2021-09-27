@@ -4,6 +4,9 @@
 
 // Test harness for a TileLink network.
 
+#ifndef TL_HARNESS_H
+#define TL_HARNESS_H
+
 #include <vector>
 #include <verilated.h>
 
@@ -29,35 +32,68 @@ public:
       tests(tests),
       coverage_file("coverage.dat") {
     coverage_on = false;
+    sim_duration = 0;
 
     this->args.set_description("Usage: " + name + " [simulator args] [tests to run]");
     this->args.add_argument("--list-tests", "List all available tests");
     this->args.add_argument("--coverage", "Dump coverage information to a file", ArgumentParser::ARGS_ONE);
+    this->args.add_argument("--random-seed", "Set the random seed", ArgumentParser::ARGS_ONE);
+    this->args.add_argument("--run", "Generate random traffic for the given duration (in cycles)", ArgumentParser::ARGS_ONE);
 
-    hosts.push_back(new TileLinkHost(this->dut, 0, TL_C,  64));
-    hosts.push_back(new TileLinkHost(this->dut, 1, TL_UH, 64));
-    hosts.push_back(new TileLinkHost(this->dut, 2, TL_UL, 64));
+    hosts.push_back(new TileLinkHost(this->dut, 0, TL_C,  64, 0, 0));
+    hosts.push_back(new TileLinkHost(this->dut, 1, TL_UH, 64, 1, 1));
+    hosts.push_back(new TileLinkHost(this->dut, 2, TL_UL, 64, 2, 2));
     
-    devices.push_back(new TileLinkDevice(this->dut, 0, TL_C,  64));
-    devices.push_back(new TileLinkDevice(this->dut, 1, TL_UH, 64));
-    devices.push_back(new TileLinkDevice(this->dut, 2, TL_UL, 64));
+    devices.push_back(new TileLinkDevice(this->dut, 0, TL_C,  64, 0, 0));
+    devices.push_back(new TileLinkDevice(this->dut, 1, TL_UH, 64, 1, 1));
+    devices.push_back(new TileLinkDevice(this->dut, 2, TL_UL, 64, 2, 2));
   }
+
+  int             num_hosts()   const {return hosts.size();}
+  int             num_devices() const {return devices.size();}
 
   TileLinkHost&   host(int position)   const {return *hosts[position];}
   TileLinkDevice& device(int position) const {return *devices[position];}
 
-  // Run a deterministic simulation until there have been `timeout` cycles of
-  // inactivity. No new requests will be generated, but default responses will
-  // be created and sent for any transactions still in the system.
-  void run_deterministic(int timeout=100) {
-
+  TileLinkHost&   random_host(tl_protocol_e min_protocol=TL_UL) const {
+    // Assuming a host with the required protocol exists.
+    while (true) {
+      auto& host = *hosts[rand() % num_hosts()];
+      if (host.protocol >= min_protocol)
+        return host;
+    }
   }
 
-  // Run a simulation with random valid requests and responses for `duration`
-  // clock cycles. No new requests will be generated for the final `drain`
-  // cycles to allow the system to reach a quiescent state.
-  void run_random(int duration=1000, int drain=100) {
-    // TODO
+  TileLinkDevice& random_device(tl_protocol_e min_protocol=TL_UL) const {
+    // Assuming a device with the required protocol exists.
+    while (true) {
+      auto& device = *devices[rand() % num_devices()];
+      if (device.protocol >= min_protocol)
+        return device;
+    }
+  }
+
+  // Run a simulation for the given duration. If `randomise` is true, requests
+  // will be generated during simulation, and responses will have random valid
+  // effects. During the final `drain` clock cycles, no new requests will be
+  // generated. If `randomise` is false, no new requests are generated, and all
+  // responses are deterministic.
+  void run(bool randomise, int duration=1000, int drain=100) {
+    for (int i=0; i<duration; i++) {
+      for (auto host : hosts)
+        host->step(randomise);
+      for (auto device : devices)
+        device->step(randomise);
+      next_cycle();
+    }
+
+    for (int i=0; i<drain; i++) {
+      for (auto host : hosts)
+        host->step(false);   // No new requests
+      for (auto device : devices)
+        device->step(false); // No new requests
+      next_cycle();
+    }
   }
 
 
@@ -96,6 +132,9 @@ public:
         next_cycle();
     }
 
+    if (sim_duration > 0)
+      run(true, sim_duration);
+
     end_simulation();
 
     this->trace_close();
@@ -123,6 +162,12 @@ public:
       coverage_on = true;
       coverage_file = this->args.get_arg("--coverage");
     }
+
+    if (this->args.found_arg("--random-seed"))
+      srand(std::stoi(this->args.get_arg("--random-seed")));
+    
+    if (this->args.found_arg("--run"))
+      sim_duration = std::stoi(this->args.get_arg("--run"));
 
     // If we found an unknown argument, assume it's the beginning of a list of
     // tests to run.
@@ -168,6 +213,7 @@ private:
   const vector<tl_test> tests;
 
   vector<int> tests_to_run;
+  int sim_duration;
 
   bool coverage_on;
   string coverage_file;
@@ -175,3 +221,5 @@ private:
   vector<TileLinkHost*> hosts;
   vector<TileLinkDevice*> devices;
 };
+
+#endif // TL_HARNESS_H

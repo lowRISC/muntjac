@@ -5,7 +5,7 @@
 // accesses through.
 //
 // DeviceSinkWidth is fixed to 1 because sink is unused for TL-UH link.
-module tl_io_terminator import tl_pkg::*; import muntjac_pkg::*; #(
+module tl_io_terminator import tl_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned SourceWidth = 1,

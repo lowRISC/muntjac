@@ -85,49 +85,6 @@ module tl_adapter_bram_checker import tl_pkg::*; #(
 endmodule
 
 
-module tl_adapter_tlul_checker import tl_pkg::*; #(
-    parameter int unsigned AddrWidth,
-    parameter int unsigned DataWidth,
-    parameter int unsigned SinkWidth,
-    parameter int unsigned HostSourceWidth,
-    parameter int unsigned DeviceSourceWidth
-) (
-  input logic clk_i,
-  input logic rst_ni,
-
-  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
-  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
-);
-
-  tl_assert #(
-    .Protocol(TL_UH),
-    .EndpointType("Host"),
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .SinkWidth(SinkWidth),
-    .SourceWidth(HostSourceWidth)
-  ) host_checker (
-    .clk_i,
-    .rst_ni,
-    `TL_FORWARD_TAP_PORT(tl, host)
-  );
-
-  tl_assert #(
-    .Protocol(TL_UL),
-    .EndpointType("Device"),
-    .AddrWidth(AddrWidth),
-    .DataWidth(DataWidth),
-    .SinkWidth(SinkWidth),
-    .SourceWidth(DeviceSourceWidth)
-  ) device_checker (
-    .clk_i,
-    .rst_ni,
-    `TL_FORWARD_TAP_PORT(tl, device)
-  );
-
-endmodule
-
-
 module tl_axi_adapter_checker import tl_pkg::*; #(
     parameter int unsigned AddrWidth,
     parameter int unsigned DataWidth,
@@ -293,13 +250,13 @@ module tl_terminator_checker import tl_pkg::*; #(
     parameter int unsigned DataWidth,
     parameter int unsigned HostSourceWidth,
     parameter int unsigned DeviceSourceWidth,
-    parameter int unsigned SinkWidth
+    parameter int unsigned HostSinkWidth
 ) (
   input logic clk_i,
   input logic rst_ni,
 
-  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
-  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
+  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, HostSourceWidth, HostSinkWidth, host),
+  `TL_DECLARE_TAP_PORT(DataWidth, AddrWidth, DeviceSourceWidth, HostSinkWidth, device)
 );
 
   tl_assert #(
@@ -307,7 +264,7 @@ module tl_terminator_checker import tl_pkg::*; #(
     .EndpointType("Host"),
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
-    .SinkWidth(SinkWidth),
+    .SinkWidth(HostSinkWidth),
     .SourceWidth(HostSourceWidth)
   ) host_checker (
     .clk_i,
@@ -320,7 +277,7 @@ module tl_terminator_checker import tl_pkg::*; #(
     .EndpointType("Device"),
     .AddrWidth(AddrWidth),
     .DataWidth(DataWidth),
-    .SinkWidth(SinkWidth),
+    .SinkWidth(HostSinkWidth),
     .SourceWidth(DeviceSourceWidth)
   ) device_checker (
     .clk_i,

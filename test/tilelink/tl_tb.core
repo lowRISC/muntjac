@@ -9,7 +9,6 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:tl:adapter_bram
-      - lowrisc:tl:adapter_tlul
       - lowrisc:tl:adapter
       - lowrisc:tl:broadcast
       - lowrisc:tl:fifo_async
@@ -30,10 +29,13 @@ filesets:
     depend:
       - lowrisc:muntjac:verilator_sim
     files:
+      - src/random.h: {is_include_file: true}
       - src/tilelink.h: {is_include_file: true}
       - src/tl_channels.h: {is_include_file: true}
+      - src/tl_exceptions.h: {is_include_file: true}
       - src/tl_harness.h: {is_include_file: true}
       - src/tests.cc
+      - src/tl_channels.cc
       - src/main.cc
     file_type: cppSource
 

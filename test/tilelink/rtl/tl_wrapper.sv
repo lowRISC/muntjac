@@ -5,7 +5,8 @@
 module tl_wrapper #(
     parameter int unsigned AddrWidth = 56,
     parameter int unsigned DataWidth = 64,
-    parameter int unsigned SourceWidth = 4,
+    parameter int unsigned HostSourceWidth = 4,
+    parameter int unsigned DeviceSourceWidth = 7,
     parameter int unsigned SinkWidth = 2
 ) (
   // Clock and reset
@@ -21,7 +22,7 @@ module tl_wrapper #(
   input  tl_pkg::tl_a_op_e                   host_a_opcode_i  [2:0],
   input  logic                         [2:0] host_a_param_i   [2:0],
   input  logic          [`TL_SIZE_WIDTH-1:0] host_a_size_i    [2:0],
-  input  logic             [SourceWidth-1:0] host_a_source_i  [2:0],
+  input  logic         [HostSourceWidth-1:0] host_a_source_i  [2:0],
   input  logic               [AddrWidth-1:0] host_a_address_i [2:0],
   input  logic             [DataWidth/8-1:0] host_a_mask_i    [2:0],
   input  logic                               host_a_corrupt_i [2:0],
@@ -32,18 +33,15 @@ module tl_wrapper #(
   output tl_pkg::tl_b_op_e                   host_b_opcode_o  [2:0],
   output logic                         [2:0] host_b_param_o   [2:0],
   output logic          [`TL_SIZE_WIDTH-1:0] host_b_size_o    [2:0],
-  output logic             [SourceWidth-1:0] host_b_source_o  [2:0],
+  output logic         [HostSourceWidth-1:0] host_b_source_o  [2:0],
   output logic               [AddrWidth-1:0] host_b_address_o [2:0],
-  output logic             [DataWidth/8-1:0] host_b_mask_o    [2:0],
-  output logic                               host_b_corrupt_o [2:0],
-  output logic               [DataWidth-1:0] host_b_data_o    [2:0], 
 
   output logic                               host_c_ready_o   [2:0],
   input  logic                               host_c_valid_i   [2:0],
   input  tl_pkg::tl_c_op_e                   host_c_opcode_i  [2:0],
   input  logic                         [2:0] host_c_param_i   [2:0],
   input  logic          [`TL_SIZE_WIDTH-1:0] host_c_size_i    [2:0],
-  input  logic             [SourceWidth-1:0] host_c_source_i  [2:0],
+  input  logic         [HostSourceWidth-1:0] host_c_source_i  [2:0],
   input  logic               [AddrWidth-1:0] host_c_address_i [2:0],
   input  logic                               host_c_corrupt_i [2:0],
   input  logic               [DataWidth-1:0] host_c_data_i    [2:0],
@@ -53,7 +51,7 @@ module tl_wrapper #(
   output tl_pkg::tl_d_op_e                   host_d_opcode_o  [2:0],
   output logic                         [2:0] host_d_param_o   [2:0],
   output logic          [`TL_SIZE_WIDTH-1:0] host_d_size_o    [2:0],
-  output logic             [SourceWidth-1:0] host_d_source_o  [2:0],
+  output logic         [HostSourceWidth-1:0] host_d_source_o  [2:0],
   output logic               [SinkWidth-1:0] host_d_sink_o    [2:0],
   output logic                               host_d_denied_o  [2:0],
   output logic                               host_d_corrupt_o [2:0],
@@ -69,7 +67,7 @@ module tl_wrapper #(
   output tl_pkg::tl_a_op_e                   dev_a_opcode_o   [2:0],
   output logic                         [2:0] dev_a_param_o    [2:0],
   output logic          [`TL_SIZE_WIDTH-1:0] dev_a_size_o     [2:0],
-  output logic             [SourceWidth-1:0] dev_a_source_o   [2:0],
+  output logic       [DeviceSourceWidth-1:0] dev_a_source_o   [2:0],
   output logic               [AddrWidth-1:0] dev_a_address_o  [2:0],
   output logic             [DataWidth/8-1:0] dev_a_mask_o     [2:0],
   output logic                               dev_a_corrupt_o  [2:0],
@@ -80,18 +78,15 @@ module tl_wrapper #(
   input  tl_pkg::tl_b_op_e                   dev_b_opcode_i   [2:0],
   input  logic                         [2:0] dev_b_param_i    [2:0],
   input  logic          [`TL_SIZE_WIDTH-1:0] dev_b_size_i     [2:0],
-  input  logic             [SourceWidth-1:0] dev_b_source_i   [2:0],
+  input  logic       [DeviceSourceWidth-1:0] dev_b_source_i   [2:0],
   input  logic               [AddrWidth-1:0] dev_b_address_i  [2:0],
-  input  logic             [DataWidth/8-1:0] dev_b_mask_i     [2:0],
-  input  logic                               dev_b_corrupt_i  [2:0],
-  input  logic               [DataWidth-1:0] dev_b_data_i     [2:0], 
 
   input  logic                               dev_c_ready_i    [2:0],
   output logic                               dev_c_valid_o    [2:0],
   output tl_pkg::tl_c_op_e                   dev_c_opcode_o   [2:0],
   output logic                         [2:0] dev_c_param_o    [2:0],
   output logic          [`TL_SIZE_WIDTH-1:0] dev_c_size_o     [2:0],
-  output logic             [SourceWidth-1:0] dev_c_source_o   [2:0],
+  output logic       [DeviceSourceWidth-1:0] dev_c_source_o   [2:0],
   output logic               [AddrWidth-1:0] dev_c_address_o  [2:0],
   output logic                               dev_c_corrupt_o  [2:0],
   output logic               [DataWidth-1:0] dev_c_data_o     [2:0],
@@ -101,7 +96,7 @@ module tl_wrapper #(
   input  tl_pkg::tl_d_op_e                   dev_d_opcode_i   [2:0],
   input  logic                         [2:0] dev_d_param_i    [2:0],
   input  logic          [`TL_SIZE_WIDTH-1:0] dev_d_size_i     [2:0],
-  input  logic             [SourceWidth-1:0] dev_d_source_i   [2:0],
+  input  logic       [DeviceSourceWidth-1:0] dev_d_source_i   [2:0],
   input  logic               [SinkWidth-1:0] dev_d_sink_i     [2:0],
   input  logic                               dev_d_denied_i   [2:0],
   input  logic                               dev_d_corrupt_i  [2:0],
@@ -122,19 +117,17 @@ module tl_wrapper #(
 //                             socket_1n
 //        _________________________|_________________________
 //       |                         | (dev_tl)                |
-//   dev0 (TL-C)               dev1 (TL-UH)             tlul_bridge
-//                                                           | (tl_ul)
-//                                                       dev2 (TL-UL)
-//
-// TODO:
-//  * Put some more adapters in to change more parameters
-//  * See if theres a way to enforce TL-UH device and/or TL-UH/TL-UL hosts.
+//   dev0 (TL-C)             ram_terminator            ram_terminator
+//                                 | (dev1_tluh)             | (dev2_tluh)
+//                            dev1 (TL-UH)             size_downsizer
+//                                                           | (dev2_tlul)
+//                                                      dev2 (TL-UL)
 
-  `TL_DECLARE_ARR(DataWidth, AddrWidth, SourceWidth, SinkWidth, host_tl, [2:0]);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, tl_channel);
+  `TL_DECLARE_ARR(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host_tl, [2:0]);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, tl_channel);
 
   tl_socket_m1 #(
-    .SourceWidth (SourceWidth),
+    .SourceWidth (HostSourceWidth),
     .SinkWidth   (SinkWidth),
     .AddrWidth   (AddrWidth),
     .DataWidth   (DataWidth),
@@ -142,11 +135,11 @@ module tl_wrapper #(
 
     // TODO: Not 100% sure of the difference between these two
     .NumCachedHosts (1),
-    .NumCachedLinks (0),
+    .NumCachedLinks (1),
 
     .NumSourceRange (2),  // Excluding default source 0
-    .SourceBase ({{{SourceWidth-2{1'b0}}, 2'd1}, {{SourceWidth-2{1'b0}}, 2'd2}}),
-    .SourceMask ({{SourceWidth{1'b0}}, {SourceWidth{1'b0}}}),
+    .SourceBase ({{{HostSourceWidth-2{1'b0}}, 2'd1}, {{HostSourceWidth-2{1'b0}}, 2'd2}}),
+    .SourceMask ({{HostSourceWidth{1'b0}}, {HostSourceWidth{1'b0}}}),
     .SourceLink ({2'd1, 2'd2})
   ) socket_m1 (
     .clk_i,
@@ -155,10 +148,10 @@ module tl_wrapper #(
     `TL_CONNECT_HOST_PORT(device, tl_channel)
   );
 
-  `TL_DECLARE_ARR(DataWidth, AddrWidth, SourceWidth, SinkWidth, dev_tl, [2:0]);
+  `TL_DECLARE_ARR(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, dev_tl, [2:0]);
 
   tl_socket_1n #(
-    .SourceWidth (SourceWidth),
+    .SourceWidth (HostSourceWidth),
     .SinkWidth   (SinkWidth),
     .NumLinks    (3),
     .NumAddressRange (2),  // Excluding default sink 0
@@ -176,17 +169,44 @@ module tl_wrapper #(
     `TL_CONNECT_HOST_PORT(device, dev_tl)
   );
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, dev_tlul);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, dev1_tluh);
 
-  tl_adapter_tlul #(
-    .HostSourceWidth (SourceWidth),
-    .DeviceSourceWidth (SourceWidth),
-    .SinkWidth (SinkWidth)
-  ) tlul_bridge (
+  tl_ram_terminator #(
+    .HostSourceWidth (HostSourceWidth),
+    .DeviceSourceWidth (HostSourceWidth),
+    .HostSinkWidth (SinkWidth)
+  ) ram_terminator1 (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT_IDX(host, dev_tl, [1]),
+    `TL_CONNECT_HOST_PORT(device, dev1_tluh)
+  );
+
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, dev2_tluh);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, dev2_tlul);
+
+  tl_ram_terminator #(
+    .HostSourceWidth (HostSourceWidth),
+    .DeviceSourceWidth (HostSourceWidth),
+    .HostSinkWidth (SinkWidth)
+  ) ram_terminator2 (
     .clk_i,
     .rst_ni,
     `TL_CONNECT_DEVICE_PORT_IDX(host, dev_tl, [2]),
-    `TL_CONNECT_HOST_PORT(device, dev_tlul)
+    `TL_CONNECT_HOST_PORT(device, dev2_tluh)
+  );
+
+  // TL-UL ~= TL-UH with no multibeat messages.
+  // (Also more-restricted opcodes, but we don't control that.)
+  tl_size_downsizer #(
+    .HostSourceWidth (HostSourceWidth),
+    .DeviceSourceWidth (DeviceSourceWidth)
+    // The default DeviceMaxSize parameter ensures no multibeat messages.
+  ) size_downsizer (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_DEVICE_PORT(host, dev2_tluh),
+    `TL_CONNECT_HOST_PORT(device, dev2_tlul)
   );
 
   // Can't use normal macros here because the names are slightly different with
@@ -212,9 +232,6 @@ module tl_wrapper #(
     assign host_b_size_o[i] = host_tl_b[i].size;
     assign host_b_source_o[i] = host_tl_b[i].source;
     assign host_b_address_o[i] = host_tl_b[i].address;
-    assign host_b_mask_o[i] = host_tl_b[i].mask;
-    assign host_b_corrupt_o[i] = host_tl_b[i].corrupt;
-    assign host_b_data_o[i] = host_tl_b[i].data;
 
     assign host_c_ready_o[i] = host_tl_c_ready[i];
     assign host_tl_c_valid[i] = host_c_valid_i[i];
@@ -243,13 +260,13 @@ module tl_wrapper #(
   end
 
   // To devices.
-  for (genvar i=0; i<2; i++) begin
+  for (genvar i=0; i<1; i++) begin
     assign dev_tl_a_ready[i] = dev_a_ready_i[i];
     assign dev_a_valid_o[i] = dev_tl_a_valid[i];
     assign dev_a_opcode_o[i] = dev_tl_a[i].opcode;
     assign dev_a_param_o[i] = dev_tl_a[i].param;
     assign dev_a_size_o[i] = dev_tl_a[i].size;
-    assign dev_a_source_o[i] = dev_tl_a[i].source;
+    assign dev_a_source_o[i] = {{(DeviceSourceWidth-HostSourceWidth){1'b0}}, dev_tl_a[i].source};
     assign dev_a_address_o[i] = dev_tl_a[i].address;
     assign dev_a_mask_o[i] = dev_tl_a[i].mask;
     assign dev_a_corrupt_o[i] = dev_tl_a[i].corrupt;
@@ -260,18 +277,15 @@ module tl_wrapper #(
     assign dev_tl_b[i].opcode = dev_b_opcode_i[i];
     assign dev_tl_b[i].param = dev_b_param_i[i];
     assign dev_tl_b[i].size = dev_b_size_i[i];
-    assign dev_tl_b[i].source = dev_b_source_i[i];
+    assign dev_tl_b[i].source = dev_b_source_i[i][HostSourceWidth-1:0];
     assign dev_tl_b[i].address = dev_b_address_i[i];
-    assign dev_tl_b[i].mask = dev_b_mask_i[i];
-    assign dev_tl_b[i].corrupt = dev_b_corrupt_i[i];
-    assign dev_tl_b[i].data = dev_b_data_i[i];
 
     assign dev_tl_c_ready[i] = dev_c_ready_i[i];
     assign dev_c_valid_o[i] = dev_tl_c_valid[i];
     assign dev_c_opcode_o[i] = dev_tl_c[i].opcode;
     assign dev_c_param_o[i] = dev_tl_c[i].param;
     assign dev_c_size_o[i] = dev_tl_c[i].size;
-    assign dev_c_source_o[i] = dev_tl_c[i].source;
+    assign dev_c_source_o[i] = {{(DeviceSourceWidth-HostSourceWidth){1'b0}}, dev_tl_c[i].source};
     assign dev_c_address_o[i] = dev_tl_c[i].address;
     assign dev_c_corrupt_o[i] = dev_tl_c[i].corrupt;
     assign dev_c_data_o[i] = dev_tl_c[i].data;
@@ -281,7 +295,7 @@ module tl_wrapper #(
     assign dev_tl_d[i].opcode = dev_d_opcode_i[i];
     assign dev_tl_d[i].param = dev_d_param_i[i];
     assign dev_tl_d[i].size = dev_d_size_i[i];
-    assign dev_tl_d[i].source = dev_d_source_i[i];
+    assign dev_tl_d[i].source = dev_d_source_i[i][HostSourceWidth-1:0];
     assign dev_tl_d[i].sink = dev_d_sink_i[i];
     assign dev_tl_d[i].denied = dev_d_denied_i[i];
     assign dev_tl_d[i].corrupt = dev_d_corrupt_i[i];
@@ -292,51 +306,93 @@ module tl_wrapper #(
     assign dev_e_sink_o[i] = dev_tl_e[i].sink;
   end
 
-  assign dev_tlul_a_ready = dev_a_ready_i[2];
-  assign dev_a_valid_o[2] = dev_tlul_a_valid;
-  assign dev_a_opcode_o[2] = dev_tlul_a.opcode;
-  assign dev_a_param_o[2] = dev_tlul_a.param;
-  assign dev_a_size_o[2] = dev_tlul_a.size;
-  assign dev_a_source_o[2] = dev_tlul_a.source;
-  assign dev_a_address_o[2] = dev_tlul_a.address;
-  assign dev_a_mask_o[2] = dev_tlul_a.mask;
-  assign dev_a_corrupt_o[2] = dev_tlul_a.corrupt;
-  assign dev_a_data_o[2] = dev_tlul_a.data;
+  assign dev1_tluh_a_ready = dev_a_ready_i[1];
+  assign dev_a_valid_o[1] = dev1_tluh_a_valid;
+  assign dev_a_opcode_o[1] = dev1_tluh_a.opcode;
+  assign dev_a_param_o[1] = dev1_tluh_a.param;
+  assign dev_a_size_o[1] = dev1_tluh_a.size;
+  assign dev_a_source_o[1] = dev1_tluh_a.source;
+  assign dev_a_address_o[1] = dev1_tluh_a.address;
+  assign dev_a_mask_o[1] = dev1_tluh_a.mask;
+  assign dev_a_corrupt_o[1] = dev1_tluh_a.corrupt;
+  assign dev_a_data_o[1] = dev1_tluh_a.data;
 
-  assign dev_b_ready_o[2] = dev_tlul_b_ready;
-  assign dev_tlul_b_valid = dev_b_valid_i[2];
-  assign dev_tlul_b.opcode = dev_b_opcode_i[2];
-  assign dev_tlul_b.param = dev_b_param_i[2];
-  assign dev_tlul_b.size = dev_b_size_i[2];
-  assign dev_tlul_b.source = dev_b_source_i[2];
-  assign dev_tlul_b.address = dev_b_address_i[2];
-  assign dev_tlul_b.mask = dev_b_mask_i[2];
-  assign dev_tlul_b.corrupt = dev_b_corrupt_i[2];
-  assign dev_tlul_b.data = dev_b_data_i[2];
+  assign dev_b_ready_o[1] = dev1_tluh_b_ready;
+  assign dev1_tluh_b_valid = dev_b_valid_i[1];
+  assign dev1_tluh_b.opcode = dev_b_opcode_i[1];
+  assign dev1_tluh_b.param = dev_b_param_i[1];
+  assign dev1_tluh_b.size = dev_b_size_i[1];
+  assign dev1_tluh_b.source = dev_b_source_i[1];
+  assign dev1_tluh_b.address = dev_b_address_i[1];
 
-  assign dev_tlul_c_ready = dev_c_ready_i[2];
-  assign dev_c_valid_o[2] = dev_tlul_c_valid;
-  assign dev_c_opcode_o[2] = dev_tlul_c.opcode;
-  assign dev_c_param_o[2] = dev_tlul_c.param;
-  assign dev_c_size_o[2] = dev_tlul_c.size;
-  assign dev_c_source_o[2] = dev_tlul_c.source;
-  assign dev_c_address_o[2] = dev_tlul_c.address;
-  assign dev_c_corrupt_o[2] = dev_tlul_c.corrupt;
-  assign dev_c_data_o[2] = dev_tlul_c.data;
+  assign dev1_tluh_c_ready = dev_c_ready_i[1];
+  assign dev_c_valid_o[1] = dev1_tluh_c_valid;
+  assign dev_c_opcode_o[1] = dev1_tluh_c.opcode;
+  assign dev_c_param_o[1] = dev1_tluh_c.param;
+  assign dev_c_size_o[1] = dev1_tluh_c.size;
+  assign dev_c_source_o[1] = dev1_tluh_c.source;
+  assign dev_c_address_o[1] = dev1_tluh_c.address;
+  assign dev_c_corrupt_o[1] = dev1_tluh_c.corrupt;
+  assign dev_c_data_o[1] = dev1_tluh_c.data;
 
-  assign dev_d_ready_o[2] = dev_tlul_d_ready;
-  assign dev_tlul_d_valid = dev_d_valid_i[2];
-  assign dev_tlul_d.opcode = dev_d_opcode_i[2];
-  assign dev_tlul_d.param = dev_d_param_i[2];
-  assign dev_tlul_d.size = dev_d_size_i[2];
-  assign dev_tlul_d.source = dev_d_source_i[2];
-  assign dev_tlul_d.sink = dev_d_sink_i[2];
-  assign dev_tlul_d.denied = dev_d_denied_i[2];
-  assign dev_tlul_d.corrupt = dev_d_corrupt_i[2];
-  assign dev_tlul_d.data = dev_d_data_i[2];
+  assign dev_d_ready_o[1] = dev1_tluh_d_ready;
+  assign dev1_tluh_d_valid = dev_d_valid_i[1];
+  assign dev1_tluh_d.opcode = dev_d_opcode_i[1];
+  assign dev1_tluh_d.param = dev_d_param_i[1];
+  assign dev1_tluh_d.size = dev_d_size_i[1];
+  assign dev1_tluh_d.source = dev_d_source_i[1];
+  assign dev1_tluh_d.sink = dev_d_sink_i[1];
+  assign dev1_tluh_d.denied = dev_d_denied_i[1];
+  assign dev1_tluh_d.corrupt = dev_d_corrupt_i[1];
+  assign dev1_tluh_d.data = dev_d_data_i[1];
 
-  assign dev_tlul_e_ready = dev_e_ready_i[2];
-  assign dev_e_valid_o[2] = dev_tlul_e_valid;
-  assign dev_e_sink_o[2] = dev_tlul_e.sink;
+  assign dev1_tluh_e_ready = dev_e_ready_i[1];
+  assign dev_e_valid_o[1] = dev1_tluh_e_valid;
+  assign dev_e_sink_o[1] = dev1_tluh_e.sink;
+
+
+  assign dev2_tlul_a_ready = dev_a_ready_i[2];
+  assign dev_a_valid_o[2] = dev2_tlul_a_valid;
+  assign dev_a_opcode_o[2] = dev2_tlul_a.opcode;
+  assign dev_a_param_o[2] = dev2_tlul_a.param;
+  assign dev_a_size_o[2] = dev2_tlul_a.size;
+  assign dev_a_source_o[2] = dev2_tlul_a.source;
+  assign dev_a_address_o[2] = dev2_tlul_a.address;
+  assign dev_a_mask_o[2] = dev2_tlul_a.mask;
+  assign dev_a_corrupt_o[2] = dev2_tlul_a.corrupt;
+  assign dev_a_data_o[2] = dev2_tlul_a.data;
+
+  assign dev_b_ready_o[2] = dev2_tlul_b_ready;
+  assign dev2_tlul_b_valid = dev_b_valid_i[2];
+  assign dev2_tlul_b.opcode = dev_b_opcode_i[2];
+  assign dev2_tlul_b.param = dev_b_param_i[2];
+  assign dev2_tlul_b.size = dev_b_size_i[2];
+  assign dev2_tlul_b.source = dev_b_source_i[2];
+  assign dev2_tlul_b.address = dev_b_address_i[2];
+
+  assign dev2_tlul_c_ready = dev_c_ready_i[2];
+  assign dev_c_valid_o[2] = dev2_tlul_c_valid;
+  assign dev_c_opcode_o[2] = dev2_tlul_c.opcode;
+  assign dev_c_param_o[2] = dev2_tlul_c.param;
+  assign dev_c_size_o[2] = dev2_tlul_c.size;
+  assign dev_c_source_o[2] = dev2_tlul_c.source;
+  assign dev_c_address_o[2] = dev2_tlul_c.address;
+  assign dev_c_corrupt_o[2] = dev2_tlul_c.corrupt;
+  assign dev_c_data_o[2] = dev2_tlul_c.data;
+
+  assign dev_d_ready_o[2] = dev2_tlul_d_ready;
+  assign dev2_tlul_d_valid = dev_d_valid_i[2];
+  assign dev2_tlul_d.opcode = dev_d_opcode_i[2];
+  assign dev2_tlul_d.param = dev_d_param_i[2];
+  assign dev2_tlul_d.size = dev_d_size_i[2];
+  assign dev2_tlul_d.source = dev_d_source_i[2];
+  assign dev2_tlul_d.sink = dev_d_sink_i[2];
+  assign dev2_tlul_d.denied = dev_d_denied_i[2];
+  assign dev2_tlul_d.corrupt = dev_d_corrupt_i[2];
+  assign dev2_tlul_d.data = dev_d_data_i[2];
+
+  assign dev2_tlul_e_ready = dev_e_ready_i[2];
+  assign dev_e_valid_o[2] = dev2_tlul_e_valid;
+  assign dev_e_sink_o[2] = dev2_tlul_e.sink;
 
 endmodule

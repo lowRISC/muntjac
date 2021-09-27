@@ -29,19 +29,6 @@ bind tl_adapter_bram tl_adapter_bram_checker #(
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host)
 );
 
-bind tl_adapter_tlul tl_adapter_tlul_checker #(
-  .AddrWidth(AddrWidth),
-  .DataWidth(DataWidth),
-  .SinkWidth(SinkWidth),
-  .HostSourceWidth(HostSourceWidth),
-  .DeviceSourceWidth(DeviceSourceWidth)
-) tl_adapter_tlul_assert (
-  .clk_i,
-  .rst_ni,
-  `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
-  `TL_FORWARD_TAP_PORT_FROM_HOST(device, device)
-);
-
 bind tl_axi_adapter tl_axi_adapter_checker #(
   .AddrWidth(AddrWidth),
   .DataWidth(DataWidth),
@@ -68,7 +55,7 @@ bind tl_broadcast tl_broadcast_checker #(
 bind tl_io_terminator tl_terminator_checker #(
   .AddrWidth(AddrWidth),
   .DataWidth(DataWidth),
-  .SinkWidth(SinkWidth),
+  .HostSinkWidth(HostSinkWidth),
   .HostSourceWidth(SourceWidth),
   .DeviceSourceWidth(SourceWidth)
 ) tl_io_terminator_assert (
@@ -81,7 +68,7 @@ bind tl_io_terminator tl_terminator_checker #(
 bind tl_ram_terminator tl_terminator_checker #(
   .AddrWidth(AddrWidth),
   .DataWidth(DataWidth),
-  .SinkWidth(SinkWidth),
+  .HostSinkWidth(HostSinkWidth),
   .HostSourceWidth(HostSourceWidth),
   .DeviceSourceWidth(DeviceSourceWidth)
 ) tl_ram_terminator_assert (
@@ -94,7 +81,7 @@ bind tl_ram_terminator tl_terminator_checker #(
 bind tl_rom_terminator tl_terminator_checker #(
   .AddrWidth(AddrWidth),
   .DataWidth(DataWidth),
-  .SinkWidth(SinkWidth),
+  .HostSinkWidth(HostSinkWidth),
   .HostSourceWidth(HostSourceWidth),
   .DeviceSourceWidth(DeviceSourceWidth)
 ) tl_rom_terminator_assert (
