@@ -4,9 +4,6 @@
 // TL-UH to AXI bridge.
 //
 // SinkWidth is fixed to 1 because sink is unused for TL-UH link.
-//
-// TODO: This module has a combinational path from valid to ready, which is not
-//       allowed for AXI.
 module tl_axi_adapter import tl_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
@@ -32,7 +29,6 @@ module tl_axi_adapter import tl_pkg::*; #(
 
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, 1, host);
   `AXI_DECLARE(DataWidth, AddrWidth, IdWidth, device);
-  `AXI_BIND_HOST_PORT(device, device);
 
   // Register slice needed because we may use host_a without asserting host_a_ready.
   tl_regslice #(
@@ -46,6 +42,20 @@ module tl_axi_adapter import tl_pkg::*; #(
     .rst_ni,
     `TL_FORWARD_DEVICE_PORT(host, host),
     `TL_CONNECT_HOST_PORT(device, host)
+  );
+
+  // Register slice needed because combinational signal from valid to ready.
+  axi_regslice #(
+    .DataWidth (DataWidth),
+    .AddrWidth (AddrWidth),
+    .IdWidth (IdWidth),
+    .BMode (2),
+    .RMode (2)
+  ) device_reg (
+    .clk_i,
+    .rst_ni,
+    `AXI_CONNECT_DEVICE_PORT(host, device),
+    `AXI_FORWARD_HOST_PORT(device, device)
   );
 
   /////////////////////////////////////////
