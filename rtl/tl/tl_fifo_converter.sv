@@ -37,6 +37,7 @@ module tl_fifo_converter import tl_pkg::*; #(
   /////////////////////////////////
 
   logic host_a_first;
+  logic host_a_last;
   logic host_d_last;
   logic [BurstLenWidth-1:0] host_d_idx;
 
@@ -65,7 +66,7 @@ module tl_fifo_converter import tl_pkg::*; #(
     .req_first_o (host_a_first),
     .rel_first_o (),
     .gnt_first_o (),
-    .req_last_o (),
+    .req_last_o (host_a_last),
     .rel_last_o (),
     .gnt_last_o (host_d_last)
   );
@@ -158,6 +159,10 @@ module tl_fifo_converter import tl_pkg::*; #(
     if (host_a_valid && host_a_ready && host_a_first) begin
       tracker_valid_d[tracker_a_idx_q] = 1'b1;
       tracker_source_d[tracker_a_idx_q] = host_a.source;
+    end
+
+    // Increment tracker counter after request fully sent.
+    if (host_a_valid && host_a_ready && host_a_last) begin
       tracker_a_idx_d = tracker_a_idx_q + 1;
     end
   end
