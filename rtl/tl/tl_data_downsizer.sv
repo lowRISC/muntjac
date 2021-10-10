@@ -1,7 +1,7 @@
 `include "tl_util.svh"
 
 // An adpater that shrinks DataWidth.
-module tl_data_downsizer import tl_pkg::*; #(
+module tl_data_downsizer import tl_pkg::*; import prim_util_pkg::*; #(
   parameter  int unsigned HostDataWidth   = 64,
   parameter  int unsigned DeviceDataWidth = 32,
   parameter  int unsigned AddrWidth   = 56,
@@ -24,7 +24,7 @@ module tl_data_downsizer import tl_pkg::*; #(
   localparam int unsigned DeviceDataWidthInBytes = DeviceDataWidth / 8;
   localparam int unsigned DeviceNonBurstSize = $clog2(DeviceDataWidthInBytes);
   localparam int unsigned DeviceMaxBurstLen = 2 ** (MaxSize - DeviceNonBurstSize);
-  localparam int unsigned DeviceBurstLenWidth = $clog2(DeviceMaxBurstLen);
+  localparam int unsigned DeviceBurstLenWidth = vbits(DeviceMaxBurstLen);
 
   localparam int unsigned SubbeatNum = HostDataWidth / DeviceDataWidth;
   localparam int unsigned SubbeatBits = HostNonBurstSize - DeviceNonBurstSize;
