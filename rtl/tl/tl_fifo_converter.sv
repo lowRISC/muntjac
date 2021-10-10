@@ -29,20 +29,34 @@ module tl_fifo_converter import tl_pkg::*; #(
 
   `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
   `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, tmp);
   `TL_BIND_DEVICE_PORT(host, host);
   `TL_BIND_HOST_PORT(device, device);
 
-  /////////////////////////////////
-  // Burst tracker instantiation //
-  /////////////////////////////////
+  // TODO: Support B, C, E channels if we need to FIFOify them
+  assign device_b_ready = 1'b1;
+  assign host_b_valid   = 1'b0;
+  assign host_b         = 'x;
+
+  assign host_c_ready   = 1'b1;
+  assign device_c_valid = 1'b0;
+  assign device_c       = 'x;
+
+  assign host_e_ready   = 1'b1;
+  assign device_e_valid = 1'b0;
+  assign device_e       = 'x;
+
+  /////////////////////////////////////////
+  // #region Burst tracker instantiation //
 
   logic host_a_first;
   logic host_a_last;
-  logic host_d_last;
-  logic [BurstLenWidth-1:0] host_d_idx;
 
   logic device_d_last;
   logic [BurstLenWidth-1:0] device_d_idx;
+
+  logic tmp_d_last;
+  logic [BurstLenWidth-1:0] tmp_d_idx;
 
   tl_burst_tracker #(
     .DataWidth (DataWidth),
@@ -59,7 +73,7 @@ module tl_fifo_converter import tl_pkg::*; #(
     .gnt_len_o (),
     .req_idx_o (),
     .rel_idx_o (),
-    .gnt_idx_o (host_d_idx),
+    .gnt_idx_o (),
     .req_left_o (),
     .rel_left_o (),
     .gnt_left_o (),
@@ -68,7 +82,7 @@ module tl_fifo_converter import tl_pkg::*; #(
     .gnt_first_o (),
     .req_last_o (host_a_last),
     .rel_last_o (),
-    .gnt_last_o (host_d_last)
+    .gnt_last_o ()
   );
 
   tl_burst_tracker #(
@@ -98,9 +112,38 @@ module tl_fifo_converter import tl_pkg::*; #(
     .gnt_last_o (device_d_last)
   );
 
-  ////////////////////////
-  // Tracker and buffer //
-  ////////////////////////
+  tl_burst_tracker #(
+    .DataWidth (DataWidth),
+    .AddrWidth (AddrWidth),
+    .SourceWidth (HostSourceWidth),
+    .SinkWidth (SinkWidth),
+    .MaxSize (MaxSize)
+  ) tmp_burst_tracker (
+    .clk_i,
+    .rst_ni,
+    `TL_CONNECT_TAP_PORT(link, tmp),
+    .req_len_o (),
+    .rel_len_o (),
+    .gnt_len_o (),
+    .req_idx_o (),
+    .rel_idx_o (),
+    .gnt_idx_o (tmp_d_idx),
+    .req_left_o (),
+    .rel_left_o (),
+    .gnt_left_o (),
+    .req_first_o (),
+    .rel_first_o (),
+    .gnt_first_o (),
+    .req_last_o (),
+    .rel_last_o (),
+    .gnt_last_o (tmp_d_last)
+  );
+
+  // #endregion
+  /////////////////////////////////////////
+
+  //////////////////////////////////////
+  // #region Tracker and ctrl signals //
 
   // Control signals for response.
   typedef struct packed {
@@ -111,18 +154,11 @@ module tl_fifo_converter import tl_pkg::*; #(
     logic                                denied ;
   } d_ctrl_t;
 
-  // Data signals for response.
-  typedef struct packed {
-    logic                 corrupt;
-    logic [DataWidth-1:0] data;
-  } d_data_t;
-
   logic [NumTracker-1:0]                      tracker_valid_q, tracker_valid_d;
+  logic [NumTracker-1:0]                      tracker_ready_q, tracker_ready_d;
   logic [NumTracker-1:0][HostSourceWidth-1:0] tracker_source_q, tracker_source_d;
 
-  logic    [NumTracker-1:0]                  tracker_ready_q, tracker_ready_d;
   d_ctrl_t [NumTracker-1:0]                  tracker_ctrl_q;
-  d_data_t [NumTracker-1:0][MaxBurstLen-1:0] tracker_data_q;
 
   logic [TrackerWidth-1:0] tracker_a_idx_q, tracker_a_idx_d;
   logic [TrackerWidth-1:0] tracker_d_idx_q, tracker_d_idx_d;
@@ -132,7 +168,6 @@ module tl_fifo_converter import tl_pkg::*; #(
       if (device_d_last) begin
         tracker_ctrl_q[device_d.source[TrackerWidth-1:0]] <= {device_d.opcode, device_d.param, device_d.size, device_d.sink, device_d.denied};
       end
-      tracker_data_q[device_d.source[TrackerWidth-1:0]][device_d_idx] <= {device_d.corrupt, device_d.data};
     end
   end
 
@@ -148,7 +183,7 @@ module tl_fifo_converter import tl_pkg::*; #(
     end
 
     // Remove from tracker when a response is completed.
-    if (host_d_valid && host_d_ready && host_d_last) begin
+    if (tmp_d_valid && tmp_d_ready && tmp_d_last) begin
       tracker_valid_d[tracker_d_idx_q] = 1'b0;
       tracker_source_d[tracker_d_idx_q] = 'x;
       tracker_ready_d[tracker_d_idx_q] = 1'b0;
@@ -200,28 +235,89 @@ module tl_fifo_converter import tl_pkg::*; #(
   // We are always ready to accept a response from D channel.
   assign device_d_ready = 1'b1;
 
-  // Send the request to host if we marked it ready.
-  assign host_d_valid   = tracker_ready_q[tracker_d_idx_q];
-  assign host_d.opcode  = tracker_ctrl_q[tracker_d_idx_q].opcode;
-  assign host_d.param   = tracker_ctrl_q[tracker_d_idx_q].param;
-  assign host_d.size    = tracker_ctrl_q[tracker_d_idx_q].size;
-  assign host_d.source  = tracker_source_q[tracker_d_idx_q];
-  assign host_d.sink    = tracker_ctrl_q[tracker_d_idx_q].sink;
-  assign host_d.denied  = tracker_ctrl_q[tracker_d_idx_q].denied;
-  assign host_d.corrupt = tracker_data_q[tracker_d_idx_q][host_d_idx].corrupt;
-  assign host_d.data    = tracker_data_q[tracker_d_idx_q][host_d_idx].data;
+  // Send opcode and size to the tmp link for tmp_d_idx calulcation.
+  assign tmp_d_ready = !host_d_valid || host_d_ready;
+  assign tmp_d_valid   = tracker_ready_q[tracker_d_idx_q];
+  assign tmp_d.opcode  = tracker_ctrl_q[tracker_d_idx_q].opcode;
+  assign tmp_d.size    = tracker_ctrl_q[tracker_d_idx_q].size;
 
-  // TODO: Support B, C, E channels if we need to FIFOify them
-  assign device_b_ready = 1'b1;
-  assign host_b_valid   = 1'b0;
-  assign host_b         = 'x;
+  // A register slice between host and tmp so that data can be placed SRAMs.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      host_d_valid <= 1'b0;
+    end else begin
+      if (host_d_ready) begin
+        host_d_valid <= 1'b0;
+      end
+      if (tmp_d_valid) begin
+        host_d_valid <= 1'b1;
+      end
+    end
+  end
 
-  assign host_c_ready   = 1'b1;
-  assign device_c_valid = 1'b0;
-  assign device_c       = 'x;
+  always_ff @(posedge clk_i) begin
+    if (tmp_d_valid && tmp_d_ready) begin
+      host_d.opcode  <= tmp_d.opcode;
+      host_d.size    <= tmp_d.size;
 
-  assign host_e_ready   = 1'b1;
-  assign device_e_valid = 1'b0;
-  assign device_e       = 'x;
+      host_d.param   <= tracker_ctrl_q[tracker_d_idx_q].param;
+      host_d.source  <= tracker_source_q[tracker_d_idx_q];
+      host_d.sink    <= tracker_ctrl_q[tracker_d_idx_q].sink;
+      host_d.denied  <= tracker_ctrl_q[tracker_d_idx_q].denied;
+    end
+  end
+
+  // #endregion
+  //////////////////////////////////////
+
+  //////////////////////////
+  // #region Data signals //
+
+  // Data signals for response.
+  typedef struct packed {
+    logic                 corrupt;
+    logic [DataWidth-1:0] data;
+  } d_data_t;
+
+  // Use `logic` instead struct, a single dim array instead multiple, so tools
+  // are more likely to recongise this as a RAM.
+  //
+  // On Xilinx also hint that this should be a distributed RAM. The tracker number
+  // are usually not high, so this isn't deep enough to worth a BRAM.
+`ifdef FPGA_XILINX
+  (* ram_style = "distributed" *)
+`endif
+  logic [DataWidth:0] tracker_data_q [NumTracker*MaxBurstLen];
+  logic                     tracker_data_w_valid;
+  logic [TrackerWidth-1:0]  tracker_data_w_idx;
+  logic [BurstLenWidth-1:0] tracker_data_w_beat_idx;
+  d_data_t                  tracker_data_w_data;
+  logic                     tracker_data_r_valid;
+  logic [TrackerWidth-1:0]  tracker_data_r_idx;
+  logic [BurstLenWidth-1:0] tracker_data_r_beat_idx;
+  d_data_t                  tracker_data_r_data;
+
+  always_ff @(posedge clk_i) begin
+    if (tracker_data_w_valid) begin
+      tracker_data_q[{tracker_data_w_idx, tracker_data_w_beat_idx}] <= tracker_data_w_data;
+    end
+    if (tracker_data_r_valid) begin
+      tracker_data_r_data <= tracker_data_q[{tracker_data_r_idx, tracker_data_r_beat_idx}];
+    end
+  end
+
+  assign tracker_data_w_valid = device_d_valid;
+  assign tracker_data_w_idx = device_d.source[TrackerWidth-1:0];
+  assign tracker_data_w_beat_idx = device_d_idx;
+  assign tracker_data_w_data = {device_d.corrupt, device_d.data};
+
+  assign tracker_data_r_valid = tmp_d_valid && tmp_d_ready;
+  assign tracker_data_r_idx = tracker_d_idx_q;
+  assign tracker_data_r_beat_idx = tmp_d_idx;
+  assign host_d.corrupt = tracker_data_r_data.corrupt;
+  assign host_d.data    = tracker_data_r_data.data;
+
+  // #endregion
+  //////////////////////////
 
 endmodule
