@@ -5,17 +5,41 @@ For each of the TileLink protocol variants (TL-UL, TL-UH, TL-C), we provide:
  * A module which monitors a TileLink channel and checks that all communication adheres to the TileLink specification.
  * A collection of functional coverage groups, enumerating all of the states we want to see when testing.
 
+We also provide a random traffic generator to exercise as many states as possible.
+
 All code targets [TileLink 1.8](https://sifive.cdn.prismic.io/sifive/7bef6f5c-ed3a-4712-866a-1a2e0c6b7b13_tilelink_spec_1.8.1.pdf).
 
-To enable assertions, pass the `assertions_on` flag during the build process, for example:
+Limitations:
+* Test modules assume that no TileLink signals are updated on the negative clock edge.
+* Transactions involving the B channel are verified less rigorously. This is because the B channel allows too many outstanding requests to keep track of.
+* Muntjac's TileLink IP does not support forwarding of A messages to the B channel, or C messages to the D channel. None of this behaviour is supported by the verification tools either.
+
+## Assertions
+
+Assertions check compliance with the TileLink specification, ensuring that each message is self-consistent, that consecutive beats within a burst message are consistent with each other, and that responses are consistent with the requests that triggered them.
+
+To enable assertions in a Muntjac simulator, pass the `assertions_on` flag during the build process, for example:
 
 ```
 make sim-core EXTRA_FLAGS=assertions_on
 ```
+ 
+Alternatively, a dedicated TileLink simulator can be generated which has assertions switched on by default (see below).
 
-Limitations:
- * Test modules assume that no TileLink signals are updated on the negative clock edge.
- * Transactions involving the B channel are verified less rigorously. This is because the B channel allows too many outstanding requests to keep track of.
+## Coverage
+
+Coverage aims to quantify how much of the state space has been explored during testing.
+
+To run a simple test and generate a coverage number, run `make`. This will produce an output along the lines of:
+
+```
+Total coverage (57/79) 72.00%
+```
+
+ * The length of simulation can be controlled using `make CYCLES=X`.
+ * A different random seed can be selected using `make SEED=X`.
+
+For more options, see below.
 
 ### Simulation
 We offer simulation of an isolated TileLink network. This can be coupled with random traffic generation to exercise the network.
@@ -63,7 +87,11 @@ The default coverpoints are:
    * Consecutive messages used the same/different values
    * The value changed/stayed the same while waiting for a message to be accepted
 
-## Extending
-To add new assertions, see [tl_assert.sv](rtl/tl_assert.sv).
+## Limitations
+ * Test modules assume that no TileLink signals are updated on the negative clock edge.
+ * Transactions involving the B channel are verified less rigorously. This is because the B channel allows too many outstanding requests to keep track of.
 
-To apply assertions to a new component, see [tl_checker.sv](rtl/tl_checker.sv) and [tl_bind.sv](rtl/tl_bind.sv).
+## Extension
+To add new assertions or coverpoints, see [`tl_assert.sv`](rtl/tl_assert.sv).
+
+To apply assertions and coverage to a new component, see [`tl_checker.sv`](rtl/tl_checker.sv) and [`tl_bind.sv`](rtl/tl_bind.sv).
