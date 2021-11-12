@@ -16,6 +16,7 @@ filesets:
       - ../rtl/tl/tl_size_downsizer.sv
       - ../rtl/tl/tl_source_downsizer.sv
       - ../rtl/tl/tl_sink_upsizer.sv
+      - ../rtl/tl/tl_fifo_converter.sv
       - ../rtl/tl/tl_adapter.sv
     file_type: systemVerilogSource
 
