@@ -255,15 +255,17 @@ module tl_fifo_converter import tl_pkg::*; #(
     end
   end
 
+  `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth) host_d_reg;
+
   always_ff @(posedge clk_i) begin
     if (tmp_d_valid && tmp_d_ready) begin
-      host_d.opcode  <= tmp_d.opcode;
-      host_d.size    <= tmp_d.size;
+      host_d_reg.opcode  <= tmp_d.opcode;
+      host_d_reg.size    <= tmp_d.size;
 
-      host_d.param   <= tracker_ctrl_q[tracker_d_idx_q].param;
-      host_d.source  <= tracker_source_q[tracker_d_idx_q];
-      host_d.sink    <= tracker_ctrl_q[tracker_d_idx_q].sink;
-      host_d.denied  <= tracker_ctrl_q[tracker_d_idx_q].denied;
+      host_d_reg.param   <= tracker_ctrl_q[tracker_d_idx_q].param;
+      host_d_reg.source  <= tracker_source_q[tracker_d_idx_q];
+      host_d_reg.sink    <= tracker_ctrl_q[tracker_d_idx_q].sink;
+      host_d_reg.denied  <= tracker_ctrl_q[tracker_d_idx_q].denied;
     end
   end
 
@@ -314,8 +316,12 @@ module tl_fifo_converter import tl_pkg::*; #(
   assign tracker_data_r_valid = tmp_d_valid && tmp_d_ready;
   assign tracker_data_r_idx = tracker_d_idx_q;
   assign tracker_data_r_beat_idx = tmp_d_idx;
-  assign host_d.corrupt = tracker_data_r_data.corrupt;
-  assign host_d.data    = tracker_data_r_data.data;
+
+  always_comb begin
+    host_d         = host_d_reg;
+    host_d.corrupt = tracker_data_r_data.corrupt;
+    host_d.data    = tracker_data_r_data.data;
+  end
 
   // #endregion
   //////////////////////////
