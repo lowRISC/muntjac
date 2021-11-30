@@ -804,7 +804,7 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
       mcounter_q <= '0;
     end
     else begin
-      mcounter_q <= mcounter_d;
+      mcounter_q[MHPMCounterNum+2:0] <= mcounter_d[MHPMCounterNum+2:0];
     end
   end
 

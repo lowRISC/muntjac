@@ -84,6 +84,9 @@ lint_off -rule WIDTH -file "*/rtl/muntjac_alu.sv" -match "Operator ASSIGN expect
 // correct size, but this has limited tool support and hurts code readability.
 lint_off -rule WIDTH -file "*/rtl/muntjac_cs_registers.sv" -match "*requires * bit index, not 5 bits."
 
+// Number of used performance counters depend on configuration.
+lint_off -rule UNUSED -file "*/rtl/muntjac_cs_registers.sv" -match "*'mcounter_d'*"
+
 // Sign extension frequently needed in mul/div units. Use implicit extension for code clarity.
 lint_off -rule WIDTH -file "*/rtl/muntjac_div.sv"
 lint_off -rule WIDTH -file "*/rtl/muntjac_mul.sv"
