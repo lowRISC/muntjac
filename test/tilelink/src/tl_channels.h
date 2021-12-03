@@ -5,7 +5,6 @@
 #ifndef TL_CHANNELS_H
 #define TL_CHANNELS_H
 
-#include <iomanip>
 #include <map>
 #include <queue>
 #include <set>
@@ -14,6 +13,7 @@
 #include "logs.h"
 #include "random.h"
 #include "tilelink.h"
+#include "printing.h"
 #include "tl_exceptions.h"
 #include "Vtl_wrapper.h"
 
@@ -37,6 +37,12 @@ public:
       first_id(first_id), last_id(last_id) {
     // Nothing
   }
+
+  // Reset flow control signals to their default state.
+  virtual void set_flow_control() = 0;
+
+  virtual void get_inputs(bool randomise) = 0;
+  virtual void set_outputs(bool randomise) = 0;
 
   // The TileLink network being tested.
   DUT& dut;
@@ -62,6 +68,11 @@ public:
   TileLinkChannelEnd(TileLinkEndpoint& parent) : parent(parent) {
     // Nothing
   }
+
+  // Reset flow control signals to their default state.
+  virtual void set_flow_control() = 0;
+  virtual void get_inputs(bool randomise) = 0;
+  virtual void set_outputs(bool randomise) = 0;
 
   // specialisations have extra methods to generate standard responses
   //   e.g. endpoint<D> has respond(A), respond(C)
@@ -105,7 +116,7 @@ class TileLinkSender : public TileLinkChannelEnd<channel> {
 public:
   TileLinkSender(TileLinkEndpoint& parent) : 
       TileLinkChannelEnd<channel>(parent) {
-    // Nothing
+    beat_accepted = false;
   }
 
   // Queue up a change to be applied to a sent beat. Whenever a beat is sent,
@@ -116,8 +127,25 @@ public:
     modifications.push(updates);
   }
 
+  virtual void set_flow_control() {
+    // A message is no longer valid once it has been accepted.
+    if (beat_accepted)
+      this->set_valid(false);
+    
+    beat_accepted = false;
+  }
+
+  virtual void get_inputs(bool randomise) {
+    if (this->get_valid() && this->get_ready())
+      beat_accepted = true;
+  }
+
   // One clock cycle of behaviour.
-  void step(bool randomise) {
+  virtual void set_outputs(bool randomise) {
+    // Don't send any new data if we're still waiting to send old data.
+    if (this->get_valid())
+      return;
+
     // Randomly reorder the pending requests.
     // Currently disabled for TL-UL components because the TL-UL adapter
     // requires FIFO order. Could alternatively require FIFO converters in the
@@ -129,20 +157,6 @@ public:
     // Randomly stall, i.e. don't respond for a cycle.
     if (!randomise || random_bool(0.8))
       this->respond();
-
-    // We are in the process of sending a beat.
-    if (this->get_valid()) {
-      // Last beat sent has been accepted.
-      if (this->get_ready())
-        this->set_valid(false);
-      // Last beat sent is still waiting.
-      else {
-        // Nothing yet: continue waiting.
-        // Could reorder the contents of the queue, but we do that at response
-        // time, so no need to do it again here?
-        return;
-      }
-    }
 
     if (!to_send.empty()) {
       channel data = to_send.front();
@@ -192,24 +206,18 @@ public:
   // Wait until the network is ready to receive a new beat.
   // This updates simulation time, so is not suitable for parallel operations.
   void await_ready(int timeout=100) {
-    for (int i=0; i<timeout; i++) {
-      if (this->get_ready()) 
-        return;
-
+    int cycle = 0;
+    while (cycle < timeout && !this->get_ready()) {
       next_cycle();
+      cycle++;
     }
 
-    assert(false && "Network not ready to receive message");
+    assert(this->get_ready() && "Network not ready to receive message");
   }
 
-  // Send a beat onto the network and wait until it has been accepted.
-  // This updates simulation time, so is not suitable for parallel operations.
+  // Send a beat onto the network.
   void send(channel data) {
-    this->set_data(data);
-    this->set_valid(true);
-    next_cycle();  // Ensure the message is available for at least one cycle
-    this->await_ready();
-    this->set_valid(false);
+    to_send.push(data);
   }
 
   bool can_start_new_transaction() const {
@@ -265,6 +273,9 @@ protected:
 
   queue<channel> to_send;
   queue<map<string, int>> modifications;
+
+  // If we sent a beat onto the network, was it accepted?
+  bool beat_accepted;
 };
 
 class TileLinkSenderA : public TileLinkSender<tl_a> {
@@ -281,16 +292,8 @@ public:
   }
 
   virtual void set_data(tl_a beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "A sending"
-                   << " op:" << beat.opcode 
-                   << " param:" << beat.param
-                   << " size:" << beat.size 
-                   << " src:" << beat.source
-                   << " addr:0x" << std::hex << std::setw(8) << beat.address 
-                   << " mask:0x" << std::setw(2) << beat.mask 
-                   << " corrupt:" << beat.corrupt
-                   << " data:0x" << std::setw(16) << beat.data << std::dec 
-                   << std::endl;
+    MUNTJAC_LOG(1) << "Host   " << this->position() << "A   sending "
+                   << beat << std::endl;
 
     this->dut().host_a_opcode_i[this->position()]  = beat.opcode;
     this->dut().host_a_param_i[this->position()]   = beat.param;
@@ -360,14 +363,8 @@ public:
   }
 
   virtual void set_data(tl_b beat) {
-    MUNTJAC_LOG(1) << "Device " << this->position() << "B sending"
-                   << " op:" << beat.opcode 
-                   << " param:" << beat.param
-                   << " size:" << beat.size 
-                   << " src:" << beat.source
-                   << " addr:0x" << std::hex << std::setw(8) << beat.address 
-                   << std::dec 
-                   << std::endl;
+    MUNTJAC_LOG(1) << "Device " << this->position() << "B   sending "
+                   << beat << std::endl;
 
     this->dut().dev_b_opcode_i[this->position()]  = beat.opcode;
     this->dut().dev_b_param_i[this->position()]   = beat.param;
@@ -441,15 +438,8 @@ public:
   }
 
   virtual void set_data(tl_c beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "C sending"
-                   << " op:" << beat.opcode 
-                   << " param:" << beat.param
-                   << " size:" << beat.size 
-                   << " src:" << beat.source
-                   << " addr:0x" << std::hex << std::setw(8) << beat.address
-                   << " corrupt:" << beat.corrupt
-                   << " data:0x" << std::setw(16) << beat.data << std::dec 
-                   << std::endl;
+    MUNTJAC_LOG(1) << "Host   " << this->position() << "C   sending "
+                   << beat << std::endl;
 
     this->dut().host_c_opcode_i[this->position()]  = beat.opcode;
     this->dut().host_c_param_i[this->position()]   = beat.param;
@@ -533,16 +523,8 @@ public:
   }
 
   virtual void set_data(tl_d beat) {
-    MUNTJAC_LOG(1) << "Device " << this->position() << "D sending"
-                   << " op:" << beat.opcode 
-                   << " param:" << beat.param
-                   << " size:" << beat.size 
-                   << " src:" << beat.source
-                   << " sink:" << beat.sink
-                   << " denied:" << beat.denied
-                   << " corrupt:" << beat.corrupt
-                   << " data:0x" << std::hex << std::setw(16) << beat.data << std::dec 
-                   << std::endl;
+    MUNTJAC_LOG(1) << "Device " << this->position() << "D   sending "
+                   << beat << std::endl;
 
     this->dut().dev_d_opcode_i[this->position()]  = beat.opcode;
     this->dut().dev_d_param_i[this->position()]   = beat.param;
@@ -643,9 +625,8 @@ public:
   }
 
   virtual void set_data(tl_e beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "E sending"
-                   << " sink:" << beat.sink
-                   << std::endl;
+    MUNTJAC_LOG(1) << "Host   " << this->position() << "E   sending "
+                   << beat << std::endl;
 
     this->dut().host_e_sink_i[this->position()] = beat.sink;
   }
@@ -691,7 +672,7 @@ public:
   TileLinkReceiver(TileLinkEndpoint& parent) : 
       TileLinkChannelEnd<channel>(parent) {
     beats_remaining = 0;
-    stall = false;
+    ready = true;
   }
 
   virtual bool get_valid() const = 0;
@@ -703,30 +684,33 @@ public:
   virtual void handle_beat(bool randomise, channel data) = 0;
 
   channel await(int timeout=100) {
-    for (int i=0; i<timeout; i++) {
-      if (this->get_valid()) 
-        return this->get_data();
-
+    int cycle = 0;
+    while (cycle < timeout && !this->get_valid()) {
       next_cycle();
+      cycle++;
     }
 
-    assert(false && "No message received before timeout");
+    assert(this->get_valid() && "No message received before timeout");
+    ready = true;
     return this->get_data();
   }
 
-  bool stall;
+  virtual void set_flow_control() {
+    this->set_ready(ready);
+  }
 
   // Respond to inputs immediately if available.
-  void step(bool randomise) {
-    // TODO: Randomly stall.
-    //bool stall = randomise && random_bool(0.8);
-    //bool stall = false;
-
-    if (this->get_valid() && !stall)
+  virtual void get_inputs(bool randomise) {
+    if (this->get_valid() && ready)
       this->handle_beat(randomise, this->get_data());
 
-    stall = randomise && random_bool(0.8);
-    this->set_ready(!stall);
+    // Randomly stall next cycle. Can't stall this cycle because we've
+    // already announced whether we are `ready`.
+    ready = !randomise || random_bool(0.8);
+  }
+
+  virtual void set_outputs(bool randomise) {
+    // Do nothing. (Flow control is handled elsewhere.)
   }
 
 protected:
@@ -747,6 +731,9 @@ private:
 
   // Some messages should only receive a response when all beats have arrived.
   int beats_remaining;
+
+  // Is this component ready to receive a new beat?
+  bool ready;
 
 };
 
@@ -770,6 +757,9 @@ public:
     data.mask    = this->dut().dev_a_mask_o[this->position()];
     data.corrupt = this->dut().dev_a_corrupt_o[this->position()];
     data.data    = this->dut().dev_a_data_o[this->position()];
+
+    MUNTJAC_LOG(1) << "Device " << this->position() << "A receiving "
+                   << data << std::endl;
 
     return data;
   }
@@ -798,6 +788,9 @@ public:
     data.size    = this->dut().host_b_size_o[this->position()];
     data.source  = this->dut().host_b_source_o[this->position()];
     data.address = this->dut().host_b_address_o[this->position()];
+
+    MUNTJAC_LOG(1) << "Host   " << this->position() << "B receiving "
+                   << data << std::endl;
 
     return data;
   }
@@ -828,6 +821,9 @@ public:
     data.address = this->dut().dev_c_address_o[this->position()];
     data.corrupt = this->dut().dev_c_corrupt_o[this->position()];
     data.data    = this->dut().dev_c_data_o[this->position()];
+
+    MUNTJAC_LOG(1) << "Device " << this->position() << "C receiving "
+                   << data << std::endl;
 
     return data;
   }
@@ -860,6 +856,9 @@ public:
     data.corrupt = this->dut().host_d_corrupt_o[this->position()];
     data.data    = this->dut().host_d_data_o[this->position()];
 
+    MUNTJAC_LOG(1) << "Host   " << this->position() << "D receiving "
+                   << data << std::endl;
+
     return data;
   }
 
@@ -883,6 +882,9 @@ public:
     tl_e data;
 
     data.sink = this->dut().dev_e_sink_o[this->position()];
+
+    MUNTJAC_LOG(1) << "Device " << this->position() << "E receiving "
+                   << data << std::endl;
 
     return data;
   }
@@ -909,7 +911,23 @@ public:
     // Nothing
   }
 
-  void step(bool randomise) {
+  virtual void set_flow_control() {
+    a.set_flow_control();
+    b.set_flow_control();
+    c.set_flow_control();
+    d.set_flow_control();
+    e.set_flow_control();
+  }
+
+  virtual void get_inputs(bool randomise) {
+    a.get_inputs(randomise);
+    b.get_inputs(randomise);
+    c.get_inputs(randomise);
+    d.get_inputs(randomise);
+    e.get_inputs(randomise);
+  }
+
+  virtual void set_outputs(bool randomise) {
     // Randomly inject new requests.
     if (randomise) {
       // 1 in 10 chance in each clock cycle. Reasonable?
@@ -919,11 +937,11 @@ public:
         c.queue_request(true);
     }
 
-    a.step(randomise);
-    b.step(randomise);
-    c.step(randomise);
-    d.step(randomise);
-    e.step(randomise);
+    a.set_outputs(randomise);
+    b.set_outputs(randomise);
+    c.set_outputs(randomise);
+    d.set_outputs(randomise);
+    e.set_outputs(randomise);
   }
 
   TileLinkSenderA   a;
@@ -947,7 +965,23 @@ public:
     // Nothing
   }
 
-  void step(bool randomise) {
+  virtual void set_flow_control() {
+    a.set_flow_control();
+    b.set_flow_control();
+    c.set_flow_control();
+    d.set_flow_control();
+    e.set_flow_control();
+  }
+
+  virtual void get_inputs(bool randomise) {
+    a.get_inputs(randomise);
+    b.get_inputs(randomise);
+    c.get_inputs(randomise);
+    d.get_inputs(randomise);
+    e.get_inputs(randomise);
+  }
+
+  virtual void set_outputs(bool randomise) {
     // Randomly inject new requests.
     if (randomise) {
       // 1 in 20 chance in each clock cycle. Reasonable?
@@ -955,11 +989,11 @@ public:
         b.queue_request(true);
     }
 
-    a.step(randomise);
-    b.step(randomise);
-    c.step(randomise);
-    d.step(randomise);
-    e.step(randomise);
+    a.set_outputs(randomise);
+    b.set_outputs(randomise);
+    c.set_outputs(randomise);
+    d.set_outputs(randomise);
+    e.set_outputs(randomise);
   }
 
   TileLinkReceiverA a;

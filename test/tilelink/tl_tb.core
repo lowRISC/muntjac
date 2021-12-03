@@ -11,6 +11,7 @@ filesets:
       - lowrisc:tl:adapter_bram
       - lowrisc:tl:adapter
       - lowrisc:tl:broadcast
+      - lowrisc:tl:common
       - lowrisc:tl:fifo_async
       - lowrisc:tl:fifo_sync
       - lowrisc:tl:io_terminator
@@ -34,6 +35,8 @@ filesets:
       - src/tl_channels.h: {is_include_file: true}
       - src/tl_exceptions.h: {is_include_file: true}
       - src/tl_harness.h: {is_include_file: true}
+      - src/printing.h: {is_include_file: true}
+      - src/printing.cc
       - src/tests.cc
       - src/tl_channels.cc
       - src/main.cc

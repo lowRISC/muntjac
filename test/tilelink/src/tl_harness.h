@@ -33,6 +33,7 @@ public:
       coverage_file("coverage.dat") {
     coverage_on = false;
     sim_duration = 0;
+    randomise = false;
 
     this->args.set_description("Usage: " + name + " [simulator args] [tests to run]");
     this->args.add_argument("--list-tests", "List all available tests");
@@ -73,27 +74,17 @@ public:
     }
   }
 
-  // Run a simulation for the given duration. If `randomise` is true, requests
-  // will be generated during simulation, and responses will have random valid
-  // effects. During the final `drain` clock cycles, no new requests will be
-  // generated. If `randomise` is false, no new requests are generated, and all
-  // responses are deterministic.
-  void run(bool randomise, int duration=1000, int drain=100) {
-    for (int i=0; i<duration; i++) {
-      for (auto host : hosts)
-        host->step(randomise);
-      for (auto device : devices)
-        device->step(randomise);
+  // Run a simulation for the given duration. Random requests will be generated 
+  // during simulation, and responses will have random valid effects. During the
+  // final `drain` clock cycles, no new requests will be generated.
+  void run(bool random, int duration=1000, int drain=100) {
+    randomise = random;
+    for (int i=0; i<duration; i++)
       next_cycle();
-    }
 
-    for (int i=0; i<drain; i++) {
-      for (auto host : hosts)
-        host->step(false);   // No new requests
-      for (auto device : devices)
-        device->step(false); // No new requests
+    randomise = false;
+    for (int i=0; i<drain; i++)
       next_cycle();
-    }
   }
 
 
@@ -101,28 +92,24 @@ public:
     dut.clk_i = 1;
     dut.rst_ni = 1;
 
-    for (TileLinkHost* host : hosts) {
-      host->b.set_ready(true);
-      host->d.set_ready(true);
-    }
-
-    for (TileLinkDevice* device : devices) {
-      device->a.set_ready(true);
-      device->c.set_ready(true);
-      device->e.set_ready(true);
-    }
-
     this->trace_init();
   }
 
   void next_cycle() {
+    // TODO: this duplicates the content of Simulation::run()
     set_clock(1);
     cycle_first_half();
+    this->trace_state_change();    
+    this->cycle += 0.5;
+
     set_clock(0);
     cycle_second_half();
+    this->trace_state_change();    
+    this->cycle += 0.5;
   }
 
-  void run() {
+  void run_tests() {
+    randomise = false;
     for (int test : tests_to_run) {
       cout << "Test selected: " << tests[test].description << endl;
       tests[test].function(*this);
@@ -187,20 +174,36 @@ protected:
 
   virtual void cycle_first_half() {
     dut.eval();
-    reset_flow_control();
-    this->trace_state_change();    
-    this->cycle += 0.5;
+    set_flow_control();
+    set_outputs();
   }
 
   virtual void cycle_second_half() {
     dut.eval();
-    eval_endpoints();
+    get_inputs();
+  }
 
-    if (this->trace_on)
-      this->vcd_trace.dump((uint64_t)(10*this->cycle));
+  // Reset flow control signals from all hosts/devices. i.e. Deassert valid
+  // signals if the data has been accepted.
+  void set_flow_control() {
+    for (auto host : hosts)
+      host->set_flow_control();
+    for (auto device : devices)
+      device->set_flow_control();
+  }
 
-    this->trace_state_change();
-    this->cycle += 0.5;
+  void set_outputs() {
+    for (auto host : hosts)
+      host->set_outputs(randomise);
+    for (auto device : devices)
+      device->set_outputs(randomise);
+  }
+
+  void get_inputs() {
+    for (auto host : hosts)
+      host->get_inputs(randomise);
+    for (auto device : devices)
+      device->get_inputs(randomise);
   }
 
 private:
@@ -214,6 +217,10 @@ private:
 
   vector<int> tests_to_run;
   int sim_duration;
+
+  // Whether requests should be spontaneously generated during simulation.
+  // If true, responses will also have random valid content.
+  bool randomise;
 
   bool coverage_on;
   string coverage_file;

@@ -131,9 +131,9 @@ module tl_assert import tl_pkg::*; #(
   //  3. Update outstanding requests
   // This order is used so the assertions can see the final state of a message
   // before it is cleared.
-  // This assumes that none of the TileLink signals are updated on the negative
-  // clock edge.
-  always_ff @(negedge clk_i or negedge rst_ni) begin
+  // This assumes that no TileLink signals are updated on the clock edge.
+  // Use the posedge because that is when the valid/ready handshake happens.
+  always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       a_pending = '0;
       // b_pending = '0;

@@ -40,7 +40,7 @@ int main(int argc, char** argv) {
   sim.init();
   sim.reset();
 
-  sim.run();
+  sim.run_tests();
 
   return 0;
 }
