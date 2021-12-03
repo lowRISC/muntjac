@@ -482,16 +482,14 @@ protected:
   virtual void set_reset(int value) {dut.rst_ni = !value;}
 
   virtual void cycle_first_half() {
-    dut.eval(); 
-
-    if (this->trace_on)
-      this->vcd_trace.dump((uint64_t)(10*this->cycle));
-    
-    this->cycle += 0.5;
+    dut.eval();
+    reset_flow_control();
   }
 
   virtual void cycle_second_half() {
     dut.eval();
+    eval_endpoints();
+  }
 
     if (this->trace_on)
       this->vcd_trace.dump((uint64_t)(10*this->cycle));

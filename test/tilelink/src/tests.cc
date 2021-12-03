@@ -110,12 +110,15 @@ void valid_dev1_operation(TileLinkSimulation& sim) {
 
 // Multiple simultaneous requests from multiple sources (should pass)
 void multiple_valid_requests(TileLinkSimulation& sim) {
-  // dev0 request
-  tl_a dev0_request = basic_a_request();
-  dev0_request.source = 0;
-  sim.send_a(0, dev0_request);
+  auto& host0 = sim.host(0);
+  auto& host1 = sim.host(1);
+  auto& device0 = sim.device(0);
+  auto& device1 = sim.device(1);
 
-  tl_a dev0_received = sim.await_a(0);
+  // host0 -> dev0 request
+  tl_a dev0_request = host0.a.new_request(false);
+  host0.a.start_transaction(dev0_request.source);
+  host0.a.send(dev0_request);
   
   // dev1 request
   tl_a dev1_request = basic_a_request();
@@ -123,27 +126,22 @@ void multiple_valid_requests(TileLinkSimulation& sim) {
   dev1_request.source = 1;
   sim.send_a(1, dev1_request);
 
-  tl_a dev1_received = sim.await_a(1);
+  tl_a dev0_received = device0.a.await();
+  tl_a dev1_received = device1.a.await();
 
-  // dev1 response
-  tl_d dev1_response = basic_d_response(1, dev1_received);
-  sim.send_d(1, dev1_response);
-
-  tl_d dev1_d = sim.await_d(1);
-  assert(!dev1_d.denied);
-  assert(!dev1_d.corrupt);
-  assert(dev1_d.source == dev1_request.source);
-  assert(dev1_d.opcode == 0); // AccessAck (for Put requests)
-
-  // dev0 response
-  tl_d dev0_response = basic_d_response(0, dev0_received);
-  sim.send_d(0, dev0_response);
-
-  tl_d dev0_d = sim.await_d(0);
+  // dev0 -> host0 response
+  tl_d dev0_d = host0.d.await();
   assert(!dev0_d.denied);
   assert(!dev0_d.corrupt);
   assert(dev0_d.source == dev0_request.source);
-  assert(dev0_d.opcode == 0); // AccessAck (for Put requests)
+  assert(dev0_d.opcode == AccessAck); // For Put requests
+
+  // dev1 -> host1 response
+  tl_d dev1_d = host1.d.await();
+  assert(!dev1_d.denied);
+  assert(!dev1_d.corrupt);
+  assert(dev1_d.source == dev1_request.source);
+  assert(dev1_d.opcode == AccessAck); // For Put requests
 }
 
 // Write operation with 2 beats. Should pass on TL-C and TL-UH.
@@ -178,21 +176,19 @@ void multibeat_tlul(TileLinkSimulation& sim) {
   request.address = 0x20003000; // To device 2 (TL-UL)
   sim.send_a(0, request);
 
-  tl_a req_received = sim.await_a(2);
-  assert(req_received.data == request.data);
-
-  // TL-UL adapter needs to split request in two, so need to ack each part.
-  tl_d response = basic_d_response(2, req_received);
-  sim.send_d(2, response);
-
-  // TODO: test different interleavings of the beats.
-
   tl_a request2 = request;
   request2.address += 8;
   request2.data = 0x87654321;
   sim.send_a(0, request2);
 
-  tl_a req2_received = sim.await_a(2);
+  tl_a req_received = device.a.await();
+  assert(req_received.data == request.data);
+
+  // Wait at least one cycle so there is time for the previous beat to go
+  // invalid.
+  next_cycle();
+
+  tl_a req2_received = device.a.await();
   assert(req2_received.data == request2.data);
 
   tl_d response2 = basic_d_response(2, req2_received);
