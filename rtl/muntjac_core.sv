@@ -10,6 +10,10 @@ module muntjac_core import muntjac_pkg::*; #(
 
   parameter rv64f_e RV64F = RV64FNone,
 
+  parameter int unsigned DCacheWaysWidth = 2,
+  parameter int unsigned DCacheSetsWidth = 6,
+  parameter int unsigned ICacheWaysWidth = 2,
+  parameter int unsigned ICacheSetsWidth = 6,
   parameter int unsigned DTlbNumWays = 4,
   parameter int unsigned DTlbSetsWidth = 3,
   parameter int unsigned ITlbNumWays = 4,
@@ -119,6 +123,8 @@ module muntjac_core import muntjac_pkg::*; #(
 
   muntjac_icache #(
     .DataWidth (DataWidth),
+    .WaysWidth (ICacheWaysWidth),
+    .SetsWidth (ICacheSetsWidth),
     .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
@@ -140,6 +146,8 @@ module muntjac_core import muntjac_pkg::*; #(
 
   muntjac_dcache #(
     .DataWidth (DataWidth),
+    .WaysWidth (DCacheWaysWidth),
+    .SetsWidth (DCacheSetsWidth),
     .PhysAddrLen (PhysAddrLen),
     .SourceWidth (SourceWidth),
     .SinkWidth (SinkWidth),
