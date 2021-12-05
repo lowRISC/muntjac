@@ -19,8 +19,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   parameter bit [SourceWidth-1:0] DeviceSourceMask = 0,
 
   parameter muntjac_pkg::release_policy_e ReleasePolicy = muntjac_pkg::ReleaseDirty,
-  parameter int RelTrackerNum = 2,
-  parameter int AcqTrackerNum = 2,
+  parameter int RelTrackerNum = 1,
+  parameter int AcqTrackerNum = 1,
   parameter bit EnableHpm     = 0,
 
   // Source ID table for cacheable hosts.
