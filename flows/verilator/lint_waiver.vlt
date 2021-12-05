@@ -95,3 +95,17 @@ lint_off -rule WIDTH -file "*/rtl/muntjac_mul_fast.sv"
 // Register fetch for floating-point units can be unused when FP is turned lint_off
 lint_off -rule UNUSED -file "*/rtl/muntjac_backend.sv" -match "*'de_ex_frs?'*"
 lint_off -rule UNUSED -file "*/rtl/muntjac_backend.sv" -match "*'ex_frs?'*"
+
+// Signals used only with assertion
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'refill_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'refill_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'flush_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'access_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'access_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'wb_data_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'refill_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'refill_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'probe_tag_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'probe_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'flush_tag_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'flush_tag_write_gnt'"
