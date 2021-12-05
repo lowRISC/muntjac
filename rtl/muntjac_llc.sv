@@ -824,7 +824,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   logic [TagArbNums-1:0]                             tag_arb_gnt;
   logic [TagArbNums-1:0][AddrWidth-NonBurstSize-1:0] tag_arb_addr;
   logic [TagArbNums-1:0][WaysWidth-1:0]              tag_arb_wway;
-  tag_t [TagArbNums-1:0]                             tag_arb_write;
+  logic [TagArbNums-1:0]                             tag_arb_write;
   tag_t [TagArbNums-1:0]                             tag_arb_wdata;
   logic [TagArbNums-1:0][WaysWidth-1:0]              tag_arb_way_fallback;
 
@@ -832,7 +832,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   logic [DataArbNums-1:0]                            data_arb_gnt;
   logic [DataArbNums-1:0][WaysWidth-1:0]             data_arb_way;
   logic [DataArbNums-1:0][SetsWidth+OffsetWidth-1:0] data_arb_addr;
-  tag_t [DataArbNums-1:0]                            data_arb_write;
+  logic [DataArbNums-1:0]                            data_arb_write;
   logic [DataArbNums-1:0][DataWidthInBytes-1:0]      data_arb_wmask;
   logic [DataArbNums-1:0][DataWidth-1:0]             data_arb_wdata;
 

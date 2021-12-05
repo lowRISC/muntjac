@@ -113,7 +113,7 @@ module muntjac_core import muntjac_pkg::*; #(
     .NumSourceRange(1),
     .SourceBase({IcacheSourceBase}),
     .SourceMask({      SourceMask}),
-    .SourceLink({2'd            1})
+    .SourceLink({1'd            1})
   ) socket (
     .clk_i,
     .rst_ni,

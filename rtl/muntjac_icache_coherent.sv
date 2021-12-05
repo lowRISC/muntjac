@@ -952,7 +952,6 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
     end
   end
 
-  wire tag_t hit_tag = tag_read_data[hit_way];
   wire [31:0] hit_data = data_read_data[hit_way];
 
   // #endregion

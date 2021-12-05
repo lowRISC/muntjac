@@ -126,6 +126,8 @@ module tl_size_downsizer import tl_pkg::*; #(
   // We don't use channel C and E
   assign device_c_valid = 1'b0;
   assign device_c       = 'x;
+  assign device_e_valid = 1'b0;
+  assign device_e       = 'x;
 
   /////////////////////////////////
   // Pending transaction tracker //
