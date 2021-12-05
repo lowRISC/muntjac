@@ -23,6 +23,15 @@ typedef enum integer {
     RV64FFull = 2
 } rv64f_e;
 
+typedef enum integer {
+  // A `Release` TileLink request is sent for all cache line evictions.
+  ReleaseAll = 0,
+  // A `Release` TileLink request is sent for exclusive cache line evictions.
+  ReleaseExclusive = 1,
+  // A `Release` TileLink request is sent only for dirty cache line evictions.
+  ReleaseDirty = 2
+} release_policy_e;
+
 /////////////
 // Opcodes //
 /////////////

@@ -1,19 +1,6 @@
 `include "prim_assert.sv"
 `include "tl_util.svh"
 
-package tl_cache_pkg;
-
-typedef enum integer {
-  // A `Release` TileLink request is sent for all cache line evictions.
-  ReleaseAll = 0,
-  // A `Release` TileLink request is sent for exclusive cache line evictions.
-  ReleaseExclusive = 1,
-  // A `Release` TileLink request is sent only for dirty cache line evictions.
-  ReleaseDirty = 2
-} release_policy_e;
-
-endpackage
-
 module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg::*; #(
   // Number of sets is `2 ** SetsWidth`
   parameter SetsWidth = 8,
@@ -31,7 +18,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   parameter bit [SourceWidth-1:0] DeviceSourceBase = 0,
   parameter bit [SourceWidth-1:0] DeviceSourceMask = 0,
 
-  parameter tl_cache_pkg::release_policy_e ReleasePolicy = tl_cache_pkg::ReleaseDirty,
+  parameter muntjac_pkg::release_policy_e ReleasePolicy = muntjac_pkg::ReleaseDirty,
   parameter int RelTrackerNum = 2,
   parameter int AcqTrackerNum = 2,
   parameter bit EnableHpm     = 0,
@@ -1294,8 +1281,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
 
             // In this case our cache line is not dirty. If the writeback is not initiated by a
             // Probe we may omit the Release message depending on our Release policy.
-            if (wb_release_q && (ReleasePolicy == tl_cache_pkg::ReleaseDirty ||
-                                 ReleasePolicy == tl_cache_pkg::ReleaseExclusive && !hit_tag.writable)) begin
+            if (wb_release_q && (ReleasePolicy == muntjac_pkg::ReleaseDirty ||
+                                 ReleasePolicy == muntjac_pkg::ReleaseExclusive && !hit_tag.writable)) begin
               wb_acked_d = 1'b1;
               wb_state_d = WbStateDone;
             end
@@ -1396,8 +1383,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
                 end else begin
                   wb_state_d = WbStateDo;
 
-                  if (wb_release_q && (ReleasePolicy == tl_cache_pkg::ReleaseDirty ||
-                                      ReleasePolicy == tl_cache_pkg::ReleaseExclusive && !wb_tag_q.writable)) begin
+                  if (wb_release_q && (ReleasePolicy == muntjac_pkg::ReleaseDirty ||
+                                      ReleasePolicy == muntjac_pkg::ReleaseExclusive && !wb_tag_q.writable)) begin
                     wb_acked_d = 1'b1;
                     wb_state_d = WbStateDone;
                   end
