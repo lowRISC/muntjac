@@ -188,7 +188,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       input logic [DataWidth-1:0] value,
       input logic [NonBurstSize-1:0] addr
   );
-    logic [NumInterleave-1:0][63:0] split = value;
+    logic [DataWidth/64-1:0][63:0] split = value;
     return split[addr >> 3];
   endfunction
 
@@ -518,7 +518,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic                      access_data_read_req;
   logic                      access_data_read_gnt;
-  logic [LogicAddrLen-3-1:0] access_data_read_addr;
+  logic [SetsWidth+3-1:0]    access_data_read_addr;
 
   logic                   access_tag_write_req;
   logic                   access_tag_write_gnt;
@@ -634,7 +634,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       flush_tag_read_req: begin
         flush_tag_read_gnt = 1'b1;
         tag_read_req = 1'b1;
-        tag_addr = flush_tag_read_addr;
+        tag_addr[SetsWidth-1:0] = flush_tag_read_addr;
         tag_read_physical = 1'b1;
       end
 
@@ -895,7 +895,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   logic evict_completed_q, evict_completed_d;
 
   logic [DataWidth-1:0] wb_data_skid;
-  logic [DataWidth-1:0] wb_data_skid_valid;
+  logic                 wb_data_skid_valid;
 
   assign writeback_tracker_valid = wb_state_q != WbStateIdle;
 
@@ -1967,7 +1967,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           access_tag_read_req = 1'b1;
           access_data_read_req = 1'b1;
           access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
-          access_data_read_addr = address_d[LogicAddrLen-1:3];
+          access_data_read_addr = address_d[3+:SetsWidth+3];
 
           if (access_tag_read_gnt && access_data_read_gnt) state_d = StateFetch;
         end
@@ -2036,7 +2036,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
       access_tag_read_req = 1'b1;
       access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
       access_data_read_req = 1'b1;
-      access_data_read_addr = address_d[LogicAddrLen-1:3];
+      access_data_read_addr = address_d[3+:SetsWidth+3];
 
       if (access_tag_read_gnt && ((req_op == MEM_STORE && req_size == 3) || access_data_read_gnt)) begin
         state_d = StateFetch;

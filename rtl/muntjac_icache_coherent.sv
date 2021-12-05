@@ -297,7 +297,7 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
 
   logic                      access_data_read_req;
   logic                      access_data_read_gnt;
-  logic [LogicAddrLen-2-1:0] access_data_read_addr;
+  logic [SetsWidth+4-1:0]    access_data_read_addr;
 
   logic                           refill_tag_write_req;
   logic                           refill_tag_write_gnt;
@@ -1328,7 +1328,7 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
           access_tag_read_req = 1'b1;
           access_data_read_req = 1'b1;
           access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
-          access_data_read_addr = address_d[LogicAddrLen-1:2];
+          access_data_read_addr = address_d[2+:SetsWidth+4];
 
           if (access_tag_read_gnt && access_data_read_gnt) state_d = StateFetch;
         end
@@ -1374,7 +1374,7 @@ module muntjac_icache_coherent import muntjac_pkg::*; import tl_pkg::*; # (
       access_tag_read_req = 1'b1;
       access_tag_read_addr = address_d[LogicAddrLen-1:LineWidth];
       access_data_read_req = 1'b1;
-      access_data_read_addr = address_d[LogicAddrLen-1:2];
+      access_data_read_addr = address_d[2+:SetsWidth+4];
 
       if (access_tag_read_gnt && access_data_read_gnt) begin
         state_d = StateFetch;
