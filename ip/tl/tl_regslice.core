@@ -2,24 +2,22 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:adapter_bram:0.1"
-description: "TL-UL to BRAM interface adapter"
+name: "lowrisc:tl:regslice:0.1"
+description: "TileLink register slice"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
+      - garyguo.net:openip:regslice
     files:
-      - ../rtl/tl/tl_adapter_bram.sv
+      - rtl/tl_regslice.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
     depend:
       # common waivers
       - lowrisc:lint:common
-    files:
-      - ../rtl/tl/lint_waiver_adapter_bram.vlt
-    file_type: systemVerilogSource
 
   files_ascentlint_waiver:
     depend:

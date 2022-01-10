@@ -2,16 +2,22 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:regslice:0.1"
-description: "TileLink register slice"
+name: "lowrisc:tl:adapter:0.1"
+description: "TL parameter adpaters"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - garyguo.net:openip:regslice
+      - lowrisc:tl:regslice
     files:
-      - ../rtl/tl/tl_regslice.sv
+      - rtl/tl_data_downsizer.sv
+      - rtl/tl_data_upsizer.sv
+      - rtl/tl_size_downsizer.sv
+      - rtl/tl_source_downsizer.sv
+      - rtl/tl_sink_upsizer.sv
+      - rtl/tl_fifo_converter.sv
+      - rtl/tl_adapter.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

@@ -2,16 +2,16 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:broadcast:0.1"
-description: "TL broadcasting coherency agent"
+name: "lowrisc:tl:fifo_async:0.1"
+description: "TileLink async FIFO"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - lowrisc:tl:regslice
+      - lowrisc:prim:fifo_async
     files:
-      - ../rtl/tl/tl_broadcast.sv
+      - rtl/tl_fifo_async.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

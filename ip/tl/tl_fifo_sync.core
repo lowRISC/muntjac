@@ -2,26 +2,22 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:common:0.1"
-description: "TL common building blocks"
+name: "lowrisc:tl:fifo_sync:0.1"
+description: "TileLink sync FIFO"
 
 filesets:
   files_rtl:
     depend:
-      - lowrisc:prim:util
+      - lowrisc:tl:common
+      - lowrisc:prim:fifo_sync
     files:
-      - ../rtl/tl/tl_pkg.sv
-      - ../rtl/tl/tl_burst_tracker.sv
-      - ../rtl/tl/tl_source_shifter.sv
-      - ../rtl/tl/tl_util.svh : {is_include_file : true}
+      - rtl/tl_fifo_sync.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
     depend:
       # common waivers
       - lowrisc:lint:common
-    files:
-      - verilator/lint_waiver_tl.vlt: {file_type: vlt}
 
   files_ascentlint_waiver:
     depend:

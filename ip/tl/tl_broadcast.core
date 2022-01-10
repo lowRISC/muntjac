@@ -2,16 +2,16 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:socket_m1:0.1"
-description: "TileLink M:1 socket"
+name: "lowrisc:tl:broadcast:0.1"
+description: "TL broadcasting coherency agent"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - garyguo.net:openip:round_robin_arbiter
+      - lowrisc:tl:regslice
     files:
-      - ../rtl/tl/tl_socket_m1.sv
+      - rtl/tl_broadcast.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

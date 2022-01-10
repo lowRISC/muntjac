@@ -2,17 +2,16 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:io_terminator:0.1"
-description: "TL-C to TL-UH adapter for I/O and ROM"
+name: "lowrisc:tl:socket_1n:0.1"
+description: "TileLink 1:N socket"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - lowrisc:tl:regslice
+      - garyguo.net:openip:round_robin_arbiter
     files:
-      - ../rtl/tl/tl_io_terminator.sv
-      - ../rtl/tl/tl_rom_terminator.sv
+      - rtl/tl_socket_1n.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

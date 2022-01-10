@@ -11,7 +11,7 @@ filesets:
       - lowrisc:tl:common
       - lowrisc:tl:regslice
     files:
-      - ../rtl/tl/tl_error_sink.sv
+      - rtl/tl_error_sink.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

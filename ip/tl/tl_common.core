@@ -2,22 +2,26 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:ram_terminator:0.1"
-description: "TL-C to TL-UH adapter RAM"
+name: "lowrisc:tl:common:0.1"
+description: "TL common building blocks"
 
 filesets:
   files_rtl:
     depend:
-      - lowrisc:tl:common
-      - lowrisc:tl:regslice
+      - lowrisc:prim:util
     files:
-      - ../rtl/tl/tl_ram_terminator.sv
+      - rtl/tl_pkg.sv
+      - rtl/tl_burst_tracker.sv
+      - rtl/tl_source_shifter.sv
+      - rtl/tl_util.svh : {is_include_file : true}
     file_type: systemVerilogSource
 
   files_verilator_waiver:
     depend:
       # common waivers
       - lowrisc:lint:common
+    files:
+      - lint/tl_common.vlt: {file_type: vlt}
 
   files_ascentlint_waiver:
     depend:

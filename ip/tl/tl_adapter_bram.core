@@ -2,22 +2,24 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:tl:fifo_sync:0.1"
-description: "TileLink sync FIFO"
+name: "lowrisc:tl:adapter_bram:0.1"
+description: "TL-UL to BRAM interface adapter"
 
 filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - lowrisc:prim:fifo_sync
     files:
-      - ../rtl/tl/tl_fifo_sync.sv
+      - rtl/tl_adapter_bram.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
     depend:
       # common waivers
       - lowrisc:lint:common
+    files:
+      - lint/tl_adapter_bram.vlt
+    file_type: systemVerilogSource
 
   files_ascentlint_waiver:
     depend:
