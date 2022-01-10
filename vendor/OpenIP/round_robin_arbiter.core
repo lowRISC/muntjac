@@ -3,12 +3,13 @@ CAPI=2:
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
-name: "garyguo.net:openip:regslice"
-description: "Register Slice"
+name: "garyguo.net:openip:round_robin_arbiter"
+description: "Round Robin Arbiter"
 filesets:
   files_rtl:
     files:
-      - ../vendor/OpenIP/util/regslice.sv
+      - rtl/priority_arbiter.sv
+      - rtl/round_robin_arbiter.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
