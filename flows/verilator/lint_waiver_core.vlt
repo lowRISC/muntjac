@@ -10,10 +10,6 @@
 // Otherwise, only global waivers are applied, but not file-specific waivers.
 
 `verilator_config
-
-// Individual signals of the bundle should be treated independently.
-split_var -module "muntjac_dcache" -var "cache_d2h_o"
-
 // The core_wrapper is only included for Verilator compatibility. It is non-
 // synthesisable and includes some "unsafe" behaviour which helps with
 // debugging.
@@ -21,9 +17,3 @@ lint_off -file "*/rtl/core_wrapper.sv"
 
 // Ignore all warnings related to OpenIP modules.
 lint_off -rule DECLFILENAME -file "*/OpenIP/*"
-
-// We want implicit width conversion to make data alignment logic, 
-lint_off -rule WIDTH -file "*/rtl/muntjac_dcache.sv" -match "*align_load*"
-
-// The page table walker does not need full SATP. We pass the full SATP to keep code clean.
-lint_off -rule UNUSED -file "*/rtl/muntjac_ptw.sv" -match "*'satp_i'[63:44]"

@@ -13,7 +13,7 @@ filesets:
       - lowrisc:tl:regslice
       - garyguo.net:openip:round_robin_arbiter
     files:
-      - ../rtl/muntjac_llc.sv
+      - rtl/muntjac_llc.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

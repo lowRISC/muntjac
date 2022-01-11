@@ -1,0 +1,35 @@
+// Copyright lowRISC contributors.
+// Licensed under the Apache License, Version 2.0, see LICENSE for details.
+// SPDX-License-Identifier: Apache-2.0
+
+// Lint waivers for Verilator
+// See https://www.veripool.org/projects/verilator/wiki/Manual-verilator#CONFIGURATION-FILES
+// for documentation.
+//
+// Important: This file must included *before* any other Verilog file is read.
+// Otherwise, only global waivers are applied, but not file-specific waivers.
+
+`verilator_config
+
+// Individual signals of the bundle should be treated independently.
+split_var -module "muntjac_dcache" -var "cache_d2h_o"
+
+// We want implicit width conversion to make data alignment logic, 
+lint_off -rule WIDTH -file "*/rtl/muntjac_dcache.sv" -match "*align_load*"
+
+// The page table walker does not need full SATP. We pass the full SATP to keep code clean.
+lint_off -rule UNUSED -file "*/rtl/muntjac_ptw.sv" -match "*'satp_i'[63:44]"
+
+// Signals used only with assertion
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'refill_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'refill_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_icache.sv" -match "*'flush_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'access_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'access_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'wb_data_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'refill_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'refill_data_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'probe_tag_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'probe_tag_write_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'flush_tag_read_gnt'"
+lint_off -rule UNUSED -file "*/rtl/muntjac_dcache.sv" -match "*'flush_tag_write_gnt'"
