@@ -11,29 +11,29 @@ filesets:
       - lowrisc:prim_generic:ram_simple_2p
       - lowrisc:muntjac:fpu
     files:
-      - ../rtl/muntjac_pkg.sv
-      - ../rtl/muntjac_alu.sv
-      - ../rtl/muntjac_pipeline.sv
-      - ../rtl/muntjac_cs_registers.sv
-      - ../rtl/muntjac_backend.sv
-      - ../rtl/muntjac_decoder.sv
-      - ../rtl/muntjac_compressed_decoder.sv
-      - ../rtl/muntjac_btb.sv
-      - ../rtl/muntjac_bp_bimodal.sv
-      - ../rtl/muntjac_ras.sv
-      - ../rtl/muntjac_instr_align.sv
-      - ../rtl/muntjac_instr_buffer.sv
-      - ../rtl/muntjac_frontend.sv
-      - ../rtl/muntjac_reg_file_fpga.sv
-      - ../rtl/muntjac_fp_reg_file_fpga.sv
-      - ../rtl/muntjac_mul.sv
-      - ../rtl/muntjac_mul_fast.sv
-      - ../rtl/muntjac_div.sv
+      - rtl/muntjac_pkg.sv
+      - rtl/muntjac_alu.sv
+      - rtl/muntjac_pipeline.sv
+      - rtl/muntjac_cs_registers.sv
+      - rtl/muntjac_backend.sv
+      - rtl/muntjac_decoder.sv
+      - rtl/muntjac_compressed_decoder.sv
+      - rtl/muntjac_btb.sv
+      - rtl/muntjac_bp_bimodal.sv
+      - rtl/muntjac_ras.sv
+      - rtl/muntjac_instr_align.sv
+      - rtl/muntjac_instr_buffer.sv
+      - rtl/muntjac_frontend.sv
+      - rtl/muntjac_reg_file_fpga.sv
+      - rtl/muntjac_fp_reg_file_fpga.sv
+      - rtl/muntjac_mul.sv
+      - rtl/muntjac_mul_fast.sv
+      - rtl/muntjac_div.sv
     file_type: systemVerilogSource
 
   files_lint_verilator:
     files:
-      - verilator/lint_waiver.vlt: {file_type: vlt}
+      - lint/muntjac_pipeline.vlt: {file_type: vlt}
 
   files_lint_verible:
     files:
