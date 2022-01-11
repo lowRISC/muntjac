@@ -2,16 +2,20 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:axi:regslice:0.1"
-description: "AXI register slice"
+name: "lowrisc:axi:tl_adapter:0.1"
+description: "AXI to TL-UH interface adapter"
 
 filesets:
   files_rtl:
     depend:
+      - lowrisc:tl:common
       - lowrisc:axi:common
-      - garyguo.net:openip:regslice
+      - lowrisc:tl:regslice
+      - lowrisc:axi:regslice
+      - lowrisc:tl:adapter
+      - garyguo.net:openip:round_robin_arbiter
     files:
-      - ../rtl/axi/axi_regslice.sv
+      - rtl/axi_tl_adapter.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:

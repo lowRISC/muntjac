@@ -2,16 +2,16 @@ CAPI=2:
 # Copyright lowRISC contributors.
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
-name: "lowrisc:axi:common:0.1"
-description: "AXI common building blocks"
+name: "lowrisc:axi:regslice:0.1"
+description: "AXI register slice"
 
 filesets:
   files_rtl:
     depend:
-      - lowrisc:prim:util
+      - lowrisc:axi:common
+      - garyguo.net:openip:regslice
     files:
-      - ../rtl/axi/axi_pkg.sv
-      - ../rtl/axi/axi_util.svh : {is_include_file : true}
+      - rtl/axi_regslice.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
@@ -37,3 +37,4 @@ targets:
       - tool_ascentlint ? (files_ascentlint_waiver)
       - tool_veriblelint ? (files_veriblelint_waiver)
       - files_rtl
+
