@@ -3,15 +3,14 @@ CAPI=2:
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
-name: "lowrisc:prim:fifo_async"
-description: "Async FIFO"
+name: "lowrisc:prim:fifo_sync"
+description: "Sync FIFO"
 filesets:
   files_rtl:
     depend:
       - lowrisc:prim:assert
-      - lowrisc:prim:flop_2sync
     files:
-      - ../vendor/lowrisc_ip/prim/rtl/prim_fifo_async.sv
+      - rtl/prim_fifo_sync.sv
     file_type: systemVerilogSource
 
   files_verilator_waiver:
