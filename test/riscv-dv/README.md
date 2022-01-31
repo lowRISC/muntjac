@@ -15,9 +15,9 @@ Install riscv-dv and your choice of RISC-V instruction set simulator. If using S
 You will also need access to a SystemVerilog simulator with UVM support, such as VCS. Ensure this simulator is on your `PATH`.
 
 ```
-export RISCV_TOOLCHAIN=path/to/your/toolchain
-export RISCV_GCC=$RISCV_TOOLCHAIN/bin/riscv64-unknown-elf-gcc
-export RISCV_OBJCOPY=$RISCV_TOOLCHAIN/bin/riscv64-unknown-elf-objcopy
+export RISCV_TOOLS=path/to/your/toolchain
+export RISCV_GCC=$RISCV_TOOLS/bin/riscv64-unknown-elf-gcc
+export RISCV_OBJCOPY=$RISCV_TOOLS/bin/riscv64-unknown-elf-objcopy
 ```
 
 ```
@@ -28,7 +28,7 @@ pip3 install riscv-model
 Execute riscv-dv with the following command to use this extension. You may need to specify your own instruction set simulator (default: Spike) and SystemVerilog simulator (default: VCS).
 
 ```
-python3 run.py -cs=$MUNTJAC_ROOT/test/riscv_dv_extension/ --mabi=lp64 --isa=rv64imac -o=build
+python3 run.py -cs=$MUNTJAC_ROOT/test/riscv-dv/ --mabi=lp64 --isa=rv64imac -o=build
 ```
 
 RISC-V programs will be generated in `build/asm_test`.
@@ -41,7 +41,7 @@ To generate a JUnit-style XML of test results (e.g. for continuous integration),
 export TEST_DIR=riscv-dv/build/asm_test
 export SPIKE_LOG_DIR=riscv-dv/build/spike_sim
 export MUNTJAC_SIM_DIR=$MUNTJAC_ROOT/bin
-export MUNTJAC_SCRIPT_DIR=$MUNTJAC_ROOT/test/riscv_dv_extension
+export MUNTJAC_SCRIPT_DIR=$MUNTJAC_ROOT/test/riscv-dv
 
 make -f $MUNTJAC_SCRIPT_DIR/Makefile
 ```
@@ -57,7 +57,7 @@ muntjac_pipeline --csv=<logfile> <program>
 Convert this CSV output to the required format using:
 
 ```
-python3 $MUNTJAC_ROOT/test/riscv_dv_extension/muntjac_log_to_trace_csv.py --log=<logfile> --csv=<csvfile>
+python3 $MUNTJAC_ROOT/test/riscv-dv/muntjac_log_to_trace_csv.py --log=<logfile> --csv=<csvfile>
 ```
 
 Note that this conversion is *best effort*. Some of the fields are only there to improve human readability, and do not contribute to equivalence checking. These fields are not guaranteed be populated correctly.
@@ -65,7 +65,7 @@ Note that this conversion is *best effort*. Some of the fields are only there to
 To compare the Muntjac trace with the reference trace, use:
 
 ```
-python3 $MUNTJAC_ROOT/test/riscv_dv_extension/muntjac_trace_compare.py --ref=<file> --muntjac=<file>
+python3 $MUNTJAC_ROOT/test/riscv-dv/muntjac_trace_compare.py --ref=<file> --muntjac=<file>
 ```
 
 This will produce no output if the traces are equivalent, and highlight the point of divergence otherwise.

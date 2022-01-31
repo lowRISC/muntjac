@@ -1,7 +1,11 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
 TEST_DIR ?= riscv-dv/build/asm_test
 SPIKE_LOG_DIR ?= riscv-dv/build/spike_sim
 MUNTJAC_SIM_DIR ?= muntjac/bin
-MUNTJAC_SCRIPT_DIR ?= muntjac/test/riscv_dv_extension
+MUNTJAC_SCRIPT_DIR ?= muntjac/test/riscv-dv
 
 ELFS := $(wildcard $(TEST_DIR)/*.o)
 XMLS := $(ELFS:.o=.pipeline.xml) $(ELFS:.o=.core.xml)

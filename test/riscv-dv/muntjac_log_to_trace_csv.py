@@ -351,7 +351,7 @@ def translate_row(row, fast=False):
     # script by 20x.
     if not fast:
         try:
-            # The `decude` function supports a `variant` argument specifying the
+            # The `decode` function supports a `variant` argument specifying the
             # allowed instruction set extensions, but at the time of writing, it
             # makes the output worse.
             decoded = str(decode(int(row["binary"], 16)))

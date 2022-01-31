@@ -8,7 +8,8 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Muntjac
+        uses: actions/checkout@v2
 
       - name: Install Verilator
         run: |
@@ -38,7 +39,8 @@ jobs:
             sim: muntjac_core
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Muntjac
+        uses: actions/checkout@v2
 
       - name: Install Verilator
         run: |
@@ -56,7 +58,8 @@ jobs:
       - name: Run build
         run: make sim-${{ matrix.name }}
 
-      - uses: actions/upload-artifact@v2
+      - name: Upload simulator
+        uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.sim }}
           path: bin/${{ matrix.sim }}
@@ -66,7 +69,8 @@ jobs:
     runs-on: ubuntu-20.04
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Muntjac
+        uses: actions/checkout@v2
 
       - name: Checkout riscv-tests
         uses: actions/checkout@v2
@@ -94,6 +98,7 @@ jobs:
           tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
           echo "`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin" >> $GITHUB_PATH
 
+      # All tests except breakpoint - it is not part of the core specification.
       - name: Build ISA tests
         run: |
           cd riscv-tests/isa
@@ -102,7 +107,8 @@ jobs:
           rm rv64mi-p-breakpoint
           tar -cjf ~/riscv-isa-tests.tar.xz *
 
-      - uses: actions/upload-artifact@v2
+      - name: Upload test binaries
+        uses: actions/upload-artifact@v2
         with:
           name: riscv-isa-tests
           path: ~/riscv-isa-tests.tar.xz
@@ -121,6 +127,8 @@ jobs:
             sim: muntjac_core
 
     steps:
+      - name: Checkout Muntjac
+        uses: actions/checkout@v2
 
       - name: Get simulator
         uses: actions/download-artifact@v2
@@ -141,30 +149,7 @@ jobs:
       - name: Run tests
         run: |
           chmod +x ${{ matrix.sim }}
-          echo "<testsuite>" > results.xml
-
-          for isa in rv64ui rv64um rv64ua rv64uc rv64si rv64mi rv64uf rv64ud; do
-            for test in tests/$isa-*; do
-              /usr/bin/time --quiet -o $test.time -f "%e" ./${{ matrix.sim }} $test --timeout=1000000 > $test.out 2> $test.err || true
-
-              echo "<testcase classname=\"Test\" name=\"$test\" time=\"`cat $test.time`\">" >> results.xml
-
-              if ! grep -q "Exiting with argument 1$" $test.out; then
-                echo "<failure type=\"failure\">" >> results.xml
-
-                echo "System error:" >> results.xml
-                sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.err >> results.xml
-                echo "" >> results.xml
-                echo "System out:" >> results.xml
-                sed -e "s/&/\&amp;/g" -e "s/>/\&gt;/g" -e "s/</\&lt;/g" -e "s/\"/\&quot;/g" -e "s/'/\&apos;/g" $test.out >> results.xml
-
-                echo "</failure>" >> results.xml
-              fi
-              echo "</testcase>" >> results.xml
-            done
-          done
-
-          echo "</testsuite>" >> results.xml
+          make -f test/riscv-tests/Makefile results.xml -j$(nproc) TEST_DIR=tests MUNTJAC_SIM=./${{ matrix.sim }}
 
       - name: Publish test report
         uses: scacap/action-surefire-report@v1
