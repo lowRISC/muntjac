@@ -289,6 +289,8 @@ module tl_fifo_converter import tl_pkg::*; #(
 `ifdef FPGA_XILINX
   (* ram_style = "distributed" *)
 `endif
+  // Indexed by `{beat_idx, idx}`. It needs to be in this order so that when
+  // MaxBurstLen is 1 the MSB of idx won't be discarded.
   logic [DataWidth:0] tracker_data_q [NumTracker*MaxBurstLen];
   logic                     tracker_data_w_valid;
   logic [TrackerWidth-1:0]  tracker_data_w_idx;
@@ -301,10 +303,10 @@ module tl_fifo_converter import tl_pkg::*; #(
 
   always_ff @(posedge clk_i) begin
     if (tracker_data_w_valid) begin
-      tracker_data_q[{tracker_data_w_idx, tracker_data_w_beat_idx}] <= tracker_data_w_data;
+      tracker_data_q[{tracker_data_w_beat_idx, tracker_data_w_idx}] <= tracker_data_w_data;
     end
     if (tracker_data_r_valid) begin
-      tracker_data_r_data <= tracker_data_q[{tracker_data_r_idx, tracker_data_r_beat_idx}];
+      tracker_data_r_data <= tracker_data_q[{tracker_data_r_beat_idx, tracker_data_r_idx}];
     end
   end
 
