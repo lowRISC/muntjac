@@ -15,8 +15,8 @@ void valid_write_operation(TileLinkSimulation& sim) {
   auto& host = sim.host(0);
   auto& device = sim.device(0);
 
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData;
+  tl_message<tl_a> message(host.a, false, {{"opcode", (int)PutFullData}});
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
 
@@ -38,8 +38,8 @@ void valid_read_operation(TileLinkSimulation& sim) {
   auto& host = sim.host(1);
   auto& device = sim.device(0);
 
-  tl_a request = host.a.new_request(false);
-  request.opcode = Get;
+  tl_message<tl_a> message(host.a, false, {{"opcode", (int)Get}});
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
   device.d.change_next_beat({{"data", 0x1234}});
@@ -61,9 +61,10 @@ void valid_read_operation(TileLinkSimulation& sim) {
 void valid_dev1_operation(TileLinkSimulation& sim) {
   auto& host = sim.host(1);
   auto& device = sim.device(1);
-
-  tl_a request = host.a.new_request(false);
-  request.address = host.a.get_address(0x3000, 1);
+  
+  tl_message<tl_a> message(host.a, false, 
+                           {{"address", host.a.get_address(0x3000, 1)}});
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
 
@@ -88,13 +89,15 @@ void multiple_valid_requests(TileLinkSimulation& sim) {
   auto& device1 = sim.device(1);
 
   // host0 -> dev0 request
-  tl_a dev0_request = host0.a.new_request(false);
+  tl_message<tl_a> dev0_message(host0.a, false);
+  tl_a dev0_request = dev0_message.next_beat(false);
   host0.a.start_transaction(dev0_request.source);
   host0.a.send(dev0_request);
   
   // host1 -> dev1 request
-  tl_a dev1_request = host1.a.new_request(false);
-  dev1_request.address = host1.a.get_address(0x3000, 1);
+  tl_message<tl_a> dev1_message(host1.a, false, 
+                                {{"address", host1.a.get_address(0x3000, 1)}});
+  tl_a dev1_request = dev1_message.next_beat(false);
   host1.a.start_transaction(dev1_request.source);
   host1.a.send(dev1_request);
 
@@ -121,15 +124,18 @@ void multibeat_tlc(TileLinkSimulation& sim) {
   auto& host = sim.host(0);
   auto& device = sim.device(0);
 
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData;
-  request.size = 4; // 2^4 = 16 bytes = 2 beats
+  tl_message<tl_a> message(host.a, false, 
+                           {{"opcode", (int)PutFullData},
+                            {"size", 4}}); // 2^4 = 16 bytes = 2 beats
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
 
   tl_a req_received = device.a.await();
   assert(req_received.data == request.data);
 
+  // Modify the beat directly instead of using the message so we can inject
+  // particular data.
   tl_a request2 = request;
   request2.address += 8;
   request2.data = 0x87654321;
@@ -149,14 +155,17 @@ void multibeat_tlc(TileLinkSimulation& sim) {
 void multibeat_tlul(TileLinkSimulation& sim) {
   auto& host = sim.host(0);
   auto& device = sim.device(2); // TL-UL
-
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData;
-  request.size = 4; // 2^4 = 16 bytes = 2 beats
-  request.address = host.a.get_address(0x3000, 2);
+  
+  tl_message<tl_a> message(host.a, false, 
+                           {{"opcode", (int)PutFullData}, 
+                            {"size", 4}, // 2^4 = 16 bytes = 2 beats
+                            {"address", host.a.get_address(0x3000, 2)}});
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
 
+  // Modify the beat directly instead of using the message so we can inject
+  // particular data.
   tl_a request2 = request;
   request2.address += 8;
   request2.data = 0x87654321;
@@ -180,9 +189,10 @@ void a_corrupt_payload(TileLinkSimulation& sim) {
   auto& host = sim.host(0);
   auto& device = sim.device(0);
 
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData; // So request contains data
-  request.corrupt = true;
+  tl_message<tl_a> message(host.a, false, 
+                           {{"opcode", (int)PutFullData},
+                            {"corrupt", true}});
+  tl_a request = message.next_beat(false);
   host.a.start_transaction(request.source);
   host.a.send(request);
 
@@ -286,9 +296,10 @@ void a_too_many_beats(TileLinkSimulation& sim) {
   auto& device = sim.device(0);
 
   // Need to use lower-level methods to force a late response.
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData;
-  request.size = 4; // 2^4 = 16 bytes = 128 bits = 2 beats
+  tl_message<tl_a> message(host.a, false, 
+                           {{"opcode", (int)PutFullData},
+                            {"size", 4}}); // 2^4 = 16 bytes = 2 beats
+  tl_a request = message.next_beat(false);
   host.a.send(request);
 
   tl_a req_received = device.a.await();
@@ -318,8 +329,8 @@ void a_too_many_beats(TileLinkSimulation& sim) {
   tl_a req3_received = device.a.await();
   assert(req3_received.data == request3.data);
 
-  tl_d response = device.d.new_response(false, req3_received);
-  device.d.send(response);
+  tl_message<tl_d> response(device.d, req3_received, false);
+  device.d.send(response.next_beat(false));
 
   tl_d resp_received = host.d.await();
 }
@@ -330,16 +341,17 @@ void a_too_few_beats(TileLinkSimulation& sim) {
   auto& device = sim.device(0);
   
   // Need to use lower-level methods to force an early response.
-  tl_a request = host.a.new_request(false);
-  request.opcode = PutFullData;
-  request.size = 4; // 2^4 = 16 bytes = 128 bits = 2 beats
+  tl_message<tl_a> message(host.a, false, 
+                           {{"opcode", (int)PutFullData},
+                            {"size", 4}}); // 2^4 = 16 bytes = 2 beats
+  tl_a request = message.next_beat(false);
   host.a.send(request);
 
   tl_a req_received = device.a.await();
   assert(req_received.data == request.data);
 
-  tl_d response = device.d.new_response(false, req_received);
-  device.d.send(response);
+  tl_message<tl_d> response(device.d, req_received, false);
+  device.d.send(response.next_beat(false));
 
   tl_d resp_received = host.d.await();
 }

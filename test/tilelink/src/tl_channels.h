@@ -11,10 +11,11 @@
 #include <vector>
 
 #include "logs.h"
-#include "random.h"
 #include "tilelink.h"
-#include "printing.h"
 #include "tl_exceptions.h"
+#include "tl_messages.h"
+#include "tl_printing.h"
+#include "tl_random.h"
 #include "Vtl_wrapper.h"
 
 using std::map;
@@ -77,21 +78,25 @@ public:
   // specialisations have extra methods to generate standard responses
   //   e.g. endpoint<D> has respond(A), respond(C)
   //   also randomChange(A)? What would that be used for?
-protected:
+
+  // The maximum value of the `size` field of any single-beat message on this
+  // channel.
+  int beat_size() const {return bits_to_size(bit_width());}
+
   DUT& dut() const               {return parent.dut;}
   int position() const           {return parent.position;}
   tl_protocol_e protocol() const {return parent.protocol;}
   int bit_width() const          {return parent.bit_width;}
+
+  const TileLinkEndpoint& get_parent() {return parent;}
+
+protected:
   int first_id() const           {return parent.first_id;}
   int last_id() const            {return parent.last_id;}
 
   // `size` == log2(bytes)
   static int size_to_bits(int size) {return 8 * (1 << size);}
   static int bits_to_size(int bits) {return (int)(log2(bits / 8));}
-
-  // The maximum value of the `size` field of any single-beat message on this
-  // channel.
-  int beat_size() const {return bits_to_size(bit_width());}
 
   // The number of beats in a message with given `size`. This assumes the`size`
   // corresponds to this message, and not the associated request/response.
@@ -143,6 +148,9 @@ public:
   // One clock cycle of behaviour.
   virtual void set_outputs(bool randomise) {
     // Don't send any new data if we're still waiting to send old data.
+    // TODO: if this is the first beat of a message, optionally deassert it.
+    //       Be careful not to lose the message entirely if we've already popped
+    //       it from the queue.
     if (this->get_valid())
       return;
 
@@ -159,22 +167,28 @@ public:
       this->respond();
 
     if (!to_send.empty()) {
-      channel data = to_send.front();
+      tl_message<channel>& message = to_send.front();
+      channel beat = message.next_beat(randomise);
+      
+      // Modify the beat if there are any modifications queued up.
+      // Used to force the system into particular states.
       map<string, int> updates;
-
       if (!modifications.empty()) {
         updates = modifications.front();
-        this->modify(data, updates);
+        beat = tl_message<channel>::modify(beat, updates);
         modifications.pop();
       }
 
-      if (updates.find("duplicate_beat") == updates.end())
-        to_send.pop();
+      if (updates.find("duplicate_beat") != updates.end())
+        message.unsend();
 
       if (updates.find("drop_beat") == updates.end()) {
-        this->set_data(data);
+        this->set_data(beat);
         this->set_valid(true);
       }
+
+      if (message.finished())
+        to_send.pop();
     }
   }
 
@@ -184,9 +198,6 @@ public:
   virtual void set_valid(bool valid) = 0;
 
 protected:
-
-  // Modify `data` according to the fields/values provided in `updates`.
-  virtual void modify(channel& data, map<string, int>& updates) = 0;
 
   // Generate (but don't send) responses to any pending requests. This may not
   // be possible if, for example, there are no spare transaction IDs. In that
@@ -215,13 +226,17 @@ public:
     assert(this->get_ready() && "Network not ready to receive message");
   }
 
-  // Send a beat onto the network.
+  // Send a single beat onto the network.
   void send(channel data) {
-    to_send.push(data);
+    to_send.push(tl_message<channel>(*this, data, 1));
   }
 
   bool can_start_new_transaction() const {
     return ids_in_use.size() < (this->last_id() - this->first_id() + 1);
+  }
+
+  bool transaction_id_available(int id) const {
+    return ids_in_use.find(id) == ids_in_use.end();
   }
 
   // An ID for a transaction. IDs can be reused, but not until the previous
@@ -233,14 +248,14 @@ public:
     if (randomise) {
       while (true) {
         int id = this->first_id() + (rand() % (this->last_id() - this->first_id() + 1));
-        if (ids_in_use.find(id) == ids_in_use.end())
+        if (transaction_id_available(id))
           return id;
       }
     }
     else {
       // Find first available ID.
       for (int id=this->first_id(); id<=this->last_id(); id++)
-        if (ids_in_use.find(id) == ids_in_use.end())
+        if (transaction_id_available(id))
           return id;
 
       assert(false && "Couldn't find available transaction ID");
@@ -257,11 +272,11 @@ public:
   }
 
   void start_transaction(int id) {
-    assert(ids_in_use.find(id) == ids_in_use.end());
+    assert(transaction_id_available(id));
     ids_in_use.insert(id);
   }
   void end_transaction(int id) {
-    assert(ids_in_use.find(id) != ids_in_use.end());
+    assert(!transaction_id_available(id));
     ids_in_use.erase(id);
   }
 
@@ -271,7 +286,7 @@ protected:
   // transaction per ID.
   set<int> ids_in_use;
 
-  queue<channel> to_send;
+  queue<tl_message<channel>> to_send;
   queue<map<string, int>> modifications;
 
   // If we sent a beat onto the network, was it accepted?
@@ -309,39 +324,12 @@ public:
     this->dut().host_a_valid_i[this->position()] = valid;
   }
 
-  // Generate a new valid request. Requests always consist of a single beat when
-  // not randomised.
-  tl_a new_request(bool randomise) const;
-
-  // Generate a single beat from a request. The address, etc. will be updated
-  // appropriately as the beat number increases.
-  tl_a get_beat(bool randomise, tl_a& request, int index) const;
-
   // Create and enqueue a new request. `requirements` can be used to force
   // fields to have particular values.
   void queue_request(bool randomise, 
                      map<string, int> requirements = map<string, int>());
 
 protected:
-  virtual void modify(tl_a& request, map<string, int>& updates) {
-    if (updates.find("opcode") != updates.end())
-      request.opcode = (tl_a_op_e)updates["opcode"];
-    if (updates.find("param") != updates.end())
-      request.param = updates["param"];
-    if (updates.find("size") != updates.end())
-      request.size = updates["size"];
-    if (updates.find("source") != updates.end())
-      request.source = updates["source"];
-    if (updates.find("address") != updates.end())
-      request.address = updates["address"];
-    if (updates.find("mask") != updates.end())
-      request.mask = updates["mask"];
-    if (updates.find("corrupt") != updates.end())
-      request.corrupt = updates["corrupt"];
-    if (updates.find("data") != updates.end())
-      request.data = updates["data"];
-  }
-
   virtual void respond();
 
   virtual void reorder_requests() {
@@ -381,14 +369,8 @@ public:
     a_requests.push(pair<bool, tl_a>(randomise, request));
   }
 
-  // Generate the first beat of a response.
-  tl_b new_response(bool randomise, tl_a& request) const;
-
   // Respond to an A request.
   void respond(bool randomise, tl_a& request);
-
-  // Generate a new valid request.
-  tl_b new_request(bool randomise) const;
 
   // Create and enqueue a new request. `requirements` can be used to force
   // fields to have particular values.
@@ -396,18 +378,6 @@ public:
                      map<string, int> requirements = map<string, int>());
 
 protected:
-  virtual void modify(tl_b& request, map<string, int>& updates) {
-    if (updates.find("opcode") != updates.end())
-      request.opcode = (tl_b_op_e)updates["opcode"];
-    if (updates.find("param") != updates.end())
-      request.param = updates["param"];
-    if (updates.find("size") != updates.end())
-      request.size = updates["size"];
-    if (updates.find("source") != updates.end())
-      request.source = updates["source"];
-    if (updates.find("address") != updates.end())
-      request.address = updates["address"];
-  }
 
   virtual void respond();
 
@@ -458,17 +428,8 @@ public:
     b_requests.push(pair<bool, tl_b>(randomise, request));
   }
 
-  // Generate the first beat of a response.
-  tl_c new_response(bool randomise, tl_b& request) const;
-
-  // Generate response beats from the first beat.
-  tl_c get_beat(bool randomise, tl_c& response, int index) const;
-
   // Respond to a B request.
   void respond(bool randomise, tl_b& request);
-
-  // Generate the first beat of a request (write back dirty data).
-  tl_c new_request(bool randomise) const;
 
   // Create and enqueue a new request. `requirements` can be used to force
   // fields to have particular values.
@@ -476,23 +437,6 @@ public:
                      map<string, int> requirements = map<string, int>());
 
 protected:
-
-  virtual void modify(tl_c& response, map<string, int>& updates) {
-    if (updates.find("opcode") != updates.end())
-      response.opcode = (tl_c_op_e)updates["opcode"];
-    if (updates.find("param") != updates.end())
-      response.param = updates["param"];
-    if (updates.find("size") != updates.end())
-      response.size = updates["size"];
-    if (updates.find("source") != updates.end())
-      response.source = updates["source"];
-    if (updates.find("address") != updates.end())
-      response.address = updates["address"];
-    if (updates.find("corrupt") != updates.end())
-      response.corrupt = updates["corrupt"];
-    if (updates.find("data") != updates.end())
-      response.data = updates["data"];
-  }
 
   virtual void respond();
 
@@ -548,36 +492,10 @@ public:
     c_requests.push(pair<bool, tl_c>(randomise, request));
   }
 
-  // Generate the first beat of a response.
-  tl_d new_response(bool randomise, tl_a& request) const;
-  tl_d new_response(bool randomise, tl_c& request) const;
-
-  // Generate response beats from the first beat.
-  tl_d get_beat(bool randomise, tl_d& response, int index) const;
-
   void respond(bool randomise, tl_a& request);
   void respond(bool randomise, tl_c& request);
 
 protected:
-
-  virtual void modify(tl_d& response, map<string, int>& updates) {
-    if (updates.find("opcode") != updates.end())
-      response.opcode = (tl_d_op_e)updates["opcode"];
-    if (updates.find("param") != updates.end())
-      response.param = updates["param"];
-    if (updates.find("size") != updates.end())
-      response.size = updates["size"];
-    if (updates.find("source") != updates.end())
-      response.source = updates["source"];
-    if (updates.find("sink") != updates.end())
-      response.sink = updates["sink"];
-    if (updates.find("denied") != updates.end())
-      response.denied = updates["denied"];
-    if (updates.find("corrupt") != updates.end())
-      response.corrupt = updates["corrupt"];
-    if (updates.find("data") != updates.end())
-      response.data = updates["data"];
-  }
 
   virtual void respond();
 
@@ -639,16 +557,9 @@ public:
     d_requests.push(pair<bool, tl_d>(randomise, request));
   }
 
-  tl_e new_response(bool randomise, tl_d& request) const;
-
   void respond(bool randomise, tl_d& request);
 
 protected:
-
-  virtual void modify(tl_e& response, map<string, int>& updates) {
-    if (updates.find("sink") != updates.end())
-      response.sink = updates["sink"];
-  }
 
   virtual void respond();
 

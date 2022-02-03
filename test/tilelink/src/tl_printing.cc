@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iomanip>
-#include "printing.h"
+#include "tl_printing.h"
 
 using std::ostream;
 using std::hex;
@@ -23,6 +23,7 @@ std::ostream& operator<<(std::ostream& os, const tl_a_op_e& op) {
     case AcquireBlock:   return os << "AcquireBlock";
     case AcquirePerm:    return os << "AcquirePerm";
   }
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const tl_b_op_e& op) {
@@ -30,6 +31,7 @@ std::ostream& operator<<(std::ostream& os, const tl_b_op_e& op) {
     case ProbeBlock:     return os << "ProbeBlock";
     case ProbePerm:      return os << "ProbePerm";
   }
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const tl_c_op_e& op) {
@@ -39,6 +41,7 @@ std::ostream& operator<<(std::ostream& os, const tl_c_op_e& op) {
     case Release:        return os << "Release";
     case ReleaseData:    return os << "ReleaseData";
   }
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, const tl_d_op_e& op) {
@@ -50,6 +53,7 @@ std::ostream& operator<<(std::ostream& os, const tl_d_op_e& op) {
     case GrantData:      return os << "GrantData";
     case ReleaseAck:     return os << "ReleaseAck";
   }
+  return os;
 }
 
 

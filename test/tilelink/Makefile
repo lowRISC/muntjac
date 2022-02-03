@@ -45,7 +45,7 @@ $(ANNOTATION_FILES): tl_coverage.dat
 	verilator_coverage $(CURDIR)/$< --annotate $(CURDIR)/$(ANNOTATION_DIR)
 
 tl_coverage.txt: $(ANNOTATION_FILES)
-	grep -E ^.[0-9]{6} $(ANNOTATION_DIR)/tl_assert.sv | grep -v verilator_coverage > $@
+	grep -E ^.[0-9]{6} $(ANNOTATION_DIR)/tl_assert.sv > $@
 
 .PHONY: clean
 clean:

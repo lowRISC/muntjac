@@ -73,7 +73,7 @@ To see which coverpoints were reached during simulation, run:
 make detail
 ```
 
-This creates `tl_coverage.txt` which lists coverpoints from [`tl_assert.sv`](rtl/tl_assert.sv) and says how many times each coverpoint was exercised.
+This creates `tl_coverage.txt` which lists coverpoints from [`tl_assert.sv`](rtl/tl_assert.sv) and says how many times each coverpoint was exercised. "Next point on previous line" indicates that multiple coverpoints were on the previously named line of source code.
 
 The default coverpoints are:
 
