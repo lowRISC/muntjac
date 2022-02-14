@@ -127,7 +127,10 @@ void TileLinkSenderB::queue_request(bool randomise,
 
   tl_message<tl_b> request(*this, randomise, requirements);
 
-  // Send Probe requests out to all masters.
+  // Prepare to send Probe requests out to all masters.
+  // Don't send anything yet though - first need to confirm that transaction
+  // IDs are available.
+  vector<tl_message<tl_b>> pending;
   for (int i=0; i<the_sim->num_hosts(); i++) {
     auto& host = the_sim->host(i);
     if (host.protocol != TL_C)
@@ -137,6 +140,16 @@ void TileLinkSenderB::queue_request(bool randomise,
     //       associated with the host, or just the index of the host.
     request.header.source = host.c.get_routing_id(randomise);
 
+    int id = get_b_id(request.header.source, request.header.address);
+
+    if (this->transaction_id_available(id))
+      pending.push_back(request);
+    else
+      return; // Could try another source/address, but this is simpler.
+  }
+
+  // Send requests now that everything is confirmed safe.
+  for (auto request : pending) {
     // We only support a subset of B requests, which are all single beats.
     this->to_send.push(request);
     this->start_transaction(get_b_id(request.header.source, request.header.address));
@@ -250,12 +263,28 @@ extern bool requires_response(tl_d_op_e opcode);
 void TileLinkSenderD::respond(bool randomise, tl_a& request) {
   tl_message<tl_d> response(*this, request, randomise);
   this->to_send.push(response);
+
+  // ArithmeticData and LogicalData are multibeat requests, but we respond to
+  // each beat individually, so we need to lock the output buffer until we
+  // have responded to all beats.
+  if (request.opcode == ArithmeticData || request.opcode == LogicalData) {
+    // First beat.
+    if (beats_remaining == 0)
+      beats_remaining = std::max(1, (1 << request.size) / (this->bit_width() / 8));
+    
+    beats_remaining--;
+
+    lock_output_buffer = (beats_remaining > 0);
+  }
+  else
+    assert(!lock_output_buffer);
   
   if (requires_response(response.header.opcode))
     this->start_transaction(response.header.sink);
 }
 
 void TileLinkSenderD::respond(bool randomise, tl_c& request) {
+  assert(!lock_output_buffer);
   tl_message<tl_d> response(*this, request, randomise);
   this->to_send.push(response);
   
@@ -282,6 +311,11 @@ void TileLinkSenderD::respond() {
       a_requests.push(request);
     }
   }
+
+  // The output buffer may become locked if only a partial response has been
+  // queued so far.
+  if (lock_output_buffer)
+    return;
 
   int num_c_requests = c_requests.size();
   for (int i=0; i<num_c_requests; i++) {

@@ -19,4 +19,7 @@ std::ostream& operator<<(std::ostream& os, const tl_c& data);
 std::ostream& operator<<(std::ostream& os, const tl_d& data);
 std::ostream& operator<<(std::ostream& os, const tl_e& data);
 
+template<typename channel>
+std::string channel_name();
+
 #endif // TL_PRINTING_H

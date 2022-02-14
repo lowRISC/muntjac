@@ -5,9 +5,11 @@
 #include <iomanip>
 #include "tl_printing.h"
 
+using std::string;
 using std::ostream;
 using std::hex;
 using std::dec;
+using std::left;
 using std::setw;
 
 // TODO: more functions to print params nicely?
@@ -58,7 +60,7 @@ std::ostream& operator<<(std::ostream& os, const tl_d_op_e& op) {
 
 
 ostream& operator<<(ostream& os, const tl_a& data) { 
-  return os <<  "op:"      << setw(14) << data.opcode 
+  return os <<  "op:"      << setw(14) << std::left << data.opcode 
             << " param:"   << data.param
             << " size:"    << data.size 
             << " src:"     << data.source
@@ -69,7 +71,7 @@ ostream& operator<<(ostream& os, const tl_a& data) {
 }
 
 ostream& operator<<(ostream& os, const tl_b& data) { 
-  return os <<  "op:"      << setw(14) << data.opcode 
+  return os <<  "op:"      << setw(14) << std::left << data.opcode 
             << " param:"   << data.param
             << " size:"    << data.size 
             << " src:"     << data.source
@@ -77,7 +79,7 @@ ostream& operator<<(ostream& os, const tl_b& data) {
 }
 
 ostream& operator<<(ostream& os, const tl_c& data) { 
-  return os <<  "op:"      << setw(14) << data.opcode 
+  return os <<  "op:"      << setw(14) << std::left << data.opcode 
             << " param:"   << data.param
             << " size:"    << data.size 
             << " src:"     << data.source
@@ -87,7 +89,7 @@ ostream& operator<<(ostream& os, const tl_c& data) {
 }
 
 ostream& operator<<(ostream& os, const tl_d& data) { 
-  return os <<  "op:"      << setw(14) << data.opcode 
+  return os <<  "op:"      << setw(14) << std::left << data.opcode 
             << " param:"   << data.param
             << " size:"    << data.size 
             << " src:"     << data.source
@@ -100,3 +102,14 @@ ostream& operator<<(ostream& os, const tl_d& data) {
 ostream& operator<<(ostream& os, const tl_e& data) { 
   return os << " sink:"    << data.sink;
 }
+
+template<>
+string channel_name<tl_a>() {return "A";}
+template<>
+string channel_name<tl_b>() {return "B";}
+template<>
+string channel_name<tl_c>() {return "C";}
+template<>
+string channel_name<tl_d>() {return "D";}
+template<>
+string channel_name<tl_e>() {return "E";}

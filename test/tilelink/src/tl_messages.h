@@ -55,6 +55,9 @@ public:
     beats_generated--;
   }
 
+  int current_beat() const {return beats_generated;}
+  int total_beats()  const {return beats_to_send;}
+
 protected:
 
   // The width of the channel this message is being sent on.
@@ -184,6 +187,11 @@ public:
   // Modify a beat of a message.
   // `updates` maps TileLink field names to values, e.g. {{"size", 4}}.
   static channel_t modify(channel_t beat, map<string, int>& updates);
+
+  // Override default method.
+  // We generate individual responses to each beat of atomic operations, and
+  // these can't be broken up either.
+  bool in_progress() const;
 
   // First beat of the message, containing all control signals.
   channel_t header;

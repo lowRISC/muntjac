@@ -41,13 +41,13 @@ public:
     this->args.add_argument("--random-seed", "Set the random seed", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--run", "Generate random traffic for the given duration (in cycles)", ArgumentParser::ARGS_ONE);
 
-    hosts.push_back(new TileLinkHost(this->dut, 0, TL_C,  64, 0, 0));
-    hosts.push_back(new TileLinkHost(this->dut, 1, TL_UH, 64, 1, 1));
-    hosts.push_back(new TileLinkHost(this->dut, 2, TL_UL, 64, 2, 2));
+    hosts.push_back(new TileLinkHost(this->dut, 0, TL_C,  64, 0, 3));
+    hosts.push_back(new TileLinkHost(this->dut, 1, TL_C,  64, 4, 5));
+    hosts.push_back(new TileLinkHost(this->dut, 2, TL_UL, 64, 6, 7));
     
-    devices.push_back(new TileLinkDevice(this->dut, 0, TL_C,  64, 0, 0));
-    devices.push_back(new TileLinkDevice(this->dut, 1, TL_UH, 64, 1, 1));
-    devices.push_back(new TileLinkDevice(this->dut, 2, TL_UL, 64, 2, 2));
+    devices.push_back(new TileLinkDevice(this->dut, 0, TL_C,  64, 0, 3));
+    devices.push_back(new TileLinkDevice(this->dut, 1, TL_UH, 64, 4, 5));
+    devices.push_back(new TileLinkDevice(this->dut, 2, TL_UL, 64, 6, 7));
   }
 
   int             num_hosts()   const {return hosts.size();}

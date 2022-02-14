@@ -7,7 +7,7 @@ module tl_wrapper #(
     parameter int unsigned DataWidth = 64,
     parameter int unsigned HostSourceWidth = 3,
     parameter int unsigned DeviceSourceWidth = 7, // HSW + 2 (TL-UH) + 2 (TL-UL)
-    parameter int unsigned SinkWidth = 2,
+    parameter int unsigned SinkWidth = 3,
     parameter int unsigned MaxSize = 5
 ) (
   // Clock and reset
@@ -116,7 +116,7 @@ module tl_wrapper #(
 
 // TileLink structure:
 //
-//  host0 (TL-C)              host1 (TL-UH)             host2 (TL-UL)
+//  host0 (TL-C)              host1 (TL-C)              host2 (TL-UL)
 //       |_________________________|_________________________|
 //                                 | (host_tl)
 //                             socket_m1
@@ -142,12 +142,16 @@ module tl_wrapper #(
     .MaxSize     (MaxSize),
 
     // TODO: Not 100% sure of the difference between these two
-    .NumCachedHosts (1),
-    .NumCachedLinks (1),
+    .NumCachedHosts (2),
+    .NumCachedLinks (2),
 
-    .NumSourceRange (2),  // Excluding default source 0
-    .SourceBase ({{{HostSourceWidth-2{1'b0}}, 2'd1}, {{HostSourceWidth-2{1'b0}}, 2'd2}}),
-    .SourceMask ({{HostSourceWidth{1'b0}}, {HostSourceWidth{1'b0}}}),
+    // Routing table:
+    //   Source IDs 0-3: host 0 (default)
+    //   Source IDs 4-5: host 1
+    //   Source IDs 6-7: host 2
+    .NumSourceRange (2),  // Excludes default host
+    .SourceBase ({3'd4, 3'd6}),       //
+    .SourceMask ({3'b001, 3'b001}),   // TODO: ensure this matches HostSourceWidth
     .SourceLink ({2'd1, 2'd2})
   ) socket_m1 (
     .clk_i,
@@ -163,13 +167,18 @@ module tl_wrapper #(
     .SinkWidth   (SinkWidth),
     .MaxSize     (MaxSize),
     .NumLinks    (3),
-    .NumAddressRange (2),  // Excluding default sink 0
+
+    // Routing tables:
+    //   Addresses 0x0xxxxxxx, sink IDs 0-3: device 0 (default)
+    //   Addresses 0x1xxxxxxx, sink IDs 4-5: device 1
+    //   Addresses 0x2xxxxxxx, sink IDs 6-7: device 2
+    .NumAddressRange (2),  // Excludes default device 0
     .AddressBase ({56'h10000000, 56'h20000000}),
     .AddressMask ({56'h0fffffff, 56'h0fffffff}),
     .AddressLink ({2'd        1, 2'd        2}),
     .NumSinkRange (2),
-    .SinkBase ({{{SinkWidth-2{1'b0}}, 2'd1}, {{SinkWidth-2{1'b0}}, 2'd2}}),
-    .SinkMask ({{SinkWidth{1'b0}}, {SinkWidth{1'b0}}}),
+    .SinkBase ({3'd4, 3'd6}),       //
+    .SinkMask ({3'b001, 3'b001}),   // TODO: ensure this matches SinkWidth
     .SinkLink ({2'd1, 2'd2})
   ) socket_1n (
     .clk_i,

@@ -92,38 +92,9 @@ module tl_assert import tl_pkg::*; #(
 
   // Copy input TileLink fields to local variables.
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, tl);
-  // `TL_BIND_TAP_PORT(tl, tl);
 
   // Latch the previous input so we can look at transitions.
   `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_tl);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_accepted);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_declined);
-
-  // Capture the last accepted/declined beats from a named channel.
-  // TODO: this is for functional coverage. Not tested yet.
-  // TODO: focus on non-continuous matches.
-  // TODO: accepted being valid doesn't make declined invalid.
-  `define COVERAGE_CAPTURE(CHANNEL)                                      \
-    if (tl_``CHANNEL``_valid) begin                             \
-      prev_accepted_``CHANNEL``_valid <= tl_``CHANNEL``_ready;  \
-      prev_declined_``CHANNEL``_valid <= !tl_``CHANNEL``_ready; \
-                                                                \
-      if (tl_``CHANNEL``_ready) begin                           \
-        prev_accepted_``CHANNEL`` <= tl_``CHANNEL``;            \
-      end else begin                                            \
-        prev_declined_``CHANNEL`` <= tl_``CHANNEL``;            \
-      end                                                       \
-    end
-
-  always_ff @(posedge clk_i) begin
-    `COVERAGE_CAPTURE(a);
-    `COVERAGE_CAPTURE(b);
-    `COVERAGE_CAPTURE(c);
-    `COVERAGE_CAPTURE(d);
-    `COVERAGE_CAPTURE(e);
-  end
-
-  `undef COVERAGE_CAPTURE
 
   ////////////////////////////////////
   // Keep track of pending requests //
@@ -883,7 +854,6 @@ module tl_assert import tl_pkg::*; #(
     `S_COVER(``CHANNEL``BackToBack_C, ``CHANNEL``BackToBack_S)
 
   // A valid signal is deasserted before it is accepted by the recipient.
-  // TODO: check that this is doing what we expect
   `define VALID_NOT_ACCEPTED(CHANNEL) \
     `SEQUENCE(``CHANNEL``ValidNotAccepted_S, \
       prev_tl_``CHANNEL``_valid && !prev_tl_``CHANNEL``_ready && !tl_``CHANNEL``_valid \
@@ -891,7 +861,6 @@ module tl_assert import tl_pkg::*; #(
     `S_COVER(``CHANNEL``ValidNotAccepted_C, ``CHANNEL``ValidNotAccepted_S)
   
   // Content is changed without being accepted.
-  // TODO: check that this is doing what we expect
   `define CHANGED_WITHOUT_ACCEPTED(CHANNEL, NAME) \
     `SEQUENCE(``CHANNEL``_``NAME``ChangedNotAccepted_S, \
       tl_``CHANNEL``_valid && prev_declined_``CHANNEL``_valid && \
@@ -997,9 +966,9 @@ module tl_assert import tl_pkg::*; #(
 
   // TODO: current macro can't accept multibit properties.
   if (Protocol == TL_C) begin : gen_tlc_simultaneous_cov
-    `S_COVER(tlc_simultaneous, tlc_accepted);
+    //`S_COVER(tlc_simultaneous, tlc_accepted);
   end else begin : gen_tluh_simultaneous_cov
-    `S_COVER(tluh_simultaneous, tluh_accepted);
+    //`S_COVER(tluh_simultaneous, tluh_accepted);
   end
 
 endmodule

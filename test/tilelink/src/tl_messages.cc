@@ -44,10 +44,9 @@ int full_mask(int size) {
 }
 
 // `size` == log2(bytes)
-int size_to_bits(int size) {return 8 * (1 << size);}
-int bits_to_size(int bits) {return (int)(log2(bits / 8));}
-
-int max(int a, int b)      {return (a > b) ? a : b;}
+int size_to_bytes(int size) {return 1 << size;}
+int size_to_bits(int size)  {return 8 * size_to_bytes(size);}
+int bits_to_size(int bits)  {return (int)(log2(bits / 8));}
 
 ///////////////
 // Channel A //
@@ -67,7 +66,7 @@ bool requires_response(tl_a_op_e opcode) {
 
 int num_beats(tl_a_op_e opcode, int size, int channel_width_bytes) {
   if (has_payload(opcode))
-    return max(1, (1 << size) / channel_width_bytes);
+    return std::max(1, (1 << size) / channel_width_bytes);
   else
     return 1;
 }
@@ -207,7 +206,7 @@ bool requires_response(tl_b_op_e opcode) {
 
 int num_beats(tl_b_op_e opcode, int size, int channel_width_bytes) {
   if (has_payload(opcode))
-    return max(1, (1 << size) / channel_width_bytes);
+    return std::max(1, (1 << size) / channel_width_bytes);
   else
     return 1;
 }
@@ -350,7 +349,7 @@ bool requires_response(tl_c_op_e opcode) {
 
 int num_beats(tl_c_op_e opcode, int size, int channel_width_bytes) {
   if (has_payload(opcode))
-    return max(1, (1 << size) / channel_width_bytes);
+    return std::max(1, (1 << size) / channel_width_bytes);
   else
     return 1;
 }
@@ -509,7 +508,7 @@ bool requires_response(tl_d_op_e opcode) {
 
 int num_beats(tl_d_op_e opcode, int size, int channel_width_bytes) {
   if (has_payload(opcode))
-    return max(1, (1 << size) / channel_width_bytes);
+    return std::max(1, (1 << size) / channel_width_bytes);
   else
     return 1;
 }
@@ -520,7 +519,7 @@ int num_beats(tl_d_op_e opcode, tl_a_op_e request, int size, int channel_width_b
   // to send a single-beat response after each request beat.
 
   if (has_payload(opcode) && request != LogicalData && request != ArithmeticData)
-    return max(1, (1 << size) / channel_width_bytes);
+    return std::max(1, (1 << size) / channel_width_bytes);
   else
     return 1;
 }
@@ -660,6 +659,14 @@ tl_d tl_message<tl_d>::modify(tl_d beat, map<string, int>& updates) {
     beat.data = updates["data"];
 
   return beat;
+}
+
+bool tl_message<tl_d>::in_progress() const {
+  // Atomic memory operations generate a new response for each beat of request,
+  // so num_beats() lies about the length of the response.
+  // Detect this lie to prevent individual beats being reordered.
+  int expected = num_beats(header.opcode, header.size, channel_width_bytes);
+  return (beats_to_send != expected) || tl_message_base::in_progress();
 }
 
 

@@ -5,9 +5,11 @@
 #ifndef TL_CHANNELS_H
 #define TL_CHANNELS_H
 
+#include <iomanip>
 #include <map>
 #include <queue>
 #include <set>
+#include <sstream>
 #include <vector>
 
 #include "logs.h"
@@ -23,6 +25,7 @@ using std::pair;
 using std::queue;
 using std::set;
 using std::string;
+using std::stringstream;
 using std::vector;
 
 typedef Vtl_wrapper DUT;
@@ -44,6 +47,13 @@ public:
 
   virtual void get_inputs(bool randomise) = 0;
   virtual void set_outputs(bool randomise) = 0;
+
+  virtual string endpoint_type() const = 0;
+  string name() const {
+    stringstream ss;
+    ss << std::setw(6) << std::left << this->endpoint_type() << " " << position;
+    return ss.str();
+  }
 
   // The TileLink network being tested.
   DUT& dut;
@@ -77,7 +87,6 @@ public:
 
   // specialisations have extra methods to generate standard responses
   //   e.g. endpoint<D> has respond(A), respond(C)
-  //   also randomChange(A)? What would that be used for?
 
   // The maximum value of the `size` field of any single-beat message on this
   // channel.
@@ -89,6 +98,10 @@ public:
   int bit_width() const          {return parent.bit_width;}
 
   const TileLinkEndpoint& get_parent() {return parent;}
+
+  string name() const {
+    return parent.name() + channel_name<channel>();
+  }
 
 protected:
   int first_id() const           {return parent.first_id;}
@@ -104,12 +117,6 @@ protected:
     int total_bits = size_to_bits(size);
     int beat_bits = bit_width();
     return (total_bits > beat_bits) ? (total_bits / beat_bits) : 1;
-  }
-
-  // `size` is the TileLink field, log2(bytes).
-  int full_mask(int size) const {
-    int num_bytes = 1 << size;
-    return (1 << num_bytes) - 1;
   }
 
   TileLinkEndpoint& parent;
@@ -147,26 +154,41 @@ public:
 
   // One clock cycle of behaviour.
   virtual void set_outputs(bool randomise) {
-    // Don't send any new data if we're still waiting to send old data.
-    // TODO: if this is the first beat of a message, optionally deassert it.
-    //       Be careful not to lose the message entirely if we've already popped
-    //       it from the queue.
-    if (this->get_valid())
-      return;
+    // Handle beats which have been sent but not yet accepted.
+    if (this->get_valid()) {
+      assert(!to_send.empty());
 
-    // Randomly reorder the pending requests.
+      // Randomly remove the beat from the channel.
+      if (randomise && random_bool(0.2)) {
+        this->set_valid(false);
+        to_send.front().unsend();
+        MUNTJAC_LOG(1) << this->name() << " retracted last beat" << std::endl;
+      }
+      // If keeping the same beat, don't need any of the rest of this function.
+      else
+        return;
+    }
+
+    // Clear out completed messages.
+    if (!to_send.empty() && to_send.front().finished())
+      to_send.pop();
+
+    // Randomly reorder the pending requests and responses.
     // Currently disabled for TL-UL components because the TL-UL adapter
     // requires FIFO order. Could alternatively require FIFO converters in the
     // TileLink network.
-    if (this->protocol() != TL_UL && randomise && random_bool(0.5))
+    if (this->protocol() != TL_UL && randomise && random_bool(0.5)) {
       this->reorder_requests();
+      this->reorder_responses();
+    }
 
     // Generate responses to any pending requests and put them in the queue.
     // Randomly stall, i.e. don't respond for a cycle.
     if (!randomise || random_bool(0.8))
       this->respond();
 
-    if (!to_send.empty()) {
+    // Send available responses 80% of the time.
+    if (!to_send.empty() && !(randomise && random_bool(0.2))) {
       tl_message<channel>& message = to_send.front();
       channel beat = message.next_beat(randomise);
       
@@ -179,16 +201,17 @@ public:
         modifications.pop();
       }
 
+      // Instead of duplicate/drop beat, could instead use the tl_message
+      // constructor which specifies the number of beats to send.
       if (updates.find("duplicate_beat") != updates.end())
         message.unsend();
 
       if (updates.find("drop_beat") == updates.end()) {
         this->set_data(beat);
         this->set_valid(true);
+        MUNTJAC_LOG(1) << this->name() << " sent " << message.current_beat() 
+          << "/" << message.total_beats() << " " << beat << std::endl;
       }
-
-      if (message.finished())
-        to_send.pop();
     }
   }
 
@@ -204,8 +227,20 @@ protected:
   // case, nothing happens.
   virtual void respond() = 0;
 
-  // Reorder the contentst of request queue(s).
+  // Reorder the contents of request queue(s).
   virtual void reorder_requests() = 0;
+
+  // Reorder the contents of the response queue.
+  virtual void reorder_responses() {
+    // Simple for now: move the front response to the back of the queue.
+    // This is only safe if we have not already started sending the response,
+    // and if the response at the back of the queue is complete.
+    if (!to_send.empty() && !to_send.front().in_progress() && 
+        !to_send.back().in_progress()) {
+      to_send.push(to_send.front());
+      to_send.pop();
+    }
+  }
 
 public:
 
@@ -272,10 +307,12 @@ public:
   }
 
   void start_transaction(int id) {
+    MUNTJAC_LOG(2) << this->name() << " starting transaction ID " << id << endl;
     assert(transaction_id_available(id));
     ids_in_use.insert(id);
   }
   void end_transaction(int id) {
+    MUNTJAC_LOG(2) << this->name() << " ending transaction ID " << id << endl;
     assert(!transaction_id_available(id));
     ids_in_use.erase(id);
   }
@@ -307,9 +344,6 @@ public:
   }
 
   virtual void set_data(tl_a beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "A   sending "
-                   << beat << std::endl;
-
     this->dut().host_a_opcode_i[this->position()]  = beat.opcode;
     this->dut().host_a_param_i[this->position()]   = beat.param;
     this->dut().host_a_size_i[this->position()]    = beat.size;
@@ -351,9 +385,6 @@ public:
   }
 
   virtual void set_data(tl_b beat) {
-    MUNTJAC_LOG(1) << "Device " << this->position() << "B   sending "
-                   << beat << std::endl;
-
     this->dut().dev_b_opcode_i[this->position()]  = beat.opcode;
     this->dut().dev_b_param_i[this->position()]   = beat.param;
     this->dut().dev_b_size_i[this->position()]    = beat.size;
@@ -408,9 +439,6 @@ public:
   }
 
   virtual void set_data(tl_c beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "C   sending "
-                   << beat << std::endl;
-
     this->dut().host_c_opcode_i[this->position()]  = beat.opcode;
     this->dut().host_c_param_i[this->position()]   = beat.param;
     this->dut().host_c_size_i[this->position()]    = beat.size;
@@ -456,7 +484,10 @@ private:
 class TileLinkSenderD : public TileLinkSender<tl_d> {
 public:
   TileLinkSenderD(TileLinkEndpoint& parent) : 
-      TileLinkSender<tl_d>(parent) {}
+      TileLinkSender<tl_d>(parent) {
+    lock_output_buffer = false;
+    beats_remaining = 0;
+  }
 
   virtual bool get_ready() const {
     return this->dut().dev_d_ready_o[this->position()];
@@ -467,9 +498,6 @@ public:
   }
 
   virtual void set_data(tl_d beat) {
-    MUNTJAC_LOG(1) << "Device " << this->position() << "D   sending "
-                   << beat << std::endl;
-
     this->dut().dev_d_opcode_i[this->position()]  = beat.opcode;
     this->dut().dev_d_param_i[this->position()]   = beat.param;
     this->dut().dev_d_size_i[this->position()]    = beat.size;
@@ -527,6 +555,12 @@ private:
   // If we are not able to respond to a request immediately, queue it here.
   queue<pair<bool, tl_a>> a_requests;
   queue<pair<bool, tl_c>> c_requests;
+
+  // Due to some hacks around the treatment of ArithmeticData and LogicalData,
+  // we may need to prevent other responses from being created until all beats
+  // have been handled.
+  bool lock_output_buffer;
+  int beats_remaining;
 };
 
 class TileLinkSenderE : public TileLinkSender<tl_e> {
@@ -543,9 +577,6 @@ public:
   }
 
   virtual void set_data(tl_e beat) {
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "E   sending "
-                   << beat << std::endl;
-
     this->dut().host_e_sink_i[this->position()] = beat.sink;
   }
 
@@ -612,8 +643,11 @@ public:
 
   // Respond to inputs immediately if available.
   virtual void get_inputs(bool randomise) {
-    if (this->get_valid() && ready)
-      this->handle_beat(randomise, this->get_data());
+    if (this->get_valid() && ready) {
+      channel beat = this->get_data();
+      MUNTJAC_LOG(1) << this->name() << " received " << beat << std::endl;
+      this->handle_beat(randomise, beat);
+    }
 
     // Randomly stall next cycle. Can't stall this cycle because we've
     // already announced whether we are `ready`.
@@ -669,9 +703,6 @@ public:
     data.corrupt = this->dut().dev_a_corrupt_o[this->position()];
     data.data    = this->dut().dev_a_data_o[this->position()];
 
-    MUNTJAC_LOG(1) << "Device " << this->position() << "A receiving "
-                   << data << std::endl;
-
     return data;
   }
 
@@ -699,9 +730,6 @@ public:
     data.size    = this->dut().host_b_size_o[this->position()];
     data.source  = this->dut().host_b_source_o[this->position()];
     data.address = this->dut().host_b_address_o[this->position()];
-
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "B receiving "
-                   << data << std::endl;
 
     return data;
   }
@@ -732,9 +760,6 @@ public:
     data.address = this->dut().dev_c_address_o[this->position()];
     data.corrupt = this->dut().dev_c_corrupt_o[this->position()];
     data.data    = this->dut().dev_c_data_o[this->position()];
-
-    MUNTJAC_LOG(1) << "Device " << this->position() << "C receiving "
-                   << data << std::endl;
 
     return data;
   }
@@ -767,9 +792,6 @@ public:
     data.corrupt = this->dut().host_d_corrupt_o[this->position()];
     data.data    = this->dut().host_d_data_o[this->position()];
 
-    MUNTJAC_LOG(1) << "Host   " << this->position() << "D receiving "
-                   << data << std::endl;
-
     return data;
   }
 
@@ -793,9 +815,6 @@ public:
     tl_e data;
 
     data.sink = this->dut().dev_e_sink_o[this->position()];
-
-    MUNTJAC_LOG(1) << "Device " << this->position() << "E receiving "
-                   << data << std::endl;
 
     return data;
   }
@@ -855,6 +874,10 @@ public:
     e.set_outputs(randomise);
   }
 
+  virtual string endpoint_type() const {
+    return "Host";
+  }
+
   TileLinkSenderA   a;
   TileLinkReceiverB b;
   TileLinkSenderC   c;
@@ -905,6 +928,10 @@ public:
     c.set_outputs(randomise);
     d.set_outputs(randomise);
     e.set_outputs(randomise);
+  }
+
+  virtual string endpoint_type() const {
+    return "Device";
   }
 
   TileLinkReceiverA a;
