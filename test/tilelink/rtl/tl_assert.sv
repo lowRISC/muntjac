@@ -31,6 +31,50 @@ module tl_assert import tl_pkg::*; #(
     expected_beats = ((1 << size) < DataWidthInBytes) ? 1 : (1 << size) / DataWidthInBytes;
   endfunction
 
+  // The number of beats expected in any message (burst or not).
+  function logic [$bits(MaxBeats)-1:0] a_expected_beats(
+    input logic                [2:0] opcode,
+    input logic [`TL_SIZE_WIDTH-1:0] size
+  );
+    if (opcode inside {PutFullData, PutPartialData, ArithmeticData, LogicalData}) begin
+      a_expected_beats = expected_beats(size);
+    end else begin
+      a_expected_beats = 1'b1;
+    end
+  endfunction
+
+  function logic [$bits(MaxBeats)-1:0] b_expected_beats(
+    input logic                [2:0] opcode,
+    input logic [`TL_SIZE_WIDTH-1:0] size
+  );
+    b_expected_beats = 1'b1;  // We don't support multibeat B messages.
+  endfunction
+
+  function logic [$bits(MaxBeats)-1:0] c_expected_beats(
+    input logic                [2:0] opcode,
+    input logic [`TL_SIZE_WIDTH-1:0] size
+  );
+    if (opcode inside {ProbeAckData, ReleaseData}) begin
+      c_expected_beats = expected_beats(size);
+    end else begin
+      c_expected_beats = 1'b1;
+    end
+  endfunction
+
+  function logic [$bits(MaxBeats)-1:0] d_expected_beats(
+    input logic                [2:0] opcode,
+    input logic [`TL_SIZE_WIDTH-1:0] size
+  );
+    if (opcode inside {AccessAckData, GrantData}) begin
+      d_expected_beats = expected_beats(size);
+    end else begin
+      d_expected_beats = 1'b1;
+    end
+  endfunction
+
+  // e_expected_beats: E channel doesn't have size or opcode fields, and all
+  //                   messages have 1 beat.
+
   // Determine whether opcodes correspond to requests or responses.
   // Any message which is not a request is a response.
   function logic a_is_request(input logic [2:0] opcode);
@@ -220,6 +264,33 @@ module tl_assert import tl_pkg::*; #(
     end
   end
 
+  // The last beats from each channel to be accepted/declined.
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_accepted);
+  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, prev_declined);
+
+  // Capture the last accepted/declined beats from a named channel.
+  `define CAPTURE_ACCEPTED_DECLINED(CHANNEL)                    \
+    if (tl_``CHANNEL``_valid) begin                             \
+      prev_accepted_``CHANNEL``_valid <= tl_``CHANNEL``_ready;  \
+      prev_declined_``CHANNEL``_valid <= !tl_``CHANNEL``_ready; \
+                                                                \
+      if (tl_``CHANNEL``_ready) begin                           \
+        prev_accepted_``CHANNEL`` <= tl_``CHANNEL``;            \
+      end else begin                                            \
+        prev_declined_``CHANNEL`` <= tl_``CHANNEL``;            \
+      end                                                       \
+    end
+
+  always_ff @(posedge clk_i) begin
+    `CAPTURE_ACCEPTED_DECLINED(a);
+    `CAPTURE_ACCEPTED_DECLINED(b);
+    `CAPTURE_ACCEPTED_DECLINED(c);
+    `CAPTURE_ACCEPTED_DECLINED(d);
+    `CAPTURE_ACCEPTED_DECLINED(e);
+  end
+
+  `undef CAPTURE_ACCEPTED_DECLINED
+
   /////////////////////////////////////////
   // A channel                           //
   /////////////////////////////////////////
@@ -394,44 +465,6 @@ module tl_assert import tl_pkg::*; #(
     (tl_b.opcode inside {ProbeBlock, ProbePerm} && tl_b.param inside {[0:2]})
   );
 
-  // TODO: lots of copy/paste from A channel from here on. Can this be tidied?
-  
-  // DON'T USE THIS. TileLink B messages cannot be uniquely identified using
-  // only a source ID: they need an address too. This allows too many pending
-  // requests to reasonably track.
-
-  // b.size: we expect a certain number of beats in burst messages.
-  // `SEQUENCE(bNumBeats_S,
-  //   `IMPLIES(bHasPayload_S, 
-  //     b_pending[tl_b.source].beats <= expected_beats(tl_b.size)
-  //   )
-  // );
-
-  // b.address: must be aligned to b.size (for the first beat only).
-  // `SEQUENCE(bFirstBeat_S, b_pending[tl_b.source].beats == 1);
-  // `SEQUENCE(bAddrSizeAligned_S, 
-  //   `IMPLIES(bFirstBeat_S, (tl_b.address & ((1 << tl_b.size) - 1)) == '0)
-  // );
-
-  // b.address: must increment by DataWidthInBytes within multibeat messages.
-  // `SEQUENCE(bFollowingBeat_S, b_pending[tl_b.source].beats > 1);
-  // `SEQUENCE(bAddressMultibeatInc_S,
-  //   `IMPLIES(bFollowingBeat_S,
-  //     tl_b.address == b_pending[tl_b.source].tl.address + 
-  //                     (b_pending[tl_b.source].beats - 1) * DataWidthInBytes
-  //   )
-  // );
-
-  // Most control signals must remain constant within multibeat messages.
-  // `SEQUENCE(bMultibeatCtrlConst_S,
-  //   `IMPLIES(bFollowingBeat_S,
-  //     (tl_b.opcode == b_pending[tl_b.source].tl.opcode) &&
-  //     (tl_b.param == b_pending[tl_b.source].tl.param) &&
-  //     (tl_b.size == b_pending[tl_b.source].tl.size) &&
-  //     (tl_b.source == b_pending[tl_b.source].tl.source)
-  //   )
-  // );
-
   /////////////////////////////////////////
   // C channel                           //
   /////////////////////////////////////////
@@ -448,20 +481,6 @@ module tl_assert import tl_pkg::*; #(
   `SEQUENCE(cHasPayload_S, 
     tl_c.opcode inside {AccessAckData, ProbeAckData, ReleaseData}
   );
-
-  // DON'T USE THIS. TileLink B messages cannot be uniquely identified using
-  // only a source ID: they need an address too. This allows too many pending
-  // requests to reasonably track.
-
-  // Ensure opcode matches pending request.
-  // `SEQUENCE(cMatchingOpcode_S,
-  //   (tl_c.opcode == AccessAckData && b_pending[tl_c.source].tl.opcode inside {Get, ArithmeticData, LogicalData}) ||
-  //   (tl_c.opcode == AccessAck     && b_pending[tl_c.source].tl.opcode inside {PutFullData, PutPartialData}) ||
-  //   (tl_c.opcode == HintAck       && b_pending[tl_c.source].tl.opcode inside {Intent}) ||
-  //   (tl_c.opcode == ProbeAck      && b_pending[tl_c.source].tl.opcode inside {ProbeBlock, ProbePerm}) ||
-  //   (tl_c.opcode == ProbeAckData  && b_pending[tl_c.source].tl.opcode inside {ProbeBlock}) ||
-  //   (tl_c.opcode inside {Release, ReleaseData})
-  // );
 
   // c.param
   `SEQUENCE(cLegalParam_S, 
@@ -507,11 +526,6 @@ module tl_assert import tl_pkg::*; #(
     )
   );
 
-  // c.data: must be known for operations with payloads.
-  // Don't use this. The mask is in the corresponding B request, which we don't
-  // track. Without a mask, we don't know which lanes of the data to check.
-  //`SEQUENCE(cDataKnown_S, `IMPLIES(cHasPayload_S, !$isunknown(tl_c.data)));
-
   // c.corrupt: only operations with payloads may set c.corrupt to 1.
   `SEQUENCE(cLegalCorrupt_S, `IMPLIES(`NOT cHasPayload_S, !tl_c.corrupt));
 
@@ -520,6 +534,14 @@ module tl_assert import tl_pkg::*; #(
   /////////////////////////////////////////
 
   `SEQUENCE(dAccepted_S, tl_d_valid && tl_d_ready);
+
+  // D messages can respond to multiple channels - check which one.
+  function logic is_a_response(input logic [2:0] opcode);
+    is_a_response = (opcode != ReleaseAck);
+  endfunction
+  function logic is_c_response(input logic [2:0] opcode);
+    is_c_response = !is_a_response(opcode);
+  endfunction
 
   // d.opcode
   `SEQUENCE(dLegalOpcodeTLUL_S,
@@ -555,28 +577,46 @@ module tl_assert import tl_pkg::*; #(
   // This is only a requirement for Device ports. Host ports may see responses
   // bound for other hosts.
   `SEQUENCE(dRespMustHaveReq_S, 
-    (tl_d.opcode != ReleaseAck && a_pending[tl_d.source].pend) ||
-    (tl_d.opcode == ReleaseAck && c_pending[tl_d.source].pend)
+    (is_a_response(tl_d.opcode) && a_pending[tl_d.source].pend) ||
+    (is_c_response(tl_d.opcode) && c_pending[tl_d.source].pend)
   );
 
   // If we have received a complete response, we must also have received
   // a complete request.
   `SEQUENCE(dCompleteResp_S,
-    (tl_d.opcode == ReleaseAck) ||
-    (a_pending[tl_d.source].resps == (dHasPayload_S ? expected_beats(tl_d.size) : 1))
+    (is_c_response(tl_d.opcode)) ||
+    (a_pending[tl_d.source].resps == d_expected_beats(tl_d.opcode, tl_d.size))
   );
   // Only use expected_beats when the initial request had a payload.
   `SEQUENCE(dCompleteReq_S,
-    (tl_d.opcode != ReleaseAck && (a_pending[tl_d.source].tl.opcode inside {Get, Intent, AcquireBlock, AcquirePerm} ||
-                                   a_pending[tl_d.source].beats == expected_beats(a_pending[tl_d.source].tl.size))) ||
-    (tl_d.opcode == ReleaseAck && (c_pending[tl_d.source].tl.opcode inside {Release} ||
-                                   c_pending[tl_d.source].beats == expected_beats(c_pending[tl_d.source].tl.size)))
+    (is_a_response(tl_d.opcode) && (a_pending[tl_d.source].beats == a_expected_beats(a_pending[tl_d.source].tl.opcode, a_pending[tl_d.source].tl.size))) ||
+    (is_c_response(tl_d.opcode) && (c_pending[tl_d.source].beats == c_expected_beats(c_pending[tl_d.source].tl.opcode, c_pending[tl_d.source].tl.size)))
   );
   `SEQUENCE(dCompleteReqResp_S, `IMPLIES(dCompleteResp_S, dCompleteReq_S));
 
   // Some TileLink topologies allow Host ports to see responses destined for
   // other Host ports. Ignore these.
   `SEQUENCE(dValidResp_S, dAccepted_S `AND dRespMustHaveReq_S);
+
+  function logic d_in_progress(
+    input logic                [2:0] opcode,
+    input logic [`TL_SIZE_WIDTH-1:0] size,
+    input logic    [SourceWidth-1:0] source
+  );
+    if (is_a_response(opcode)) begin
+      d_in_progress = (a_pending[source].resps > 0) && (a_pending[source].resps < d_expected_beats(opcode, size));
+    end else begin
+      d_in_progress = 0;  // All responses on the C channel are single beats.
+    end
+  endfunction
+
+  // We cannot switch to a different message while a multibeat message is in
+  // progress. Use the source ID to distinguish between messages.
+  `SEQUENCE(dNoInterleaving_S,
+    `IMPLIES(tl_d.source != prev_accepted_d.source, 
+      !d_in_progress(prev_accepted_d.opcode, prev_accepted_d.size, prev_accepted_d.source)
+    )
+  );
 
   // d.param
   `SEQUENCE(dLegalParam_S, 
@@ -587,8 +627,8 @@ module tl_assert import tl_pkg::*; #(
   // d.size: must equal the size of the corresponding request.
   // All requests come from the A channel unless this is a ReleaseAck.
   `SEQUENCE(dSizeEqReqSize_S, 
-    (tl_d.opcode != ReleaseAck && tl_d.size === a_pending[tl_d.source].tl.size) ||
-    (tl_d.opcode == ReleaseAck && tl_d.size === c_pending[tl_d.source].tl.size)
+    (is_a_response(tl_d.opcode) && tl_d.size === a_pending[tl_d.source].tl.size) ||
+    (is_c_response(tl_d.opcode) && tl_d.size === c_pending[tl_d.source].tl.size)
   );
 
   // d.size: we expect a certain number of beats in burst messages.
@@ -657,8 +697,7 @@ module tl_assert import tl_pkg::*; #(
   // We may only respond to a complete request.
   `SEQUENCE(eCompleteResp_S, eAccepted_S);
   `SEQUENCE(eCompleteReq_S,
-    (d_pending[tl_e.sink].tl.opcode == Grant) ||
-    (d_pending[tl_e.sink].tl.opcode == GrantData && d_pending[tl_e.sink].beats == expected_beats(d_pending[tl_e.sink].tl.size))
+    d_pending[tl_e.sink].beats == d_expected_beats(d_pending[tl_e.sink].tl.opcode, d_pending[tl_e.sink].tl.size)
   );
   `SEQUENCE(eCompleteReqResp_S, `IMPLIES(eCompleteResp_S, eCompleteReq_S));
 
@@ -705,6 +744,7 @@ module tl_assert import tl_pkg::*; #(
     // to ignore them because we have no access to the matching requests.
     `S_ASSUME(dLegalOpcode_M,     `IMPLIES(dValidResp_S, dLegalOpcode_S))
     `S_ASSUME(dMatchingOpcode_M,  `IMPLIES(dValidResp_S, dMatchingOpcode_S))
+    `S_ASSUME(dNoInterleaving_M,  `IMPLIES(dValidResp_S, dNoInterleaving_S))
     `S_ASSUME(dLegalParam_M,      `IMPLIES(dValidResp_S, dLegalParam_S))
     // `S_ASSUME(dRespMustHaveReq_M,  `IMPLIES(dAccepted_S, dRespMustHaveReq_S))
     `S_ASSUME(dCompleteReqResp_M, `IMPLIES(dValidResp_S, dCompleteReqResp_S))
@@ -759,6 +799,7 @@ module tl_assert import tl_pkg::*; #(
     // D channel
     `S_ASSERT(dLegalOpcode_A,     `IMPLIES(dAccepted_S, dLegalOpcode_S))
     `S_ASSERT(dMatchingOpcode_A,  `IMPLIES(dAccepted_S, dMatchingOpcode_S))
+    `S_ASSERT(dNoInterleaving_A,  `IMPLIES(dAccepted_S, dNoInterleaving_S))
     `S_ASSERT(dLegalParam_A,      `IMPLIES(dAccepted_S, dLegalParam_S))
     `S_ASSERT(dRespMustHaveReq_A, `IMPLIES(dAccepted_S, dRespMustHaveReq_S))
     `S_ASSERT(dCompleteReqResp_A, `IMPLIES(dAccepted_S, dCompleteReqResp_S))
@@ -830,6 +871,8 @@ module tl_assert import tl_pkg::*; #(
   ////////////////////////////////////
   // SVA coverage                   //
   ////////////////////////////////////
+
+  // TODO: focus on non-continuous matches, i.e. the first beat of each message.
 
   // Back-to-back messages are sent on a channel
   // TODO: multibeat messages shouldn't count
