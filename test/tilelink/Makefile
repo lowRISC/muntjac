@@ -10,9 +10,9 @@ SEED   ?= 0
 
 MUNTJAC_ROOT = ../..
 
-ANNOTATION_DIR = annotation
-COVERAGE_FILES = tl_assert.sv  # All files defining cover points
-ANNOTATION_FILES = $(addprefix $(ANNOTATION_DIR)/, $(COVERAGE_FILES))
+ANNOTATION_DIR = coverage
+COVERAGE_FILES = tl_cover.sv  # All files defining functional cover points
+FCOV_FILES = $(addprefix $(ANNOTATION_DIR)/, $(COVERAGE_FILES))
 
 .PHONY: all sim summary detail
 all: summary
@@ -21,11 +21,8 @@ all: summary
 sim: muntjac_tl
 
 # Generate a coverage summary, e.g. "57/79 coverpoints hit".
-summary: $(ANNOTATION_FILES)
-
-# Generate detailed coverage information: which coverpoints were hit, and how
-# many times each?
-detail: tl_coverage.txt
+# TODO: compute line and functional coverage separately
+summary: line_coverage functional_coverage
 
 # Would prefer to set the simulator as a dependency of this rule, but I couldn't
 # get that to work nicely.
@@ -40,16 +37,30 @@ tl_coverage.dat: muntjac_tl
 # verilator_coverage claims to have a command line option to tell it where the
 # Verilog source is, but I haven't found it, so this needs to run in the
 # directory where the simulator was originally built.
-$(ANNOTATION_FILES): tl_coverage.dat
+$(FCOV_FILES): tl_coverage.dat
 	cd $(MUNTJAC_ROOT)/build/lowrisc_muntjac_tl_tb_0.1/sim-verilator && \
-	verilator_coverage $(CURDIR)/$< --annotate $(CURDIR)/$(ANNOTATION_DIR)
+	verilator_coverage $(CURDIR)/$< --annotate $(CURDIR)/$(ANNOTATION_DIR) \
+	--annotate-all --annotate-min 1
 
-tl_coverage.txt: $(ANNOTATION_FILES)
-	grep -E ^.[0-9]{6} $(ANNOTATION_DIR)/tl_assert.sv > $@
+.PHONY: line_coverage functional_coverage
+
+functional_coverage: $(FCOV_FILES)
+	$(eval TOTAL := $(shell grep -Eh ^.[0-9]{6} $^ | wc -l))
+	$(eval REACHED := $(shell grep -Eh ^.[0-9]{6} $^ | grep -v ^.000000 | wc -l))
+	@echo "Functional coverage ($(REACHED)/$(TOTAL)) $$(( $(REACHED) * 100 / $(TOTAL) ))%"
+
+# We don't know in advance which line coverage files will be produced.
+# Generating functional coverage files triggers their creation though, and then
+# we can just filter out the coverage files afterwards.
+line_coverage: $(FCOV_FILES)
+	$(eval LCOV_FILES := $(shell ls $(ANNOTATION_DIR) $(addprefix -I ,$(COVERAGE_FILES))))
+	$(eval FILES := $(addprefix $(ANNOTATION_DIR)/, $(LCOV_FILES)))
+	$(eval TOTAL := $(shell grep -Eh ^.[0-9]{6} $(FILES) | wc -l))
+	$(eval REACHED := $(shell grep -Eh ^.[0-9]{6} $(FILES) | grep -v ^.000000 | wc -l))
+	@echo "Line coverage ($(REACHED)/$(TOTAL)) $$(( $(REACHED) * 100 / $(TOTAL) ))%"
 
 .PHONY: clean
 clean:
 	rm -rf $(ANNOTATION_DIR)
 	rm -f tl_coverage.dat
-	rm -f tl_coverage.txt
 	rm -f muntjac_tl

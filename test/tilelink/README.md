@@ -67,16 +67,12 @@ TODO:
 
 ### Coverpoints
 
-To see which coverpoints were reached during simulation, run:
-
-```
-make detail
-```
-
-This creates `tl_coverage.txt` which lists coverpoints from [`tl_assert.sv`](rtl/tl_assert.sv) and says how many times each coverpoint was exercised. "Next point on previous line" indicates that multiple coverpoints were on the previously named line of source code.
+To see which coverpoints were reached during simulation, look through the `coverage` directory. This will contain copies of SystemVerilog source files, with annotations describing how many time each coverpoint was reached. "Next point on previous line" indicates that multiple coverpoints were on the same line of source code.
 
 The default coverpoints are:
 
+ * For the whole system
+   * Messages were sent/received simultaneously by every combination of endpoints
  * For each endpoint (host, device):
    * Messages were sent/received simultaneously on every combination of channels
  * For each channel (`A`, `B`, `C`, `D`, `E`):
@@ -92,6 +88,6 @@ The default coverpoints are:
  * Transactions involving the B channel are verified less rigorously. This is because the B channel allows too many outstanding requests to keep track of.
 
 ## Extension
-To add new assertions or coverpoints, see [`tl_assert.sv`](rtl/tl_assert.sv).
+To add new assertions or coverpoints, see [`tl_assert.sv`](rtl/tl_assert.sv) and [`tl_cover.sv`](rtl/tl_cover.sv).
 
 To apply assertions and coverage to a new component, see [`tl_checker.sv`](rtl/tl_checker.sv) and [`tl_bind.sv`](rtl/tl_bind.sv).

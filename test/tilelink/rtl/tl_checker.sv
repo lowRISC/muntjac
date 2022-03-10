@@ -35,7 +35,7 @@ module tl_adapter_checker import tl_pkg::*; #(
     .DataWidth (HostDataWidth),
     .SinkWidth (HostSinkWidth),
     .SourceWidth (HostSourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -48,7 +48,7 @@ module tl_adapter_checker import tl_pkg::*; #(
     .DataWidth (DeviceDataWidth),
     .SinkWidth (DeviceSinkWidth),
     .SourceWidth (DeviceSourceWidth)
-  ) device_checker (
+  ) device (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, device)
@@ -75,7 +75,7 @@ module tl_adapter_bram_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (1),
     .SourceWidth (SourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -103,7 +103,7 @@ module tl_axi_adapter_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (SinkWidth),
     .SourceWidth (SourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -132,7 +132,7 @@ module tl_broadcast_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (SinkWidth),
     .SourceWidth (SourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -145,7 +145,7 @@ module tl_broadcast_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (SinkWidth),
     .SourceWidth (SourceWidth)
-  ) device_checker (
+  ) device (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, device)
@@ -175,7 +175,7 @@ module tl_socket_1n_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (SinkWidth),
     .SourceWidth (SourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -189,7 +189,7 @@ module tl_socket_1n_checker import tl_pkg::*; #(
       .DataWidth (DataWidth),
       .SinkWidth (SinkWidth),
       .SourceWidth (SourceWidth)
-    ) device_checker (
+    ) device (
       .clk_i,
       .rst_ni,
       `TL_FORWARD_TAP_PORT_IDX(tl, device, [i])
@@ -221,7 +221,7 @@ module tl_socket_m1_checker import tl_pkg::*; #(
       .DataWidth (DataWidth),
       .SinkWidth (SinkWidth),
       .SourceWidth (SourceWidth)
-    ) host_checker (
+    ) host (
       .clk_i,
       .rst_ni,
       `TL_FORWARD_TAP_PORT_IDX(tl, host, [i])
@@ -235,7 +235,7 @@ module tl_socket_m1_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (SinkWidth),
     .SourceWidth (SourceWidth)
-  ) device_checker (
+  ) device (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, device)
@@ -265,7 +265,7 @@ module tl_terminator_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (HostSinkWidth),
     .SourceWidth (HostSourceWidth)
-  ) host_checker (
+  ) host (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, host)
@@ -278,7 +278,7 @@ module tl_terminator_checker import tl_pkg::*; #(
     .DataWidth (DataWidth),
     .SinkWidth (1),
     .SourceWidth (DeviceSourceWidth)
-  ) device_checker (
+  ) device (
     .clk_i,
     .rst_ni,
     `TL_FORWARD_TAP_PORT(tl, device)

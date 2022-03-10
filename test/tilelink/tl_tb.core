@@ -23,6 +23,7 @@ filesets:
   
   files_verilator:
     files:
+      - rtl/tl_cover.sv
       - rtl/tl_wrapper.sv
     file_type: systemVerilogSource
   
@@ -79,7 +80,8 @@ targets:
           - "-o muntjac_tl"
           - "--trace --trace-structs"
           - "--assert"
-          - "--coverage-user"  # Also consider coverage-line and coverage-toggle
+          - "--coverage-user --coverage-line"
+          # coverage-toggle is also available, but is very slow for little gain
           - "-O3"  # Verilator optimisation
           - "-CFLAGS -Os"  # compiler optimisation
           - "-CFLAGS -DFST_ENABLE" # Either VCD_ENABLE or FST_ENABLE

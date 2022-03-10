@@ -11,7 +11,7 @@ bind tl_adapter tl_adapter_checker #(
   .DeviceSinkWidth (DeviceSinkWidth),
   .HostSourceWidth (HostSourceWidth),
   .DeviceSourceWidth (DeviceSourceWidth)
-) tl_adapter_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -22,7 +22,7 @@ bind tl_adapter_bram tl_adapter_bram_checker #(
   .AddrWidth (AddrWidth),
   .DataWidth (DataWidth),
   .SourceWidth (SourceWidth)
-) tl_adapter_bram_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host)
@@ -33,7 +33,7 @@ bind tl_axi_adapter tl_axi_adapter_checker #(
   .DataWidth (DataWidth),
   .SinkWidth (SinkWidth),
   .SourceWidth (SourceWidth)
-) tl_axi_adapter_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host)
@@ -44,7 +44,7 @@ bind tl_broadcast tl_broadcast_checker #(
   .DataWidth (DataWidth),
   .SinkWidth (SinkWidth),
   .SourceWidth (SourceWidth)
-) tl_broadcast_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -57,7 +57,7 @@ bind tl_io_terminator tl_terminator_checker #(
   .HostSinkWidth (HostSinkWidth),
   .HostSourceWidth (SourceWidth),
   .DeviceSourceWidth (SourceWidth)
-) tl_io_terminator_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -70,7 +70,7 @@ bind tl_ram_terminator tl_terminator_checker #(
   .HostSinkWidth (HostSinkWidth),
   .HostSourceWidth (HostSourceWidth),
   .DeviceSourceWidth (DeviceSourceWidth)
-) tl_ram_terminator_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -83,7 +83,7 @@ bind tl_rom_terminator tl_terminator_checker #(
   .HostSinkWidth (HostSinkWidth),
   .HostSourceWidth (HostSourceWidth),
   .DeviceSourceWidth (DeviceSourceWidth)
-) tl_rom_terminator_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -96,7 +96,7 @@ bind tl_socket_1n tl_socket_1n_checker #(
   .SinkWidth (SinkWidth),
   .SourceWidth (SourceWidth),
   .NumLinks (NumLinks)
-) tl_socket_1n_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
@@ -109,7 +109,7 @@ bind tl_socket_m1 tl_socket_m1_checker #(
   .SinkWidth (SinkWidth),
   .SourceWidth (SourceWidth),
   .NumLinks (NumLinks)
-) tl_socket_m1_assert (
+) assertions (
   .clk_i,
   .rst_ni,
   `TL_FORWARD_TAP_PORT_FROM_DEVICE(host, host),
