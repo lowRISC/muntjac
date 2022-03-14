@@ -29,9 +29,9 @@ module tl_data_upsizer import tl_pkg::*; import prim_util_pkg::*; #(
   localparam int unsigned DeviceNonBurstSize = $clog2(DeviceDataWidthInBytes);
 
   localparam int unsigned SubbeatNum = DeviceDataWidth / HostDataWidth;
-  localparam int unsigned SubbeatBits = DeviceNonBurstSize / HostNonBurstSize;
+  localparam int unsigned SubbeatBits = DeviceNonBurstSize - HostNonBurstSize;
 
-  if (HostSourceWidth + SubbeatBits > DeviceDataWidth) $fatal(1, "DeviceDataWidth bits not enough");
+  if (HostSourceWidth + SubbeatBits > DeviceSourceWidth) $fatal(1, "DeviceSourceWidth bits not enough");
 
   `TL_DECLARE(HostDataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
   `TL_DECLARE(DeviceDataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
