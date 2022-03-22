@@ -33,12 +33,14 @@ filesets:
     files:
       - src/tilelink.h: {is_include_file: true}
       - src/tl_channels.h: {is_include_file: true}
+      - src/tl_config.h: {is_include_file: true}
       - src/tl_exceptions.h: {is_include_file: true}
       - src/tl_harness.h: {is_include_file: true}
       - src/tl_messages.h: {is_include_file: true}
       - src/tl_printing.h: {is_include_file: true}
       - src/tl_random.h: {is_include_file: true}
       - src/tl_channels.cc
+      - src/tl_config.cc
       - src/tl_main.cc
       - src/tl_messages.cc
       - src/tl_printing.cc

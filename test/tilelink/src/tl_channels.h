@@ -14,6 +14,7 @@
 
 #include "logs.h"
 #include "tilelink.h"
+#include "tl_config.h"
 #include "tl_exceptions.h"
 #include "tl_messages.h"
 #include "tl_printing.h"
@@ -35,10 +36,11 @@ extern void next_cycle();
 // Base class for a host/device, with connections to all TileLink channels.
 class TileLinkEndpoint {
 public:
-  TileLinkEndpoint(DUT& dut, int position, tl_protocol_e protocol, 
-                   int bit_width, int first_id, int last_id) :
-      dut(dut), position(position), protocol(protocol), bit_width(bit_width),
-      first_id(first_id), last_id(last_id) {
+  TileLinkEndpoint(DUT& dut, int position, const tl_endpoint_config_t& params) :
+      dut(dut), position(position), 
+      protocol(params.protocol), bit_width(params.data_width),
+      first_id(params.first_id), last_id(params.last_id),
+      max_size(params.max_size), fifo(params.fifo) {
     // Nothing
   }
 
@@ -70,6 +72,12 @@ public:
   // The range of source/sink IDs allocated to this component.
   const int first_id;
   const int last_id;
+
+  // log2(max beats per message).
+  const int max_size;
+
+  // Are requests/responses produced/required in FIFO order?
+  const bool fifo;
 };
 
 // Base class for the start/end of any TileLink channel (A, B, C, D, E).
@@ -96,6 +104,8 @@ public:
   int position() const           {return parent.position;}
   tl_protocol_e protocol() const {return parent.protocol;}
   int bit_width() const          {return parent.bit_width;}
+  int max_size() const           {return parent.max_size;}
+  int fifo() const               {return parent.fifo;}
 
   const TileLinkEndpoint& get_parent() {return parent;}
 
@@ -173,11 +183,9 @@ public:
     if (!to_send.empty() && to_send.front().finished())
       to_send.pop();
 
-    // Randomly reorder the pending requests and responses.
-    // Currently disabled for TL-UL components because the TL-UL adapter
-    // requires FIFO order. Could alternatively require FIFO converters in the
-    // TileLink network.
-    if (this->protocol() != TL_UL && randomise && random_bool(0.5)) {
+    // Randomly reorder the pending requests and responses, except for
+    // components which require FIFO order.
+    if (!this->fifo() && randomise && random_bool(0.5)) {
       this->reorder_requests();
       this->reorder_responses();
     }
@@ -829,10 +837,8 @@ public:
 
 class TileLinkHost : public TileLinkEndpoint {
 public:
-  TileLinkHost(DUT& dut, int position, tl_protocol_e protocol, int bit_width,
-               int first_source_id, int last_source_id) :
-      TileLinkEndpoint(dut, position, protocol, bit_width, first_source_id,
-                       last_source_id),
+  TileLinkHost(DUT& dut, int position, const tl_endpoint_config_t& params) :
+      TileLinkEndpoint(dut, position, params),
       a(*this),
       b(*this),
       c(*this),
@@ -887,10 +893,8 @@ public:
 
 class TileLinkDevice : public TileLinkEndpoint {
 public:
-  TileLinkDevice(DUT& dut, int position, tl_protocol_e protocol, int bit_width,
-                 int first_sink_id, int last_sink_id) : 
-      TileLinkEndpoint(dut, position, protocol, bit_width, first_sink_id,
-                       last_sink_id),
+  TileLinkDevice(DUT& dut, int position, const tl_endpoint_config_t& params) : 
+      TileLinkEndpoint(dut, position, params),
       a(*this),
       b(*this),
       c(*this),

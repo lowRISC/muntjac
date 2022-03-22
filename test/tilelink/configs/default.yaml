@@ -1,0 +1,54 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+# Default test configuration:
+#   * 3 hosts
+#   * 3 devices, one of each protocol
+# Note that this must match the configuration in tl_wrapper.sv.
+
+hosts:
+  - Protocol:  TL-C
+    DataWidth: 64
+    FirstID:   0
+    LastID:    3
+    MaxSize:   5
+    FIFO:      0
+
+  # This was originally TL-UH, but needed more concurrent TL-C messages to see
+  # corner cases in the TL-C-only fields.
+  - Protocol:  TL-C
+    DataWidth: 64
+    FirstID:   4
+    LastID:    5
+    MaxSize:   5
+    FIFO:      0
+
+  - Protocol:  TL-UL
+    DataWidth: 64
+    FirstID:   6
+    LastID:    7
+    MaxSize:   5
+    FIFO:      1
+
+devices:
+  - Protocol:  TL-C
+    DataWidth: 64
+    FirstID:   0
+    LastID:    3
+    MaxSize:   5
+    FIFO:      0
+
+  - Protocol:  TL-UH
+    DataWidth: 64
+    FirstID:   4
+    LastID:    5
+    MaxSize:   5
+    FIFO:      0
+
+  - Protocol:  TL-UL
+    DataWidth: 64
+    FirstID:   6
+    LastID:    7
+    MaxSize:   5
+    FIFO:      1

@@ -104,7 +104,6 @@ void TileLinkSenderB::respond() {
   int num_requests = a_requests.size();
   for (int i=0; i<num_requests; i++) {
     auto request = a_requests.front();
-    a_requests.pop();
 
     try {
       bool randomise = request.first;
@@ -112,10 +111,16 @@ void TileLinkSenderB::respond() {
       respond(randomise, beat);
     }
     catch (NoAvailableIDException& e) {
-      // Return the request to the pending queue. Note: requests may be
-      // reordered if a later one succeeds.
-      a_requests.push(request);
+      // If we must respond in FIFO order, stop as soon as we find a request
+      // that we can't respond to.
+      if (this->fifo())
+        return;
+      // Otherwise return the request to the end of the queue and keep going.
+      else
+        a_requests.push(request);
     }
+
+    a_requests.pop();
   }
 }
 
@@ -193,7 +198,6 @@ void TileLinkSenderC::respond() {
   int num_requests = b_requests.size();
   for (int i=0; i<num_requests; i++) {
     auto request = b_requests.front();
-    b_requests.pop();
 
     try {
       bool randomise = request.first;
@@ -201,10 +205,16 @@ void TileLinkSenderC::respond() {
       respond(randomise, beat);
     }
     catch (NoAvailableIDException& e) {
-      // Return the request to the pending queue. Note: requests may be
-      // reordered if a later one succeeds.
-      b_requests.push(request);
+      // If we must respond in FIFO order, stop as soon as we find a request
+      // that we can't respond to.
+      if (this->fifo())
+        return;
+      // Otherwise return the request to the end of the queue and keep going.
+      else
+        b_requests.push(request);
     }
+
+    b_requests.pop();
   }
 }
 
@@ -298,7 +308,6 @@ void TileLinkSenderD::respond() {
   int num_a_requests = a_requests.size();
   for (int i=0; i<num_a_requests; i++) {
     auto request = a_requests.front();
-    a_requests.pop();
 
     try {
       bool randomise = request.first;
@@ -306,10 +315,16 @@ void TileLinkSenderD::respond() {
       respond(randomise, beat);
     }
     catch (NoAvailableIDException& e) {
-      // Return the request to the pending queue. Note: requests may be
-      // reordered if a later one succeeds.
-      a_requests.push(request);
+      // If we must respond in FIFO order, stop as soon as we find a request
+      // that we can't respond to.
+      if (this->fifo())
+        return;
+      // Otherwise return the request to the end of the queue and keep going.
+      else
+        a_requests.push(request);
     }
+
+    a_requests.pop();
   }
 
   // The output buffer may become locked if only a partial response has been
@@ -320,7 +335,6 @@ void TileLinkSenderD::respond() {
   int num_c_requests = c_requests.size();
   for (int i=0; i<num_c_requests; i++) {
     auto request = c_requests.front();
-    c_requests.pop();
 
     try {
       bool randomise = request.first;
@@ -328,10 +342,16 @@ void TileLinkSenderD::respond() {
       respond(randomise, beat);
     }
     catch (NoAvailableIDException& e) {
-      // Return the request to the pending queue. Note: requests may be
-      // reordered if a later one succeeds.
-      c_requests.push(request);
+      // If we must respond in FIFO order, stop as soon as we find a request
+      // that we can't respond to.
+      if (this->fifo())
+        return;
+      // Otherwise return the request to the end of the queue and keep going.
+      else
+        c_requests.push(request);
     }
+
+    c_requests.pop();
   }
 }
 
@@ -388,7 +408,6 @@ void TileLinkSenderE::respond() {
   int num_requests = d_requests.size();
   for (int i=0; i<num_requests; i++) {
     auto request = d_requests.front();
-    d_requests.pop();
 
     try {
       bool randomise = request.first;
@@ -396,10 +415,16 @@ void TileLinkSenderE::respond() {
       respond(randomise, beat);
     }
     catch (NoAvailableIDException& e) {
-      // Return the request to the pending queue. Note: requests may be
-      // reordered if a later one succeeds.
-      d_requests.push(request);
+      // If we must respond in FIFO order, stop as soon as we find a request
+      // that we can't respond to.
+      if (this->fifo())
+        return;
+      // Otherwise return the request to the end of the queue and keep going.
+      else
+        d_requests.push(request);
     }
+
+    d_requests.pop();
   }
 }
 

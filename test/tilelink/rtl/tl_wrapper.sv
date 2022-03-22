@@ -141,7 +141,6 @@ module tl_wrapper #(
     .NumLinks    (3),
     .MaxSize     (MaxSize),
 
-    // TODO: Not 100% sure of the difference between these two
     .NumCachedHosts (2),
     .NumCachedLinks (2),
 

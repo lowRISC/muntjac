@@ -13,6 +13,7 @@
 #include "logs.h"
 #include "simulation.h"
 #include "tl_channels.h"
+#include "tl_config.h"
 
 using std::vector;
 class TileLinkSimulation;
@@ -37,17 +38,17 @@ public:
 
     this->args.set_description("Usage: " + name + " [simulator args] [tests to run]");
     this->args.add_argument("--list-tests", "List all available tests");
+    this->args.add_argument("--config", "Load host/device configuration from a file", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--coverage", "Dump coverage information to a file", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--random-seed", "Set the random seed", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--run", "Generate random traffic for the given duration (in cycles)", ArgumentParser::ARGS_ONE);
+  }
 
-    hosts.push_back(new TileLinkHost(this->dut, 0, TL_C,  64, 0, 3));
-    hosts.push_back(new TileLinkHost(this->dut, 1, TL_C,  64, 4, 5));
-    hosts.push_back(new TileLinkHost(this->dut, 2, TL_UL, 64, 6, 7));
-    
-    devices.push_back(new TileLinkDevice(this->dut, 0, TL_C,  64, 0, 3));
-    devices.push_back(new TileLinkDevice(this->dut, 1, TL_UH, 64, 4, 5));
-    devices.push_back(new TileLinkDevice(this->dut, 2, TL_UL, 64, 6, 7));
+  virtual ~TileLinkSimulation() {
+    for (auto host : hosts)
+      delete host;
+    for (auto device : devices)
+      delete device;
   }
 
   int             num_hosts()   const {return hosts.size();}
@@ -89,6 +90,14 @@ public:
 
 
   virtual void init() {
+    // Instantiate C++ model.
+    tl_config_t config = read_config(config_file);
+
+    for (int host=0; host<config.hosts.size(); host++)
+      hosts.push_back(new TileLinkHost(this->dut, host, config.hosts[host]));
+    for (int device=0; device<config.devices.size(); device++)
+      devices.push_back(new TileLinkDevice(this->dut, device, config.devices[device]));
+
     dut.clk_i = 1;
     dut.rst_ni = 1;
 
@@ -144,6 +153,9 @@ public:
       list_tests();
       exit(0);
     }
+
+    if (this->args.found_arg("--config"))
+      config_file = this->args.get_arg("--config");
 
     if (this->args.found_arg("--coverage")) {
       coverage_on = true;
@@ -221,6 +233,9 @@ private:
   // Whether requests should be spontaneously generated during simulation.
   // If true, responses will also have random valid content.
   bool randomise;
+
+  // Configuration of hosts/devices connected to the TileLink network.
+  string config_file = "configs/default.yaml";
 
   bool coverage_on;
   string coverage_file;

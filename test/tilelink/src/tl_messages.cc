@@ -100,7 +100,7 @@ tl_a new_a_request(TileLinkSender<tl_a>& endpoint, bool randomise) {
         break;
     }
 
-    request.size = random_sample(0, 5); // 1 byte to 32 bytes
+    request.size = random_sample(0, endpoint.max_size());
     request.source = endpoint.get_transaction_id(randomise);
 
     int raw_address = random_sample(0, 0x1000 - 1);
@@ -229,7 +229,7 @@ tl_b new_b_request(TileLinkSender<tl_b>& endpoint, bool randomise) {
   if (randomise) {
     request.opcode = random_b_opcode();
     request.param = random_cap_permission();
-    request.size = random_sample(0, 5); // 1 byte to 32 bytes
+    request.size = random_sample(0, endpoint.max_size());
     request.source = host.c.get_routing_id(randomise);
 
     // Can't use an address/source combination that's already in use, so
@@ -365,7 +365,7 @@ tl_c new_c_request(TileLinkSender<tl_c>& endpoint, bool randomise) {
     request.param = random_bool() ? (int)random_prune_permission()
                                   : (int)random_report_permission();
 
-    request.size = random_sample(0, 5); // 1 byte to 32 bytes
+    request.size = random_sample(0, endpoint.max_size());
     request.source = endpoint.get_transaction_id(randomise);
 
     int raw_address = random_sample(0, 0x1000 - 1);
