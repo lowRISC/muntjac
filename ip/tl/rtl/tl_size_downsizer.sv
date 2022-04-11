@@ -227,9 +227,9 @@ module tl_size_downsizer import tl_pkg::*; #(
 
     unique case (req_state_q)
       ReqStateIdle: begin
-        host_a_ready = device_a_ready && (host_a_valid ? !tracker_valid_q[host_a.source] : 1'b1);
+        host_a_ready = (host_a_valid && host_a_first ? !tracker_valid_q[host_a.source] : 1'b1) && device_a_ready;
 
-        device_a_valid = host_a_valid && !tracker_valid_q[host_a.source];
+        device_a_valid = host_a_valid && (host_a_first ? !tracker_valid_q[host_a.source] : 1'b1);
         device_a.opcode = host_a.opcode;
         device_a.param = host_a.param;
         device_a.size = host_a.size;
@@ -246,12 +246,12 @@ module tl_size_downsizer import tl_pkg::*; #(
           device_req_offset = num_fragment(host_a.size);
         end
 
-        if (host_a_valid && host_a_ready) begin
-          if (host_a.size > DeviceMaxSize) begin
-            source_d = host_a.source;
-            address_d = host_a.address + (2 ** DeviceMaxSize);
+        if (device_a_valid && device_a_ready && device_a_last) begin
+          source_d = host_a.source;
+          address_d = host_a.address + (2 ** DeviceMaxSize);
+          len_d = num_fragment(host_a.size) - 1;
 
-            len_d = num_fragment(host_a.size) - 1;
+          if (host_a.size > DeviceMaxSize) begin
             req_state_d = host_a.opcode == Get ? ReqStateGet : ReqStatePut;
           end
         end
@@ -271,8 +271,8 @@ module tl_size_downsizer import tl_pkg::*; #(
         device_req_offset = len_q;
 
         if (device_a_ready) begin
-          len_d = len_q - 1;
           address_d = address_q + (2 ** DeviceMaxSize);
+          len_d = len_q - 1;
           if (len_q == 0) begin
             req_state_d = ReqStateIdle;
           end
@@ -295,8 +295,8 @@ module tl_size_downsizer import tl_pkg::*; #(
         device_req_offset = len_q;
 
         if (host_a_valid && device_a_ready && device_a_last) begin
-          len_d = len_q - 1;
           address_d = address_q + (2 ** DeviceMaxSize);
+          len_d = len_q - 1;
           if (len_q == 0) begin
             req_state_d = ReqStateIdle;
           end
