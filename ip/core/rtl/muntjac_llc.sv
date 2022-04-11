@@ -1154,7 +1154,7 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
   logic                           wb_rdata_valid_q, wb_rdata_valid_d;
 
   logic [DataWidth-1:0] wb_data_skid;
-  logic [DataWidth-1:0] wb_data_skid_valid;
+  logic                 wb_data_skid_valid;
 
   localparam SourceWb = DeviceSourceBase;
 
