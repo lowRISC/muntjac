@@ -47,8 +47,8 @@ module tl_fifo_async import tl_pkg::*; #(
     .wdepth_o  (),
     .clk_rd_i  (clk_device_i),
     .rst_rd_ni (rst_device_ni),
-    .rvalid_i  (device_a_valid),
-    .rready_o  (device_a_ready),
+    .rvalid_o  (device_a_valid),
+    .rready_i  (device_a_ready),
     .rdata_o   (device_a),
     .rdepth_o  ()
   );
@@ -71,8 +71,8 @@ module tl_fifo_async import tl_pkg::*; #(
     .wdepth_o  (),
     .clk_rd_i  (clk_host_i),
     .rst_rd_ni (rst_host_ni),
-    .rvalid_i  (host_b_valid),
-    .rready_o  (host_b_ready),
+    .rvalid_o  (host_b_valid),
+    .rready_i  (host_b_ready),
     .rdata_o   (host_b),
     .rdepth_o  ()
   );
@@ -95,8 +95,8 @@ module tl_fifo_async import tl_pkg::*; #(
     .wdepth_o  (),
     .clk_rd_i  (clk_device_i),
     .rst_rd_ni (rst_device_ni),
-    .rvalid_i  (device_c_valid),
-    .rready_o  (device_c_ready),
+    .rvalid_o  (device_c_valid),
+    .rready_i  (device_c_ready),
     .rdata_o   (device_c),
     .rdepth_o  ()
   );
@@ -119,8 +119,8 @@ module tl_fifo_async import tl_pkg::*; #(
     .wdepth_o  (),
     .clk_rd_i  (clk_host_i),
     .rst_rd_ni (rst_host_ni),
-    .rvalid_i  (host_d_valid),
-    .rready_o  (host_d_ready),
+    .rvalid_o  (host_d_valid),
+    .rready_i  (host_d_ready),
     .rdata_o   (host_d),
     .rdepth_o  ()
   );
@@ -141,8 +141,8 @@ module tl_fifo_async import tl_pkg::*; #(
     .wdepth_o  (),
     .clk_rd_i  (clk_device_i),
     .rst_rd_ni (rst_device_ni),
-    .rvalid_i  (device_e_valid),
-    .rready_o  (device_e_ready),
+    .rvalid_o  (device_e_valid),
+    .rready_i  (device_e_ready),
     .rdata_o   (device_e),
     .rdepth_o  ()
   );
