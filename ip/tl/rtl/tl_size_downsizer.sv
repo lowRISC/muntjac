@@ -188,10 +188,12 @@ module tl_size_downsizer import tl_pkg::*; #(
 
   enum logic [1:0] {
     ReqStateIdle,
-    ReqStateGet,
-    ReqStatePut
+    ReqStateNoData,
+    ReqStateData
   } req_state_q = ReqStateIdle, req_state_d;
 
+  tl_a_op_e opcode_q, opcode_d;
+  logic [2:0] param_q, param_d;
   logic [HostSourceWidth-1:0] source_q, source_d;
   logic [AddrWidth-1:0] address_q, address_d;
   logic [DataWidth/8-1:0] mask_q, mask_d;
@@ -221,6 +223,8 @@ module tl_size_downsizer import tl_pkg::*; #(
     device_req_offset = 'x;
 
     req_state_d = req_state_q;
+    opcode_d = opcode_q;
+    param_d = param_q;
     source_d = source_q;
     address_d = address_q;
     len_d = len_q;
@@ -247,20 +251,22 @@ module tl_size_downsizer import tl_pkg::*; #(
         end
 
         if (device_a_valid && device_a_ready && device_a_last) begin
+          opcode_d = host_a.opcode;
+          param_d = host_a.param;
           source_d = host_a.source;
           address_d = host_a.address + (2 ** DeviceMaxSize);
           len_d = num_fragment(host_a.size) - 1;
 
           if (host_a.size > DeviceMaxSize) begin
-            req_state_d = host_a.opcode == Get ? ReqStateGet : ReqStatePut;
+            req_state_d = host_a.opcode < 4 ? ReqStateData : ReqStateNoData;
           end
         end
       end
 
-      ReqStateGet: begin
+      ReqStateNoData: begin
         device_a_valid = 1'b1;
-        device_a.opcode = Get;
-        device_a.param = 0;
+        device_a.opcode = opcode_q;
+        device_a.param = param_q;
         device_a.size = DeviceMaxSize;
         device_a.address = address_q;
         device_a.mask = '1;
@@ -279,12 +285,12 @@ module tl_size_downsizer import tl_pkg::*; #(
         end
       end
 
-      ReqStatePut: begin
+      ReqStateData: begin
         host_a_ready = device_a_ready;
 
         device_a_valid = host_a_valid;
-        device_a.opcode = host_a.opcode;
-        device_a.param = host_a.param;
+        device_a.opcode = opcode_q;
+        device_a.param = param_q;
         device_a.size = DeviceMaxSize;
         device_a.address = address_q;
         device_a.mask = host_a.mask;
@@ -308,12 +314,16 @@ module tl_size_downsizer import tl_pkg::*; #(
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       req_state_q <= ReqStateIdle;
+      opcode_q <= tl_a_op_e'('x);
+      param_q <= 'x;
       address_q <= 'x;
       source_q <= 'x;
       len_q <= 'x;
     end
     else begin
       req_state_q <= req_state_d;
+      opcode_q <= opcode_d;
+      param_q <= param_d;
       address_q <= address_d;
       source_q <= source_d;
       len_q <= len_d;
@@ -352,8 +362,8 @@ module tl_size_downsizer import tl_pkg::*; #(
     host_d_valid = device_d_valid;
     host_d.size = tracker_info_q[device_d_source];
 
-    // All non-last beat of AccessAck is to be discarded.
-    if (device_d_valid && device_d.opcode == AccessAck && device_d_offset != 0) begin
+    // All non-last beats of replies without data are to be discarded.
+    if (device_d_valid && !device_d.opcode[0] && device_d_offset != 0) begin
       device_d_ready = 1'b1;
       host_d_valid = 1'b0;
     end
