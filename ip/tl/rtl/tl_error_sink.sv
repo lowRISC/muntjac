@@ -158,13 +158,31 @@ module tl_error_sink import tl_pkg::*; import muntjac_pkg::*; #(
     if (host_a_valid && host_a_last) begin
       host_a_ready = host_d_ready_nosink && host_d_last;
       host_d_valid_nosink = 1'b1;
-      host_d_nosink.opcode = host_a.opcode inside {AcquireBlock, AcquirePerm} ? Grant : (host_a.opcode == Get ? AccessAckData : AccessAck);
-      host_d_nosink.param = host_a.opcode inside {AcquireBlock, AcquirePerm} ? toN : 0;
+
+      host_d_nosink.param = 0;
       host_d_nosink.size = host_a.size;
       host_d_nosink.source = host_a.source;
       host_d_nosink.denied = 1'b1;
-      host_d_nosink.corrupt = host_a.opcode == Get ? 1'b1 : 1'b0;
+      host_d_nosink.corrupt = 1'b0;
       host_d_nosink.data = 'x;
+
+      unique case (host_a.opcode)
+        PutFullData, PutPartialData: begin
+          host_d_nosink.opcode = AccessAck;
+        end
+        ArithmeticData, LogicalData, Get: begin
+          host_d_nosink.opcode = AccessAckData;
+          host_d_nosink.corrupt = 1'b1;
+        end
+        Intent: begin
+          host_d_nosink.opcode = HintAck;
+        end
+        AcquireBlock, AcquirePerm: begin
+          host_d_nosink.opcode = Grant;
+          host_d_nosink.param = toN;
+        end
+        default:;
+      endcase
     end
   end
 
