@@ -40,6 +40,7 @@ module tl_rom_terminator import tl_pkg::*; #(
   /////////////////////////////////////////
   // #region Burst tracker instantiation //
 
+  wire host_a_last;
   wire host_d_first;
   wire host_d_last;
 
@@ -65,7 +66,7 @@ module tl_rom_terminator import tl_pkg::*; #(
     .req_first_o (),
     .rel_first_o (),
     .gnt_first_o (host_d_first),
-    .req_last_o (),
+    .req_last_o (host_a_last),
     .rel_last_o (),
     .gnt_last_o (host_d_last)
   );
@@ -232,17 +233,17 @@ module tl_rom_terminator import tl_pkg::*; #(
   // #endregion
   ////////////////////////////////////////
 
-  logic host_a_allowed;
+  logic host_a_forward;
   always_comb begin
     case (host_a.opcode)
-      AcquireBlock, AcquirePerm: begin
-        host_a_allowed = host_a.param == NtoB;
+      AcquireBlock: begin
+        host_a_forward = host_a.param == NtoB;
       end
       Get: begin
-        host_a_allowed = 1'b1;
+        host_a_forward = 1'b1;
       end
       default: begin
-        host_a_allowed = 1'b0;
+        host_a_forward = 1'b0;
       end
     endcase
   end
@@ -255,17 +256,42 @@ module tl_rom_terminator import tl_pkg::*; #(
     host_d_mult[HostDIdxAcq] = 'x;
 
     if (host_a_valid) begin
-      if (!host_a_allowed) begin
-        // For a write request, we deny with a Grant immediately.
+      if (!host_a_forward) begin
         host_a_ready = host_d_ready_mult[HostDIdxAcq];
+
         host_d_valid_mult[HostDIdxAcq] = 1'b1;
-        host_d_mult[HostDIdxAcq].opcode = host_a.opcode inside {AcquireBlock, AcquirePerm} ? Grant : AccessAck;
-        host_d_mult[HostDIdxAcq].param = host_a.opcode inside {AcquireBlock, AcquirePerm} ? toN : 0;
+        host_d_mult[HostDIdxAcq].param = 0;
         host_d_mult[HostDIdxAcq].size = host_a.size;
         host_d_mult[HostDIdxAcq].source = host_a.source;
         host_d_mult[HostDIdxAcq].denied = 1'b1;
         host_d_mult[HostDIdxAcq].corrupt = 1'b0;
         host_d_mult[HostDIdxAcq].data = 'x;
+
+        // Respond to each request type immediately with the appropriate response.
+        unique case (host_a.opcode)
+          PutFullData, PutPartialData: begin
+            host_d_valid_mult[HostDIdxAcq] = host_a_last;
+            host_d_mult[HostDIdxAcq].opcode = AccessAck;
+          end
+          ArithmeticData, LogicalData: begin
+            host_d_mult[HostDIdxAcq].opcode = AccessAckData;
+            host_d_mult[HostDIdxAcq].corrupt = 1'b1;
+          end
+          Intent: begin
+            host_d_mult[HostDIdxAcq].opcode = HintAck;
+          end
+          AcquireBlock, AcquirePerm: begin
+            host_d_mult[HostDIdxAcq].opcode = Grant;
+            host_d_mult[HostDIdxAcq].param = toN;
+            // AcquirePerm is terminated here instead of forwarding to the device.
+            host_d_mult[HostDIdxAcq].denied = host_a.param != NtoB;
+          end
+          default: begin
+            host_d_valid_mult[HostDIdxAcq] = 1'bx;
+            host_d_mult[HostDIdxAcq].param = 'x;
+            host_d_mult[HostDIdxAcq].corrupt = 1'bx;
+          end
+        endcase
       end else begin
         // For all other requests forward to device.
         // For AcquireBlock transform it to Get, while GrantData will be transformed from AccessAckData.
