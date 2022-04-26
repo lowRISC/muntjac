@@ -1,28 +1,30 @@
 `include "tl_util.svh"
 
 module tl_broadcast import tl_pkg::*; #(
-  parameter AddrWidth = 56,
-  parameter DataWidth = 64,
-  parameter SourceWidth = 1,
-  parameter SinkWidth = 1,
+  parameter  int unsigned AddrWidth = 56,
+  parameter  int unsigned DataWidth = 64,
+  parameter  int unsigned HostSourceWidth = 1,
+  parameter  int unsigned DeviceSourceWidth = 1,
+  parameter  int unsigned SinkWidth = 1,
+  parameter  int unsigned MaxSize = 6,
 
   // Source ID table for cacheable hosts.
   // These IDs are used for sending out Probe messages.
   // Ranges must not overlap.
   parameter NumCachedHosts = 1,
-  parameter logic [NumCachedHosts-1:0][SourceWidth-1:0] SourceBase = '0,
-  parameter logic [NumCachedHosts-1:0][SourceWidth-1:0] SourceMask = '0
+  parameter logic [NumCachedHosts-1:0][HostSourceWidth-1:0] SourceBase = '0,
+  parameter logic [NumCachedHosts-1:0][HostSourceWidth-1:0] SourceMask = '0
 ) (
   input  logic clk_i,
   input  logic rst_ni,
 
-  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, host),
-  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, SourceWidth, SinkWidth, device)
+  `TL_DECLARE_DEVICE_PORT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host),
+  `TL_DECLARE_HOST_PORT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device)
 );
 
   import prim_util_pkg::*;
 
-  localparam MaxSize = 6;
+  if (DeviceSourceWidth < HostSourceWidth + 2) $fatal(1, "Not enough DeviceSourceWidth");
 
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
   localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
@@ -49,14 +51,14 @@ module tl_broadcast import tl_pkg::*; #(
   localparam logic [1:0] XACT_RELEASE_DATA   = 2;
   localparam logic [1:0] XACT_UNCACHED       = 3;
 
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, host);
-  `TL_DECLARE(DataWidth, AddrWidth, SourceWidth, SinkWidth, device);
+  `TL_DECLARE(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host);
+  `TL_DECLARE(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, device);
   `TL_BIND_HOST_PORT(device, device);
 
   tl_regslice #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
+    .SourceWidth (HostSourceWidth),
     .SinkWidth (SinkWidth),
     .RequestMode (2),
     .ReleaseMode (2)
@@ -66,6 +68,29 @@ module tl_broadcast import tl_pkg::*; #(
     `TL_FORWARD_DEVICE_PORT(host, host),
     `TL_CONNECT_HOST_PORT(device, host)
   );
+
+  function automatic logic [DataWidthInBytes-1:0] get_mask(
+    input logic [NonBurstSize-1:0] address,
+    input logic [`TL_SIZE_WIDTH-1:0] size
+  );
+    logic [`TL_SIZE_WIDTH-1:0] capped_size;
+    capped_size = size >= NonBurstSize ? NonBurstSize : size;
+
+    get_mask = 1;
+    for (int i = 1; i <= NonBurstSize; i++) begin
+      if (capped_size == i) begin
+        // In this case the mask computed should be all 1
+        get_mask = (1 << (2**i)) - 1;
+      end else begin
+        // In this case the mask is computed from existing mask shifted according to address
+        if (address[i - 1]) begin
+          get_mask = get_mask << (2**(i-1));
+        end else begin
+          get_mask = get_mask;
+        end
+      end
+    end
+  endfunction
 
   /////////////////////////////////
   // Burst tracker instantiation //
@@ -79,7 +104,7 @@ module tl_broadcast import tl_pkg::*; #(
   tl_burst_tracker #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
+    .SourceWidth (HostSourceWidth),
     .SinkWidth (SinkWidth),
     .MaxSize (MaxSize)
   ) host_burst_tracker (
@@ -106,7 +131,7 @@ module tl_broadcast import tl_pkg::*; #(
   tl_burst_tracker #(
     .AddrWidth (AddrWidth),
     .DataWidth (DataWidth),
-    .SourceWidth (SourceWidth),
+    .SourceWidth (DeviceSourceWidth),
     .SinkWidth (SinkWidth),
     .MaxSize (MaxSize)
   ) device_burst_tracker (
@@ -146,7 +171,7 @@ module tl_broadcast import tl_pkg::*; #(
   // Request channel arbitration //
   /////////////////////////////////
 
-  typedef `TL_A_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) req_t;
+  typedef `TL_A_STRUCT(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth) req_t;
 
   // We have two origins of A channel requests to device:
   // 0. Host C channel ProbeAckData/ReleaseData
@@ -212,7 +237,7 @@ module tl_broadcast import tl_pkg::*; #(
   // Grant channel arbitration //
   ///////////////////////////////
 
-  typedef `TL_D_STRUCT(DataWidth, AddrWidth, SourceWidth, SinkWidth) gnt_t;
+  typedef `TL_D_STRUCT(DataWidth, AddrWidth, HostSourceWidth, SinkWidth) gnt_t;
 
   // We have three origins of D channel response to host:
   // 0. ReleaseAck response to host's Release
@@ -298,7 +323,7 @@ module tl_broadcast import tl_pkg::*; #(
   tl_a_op_e opcode_q, opcode_d;
   logic [AddrWidth-1:0] address_q, address_d;
   logic [1:0] xact_type_q, xact_type_d;
-  logic [SourceWidth-1:0] source_q, source_d;
+  logic [HostSourceWidth-1:0] source_q, source_d;
   logic [2:0] inv_param_q, inv_param_d;
 
   // Tracking pending handshakes
@@ -381,7 +406,7 @@ module tl_broadcast import tl_pkg::*; #(
               xact_type_d = host_a.param == NtoB ? XACT_ACQUIRE_TO_B : XACT_ACQUIRE_TO_T;
               probe_param = host_a.param == NtoB ? toB : toN;
             end
-            Get, PutPartialData, PutFullData: begin
+            Get, PutPartialData, PutFullData, LogicalData, ArithmeticData, Intent: begin
               // Uncached requests have no GrantAck message.
               ack_done_d = 1'b1;
 
@@ -408,10 +433,11 @@ module tl_broadcast import tl_pkg::*; #(
         device_req_valid_mult[1] = host_a_valid;
         device_req_mult[1].opcode = xact_type_q != XACT_UNCACHED ? Get : opcode_q;
         device_req_mult[1].size = host_a.size;
-        device_req_mult[1].param = 0;
+        device_req_mult[1].param = xact_type_q != XACT_UNCACHED ? 0 : host_a.param;
         device_req_mult[1].source = {source_q, xact_type_q};
         device_req_mult[1].address = address_q;
         device_req_mult[1].mask = host_a.mask;
+        device_req_mult[1].corrupt = host_a.corrupt;
         device_req_mult[1].data = host_a.data;
         host_a_ready = device_req_ready_mult[1];
         if (device_req_ready_mult[1] && host_a_valid && host_req_last) begin
@@ -544,7 +570,7 @@ module tl_broadcast import tl_pkg::*; #(
     device_req_mult[0].size = host_c.size;
     device_req_mult[0].source = 'x;
     device_req_mult[0].address = host_c.address;
-    device_req_mult[0].mask = '1; // FIXME: Make sure host_c.size >= NonBurstSize
+    device_req_mult[0].mask = get_mask(host_c.address, host_c.size);
     device_req_mult[0].corrupt = host_c.corrupt;
     device_req_mult[0].data = host_c.data;
 
@@ -598,7 +624,7 @@ module tl_broadcast import tl_pkg::*; #(
     host_gnt_mult[2].opcode = tl_d_op_e'('x);
     host_gnt_mult[2].param = 'x;
     host_gnt_mult[2].size = device_d.size;
-    host_gnt_mult[2].source = device_d.source[SourceWidth-1:2];
+    host_gnt_mult[2].source = device_d.source[2+:HostSourceWidth];
     host_gnt_mult[2].sink = 0;
     host_gnt_mult[2].denied = device_d.denied;
     host_gnt_mult[2].corrupt = device_d.corrupt;
@@ -638,6 +664,7 @@ module tl_broadcast import tl_pkg::*; #(
           host_gnt_valid_mult[2] = 1'b1;
           host_gnt_mult[2].opcode = ReleaseAck;
           host_gnt_mult[2].param = 0;
+          host_gnt_mult[2].denied = 0;
           device_d_ready = host_gnt_ready_mult[2];
         end
         XACT_UNCACHED: begin
