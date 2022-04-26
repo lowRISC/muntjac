@@ -10,6 +10,7 @@ filesets:
     depend:
       - lowrisc:tl:common
       - lowrisc:tl:regslice
+      - garyguo.net:openip:round_robin_arbiter
     files:
       - rtl/tl_ram_terminator.sv
     file_type: systemVerilogSource
