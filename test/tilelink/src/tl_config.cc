@@ -4,6 +4,7 @@
 
 #include <cassert>
 #include <fstream>
+#include <sstream>
 
 #include "logs.h"
 #include "tl_config.h"
@@ -11,6 +12,7 @@
 using std::ifstream;
 using std::stoi;
 using std::string;
+using std::stringstream;
 using std::vector;
 
 // Remove YAML comments in-place.
@@ -43,6 +45,28 @@ bool is_empty(string line) {
   return line.empty();
 }
 
+// Check whether one string ends with another string.
+bool ends_with(const string& str, const string& suffix) {
+  if (str.size() < suffix.size())
+    return false;
+  return str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Convert a string of space-separated integers into a vector of integers.
+vector<int> parse_int_list(string& line) {
+  vector<int> result;
+  string token;
+  stringstream ss(line);
+
+  while (getline(ss, token, ' ')) {
+    if (token.empty())
+      continue;
+    result.push_back(stoi(token));
+  }
+
+  return result;
+}
+
 tl_endpoint_config_t parse_parameters(vector<string>& data) {
   tl_endpoint_config_t component;
 
@@ -63,6 +87,10 @@ tl_endpoint_config_t parse_parameters(vector<string>& data) {
     if (name == "Protocol") {
       if (value == "TL-C")
         component.protocol = TL_C;
+      else if (value == "TL-C-ROM-TERM")
+        component.protocol = TL_C_ROM_TERM;
+      else if (value == "TL-C-IO-TERM")
+        component.protocol = TL_C_IO_TERM;
       else if (value == "TL-UH")
         component.protocol = TL_UH;
       else if (value == "TL-UL")
@@ -80,8 +108,16 @@ tl_endpoint_config_t parse_parameters(vector<string>& data) {
       component.last_id = stoi(value);
     else if (name == "MaxSize")
       component.max_size = stoi(value);
-    else if (name == "FIFO")
+    else if (name == "Fifo")
       component.fifo = stoi(value);
+    else if (name == "CanDeny")
+      component.can_deny = stoi(value);
+    else if (ends_with(name, "Base"))
+      component.bases = parse_int_list(value);
+    else if (ends_with(name, "Mask"))
+      component.masks = parse_int_list(value);
+    else if (ends_with(name, "Target"))
+      component.targets = parse_int_list(value);
     else
       MUNTJAC_WARN << "Unknown configuration parameter ignored: " << name << endl;
   }

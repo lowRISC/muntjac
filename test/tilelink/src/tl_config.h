@@ -26,6 +26,14 @@ typedef struct {
 
   // Produces/requires responses in FIFO order.
   bool fifo;
+
+  // Component is able to deny requests.
+  bool can_deny;
+
+  // Routing table telling which sink/source IDs are owned by other components.
+  std::vector<int> bases;
+  std::vector<int> masks;
+  std::vector<int> targets;
 } tl_endpoint_config_t;
 
 // Configuration of all endpoints of a DUT.

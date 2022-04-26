@@ -113,7 +113,9 @@ tl_a new_a_request(TileLinkSender<tl_a>& endpoint, bool randomise) {
     
     if (has_payload(request.opcode)) {
       request.corrupt = random_bool(0.05);
-      request.data = align(rand(), 160); // A round number in both hex and dec
+
+      // A round number in both hex and dec
+      request.data = ((uint64_t)rand() << 32) | align(rand(), 160); 
     }
     else
       request.corrupt = false;
@@ -134,7 +136,7 @@ tl_a new_a_request(TileLinkSender<tl_a>& endpoint, bool randomise) {
 
 tl_message<tl_a>::tl_message(TileLinkSender<tl_a>& endpoint,
                              tl_a header, int num_beats) :
-    tl_message_base(endpoint.bit_width() / 8, num_beats),
+    tl_message_base(endpoint.bit_width() / 8, num_beats, num_beats),
     header(header) {
   // Nothing
 }
@@ -144,13 +146,14 @@ tl_message<tl_a>::tl_message(TileLinkSender<tl_a>& endpoint,
     tl_message_base(endpoint.bit_width() / 8),
     header(modify(new_a_request(endpoint, randomise), requirements)) {
   beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  beats_ready = beats_to_send;
   assert(beats_to_send > 0);
 }
 
 tl_a tl_message<tl_a>::next_beat(bool randomise) {
   tl_a beat = header;
 
-  beat.address += beats_generated * channel_width_bytes;
+  // Make it obvious which beat this is - for debugging.
   beat.data += beats_generated;
 
   if (randomise) {
@@ -211,15 +214,6 @@ int num_beats(tl_b_op_e opcode, int size, int channel_width_bytes) {
     return 1;
 }
 
-// There can be an outstanding B request for any combination of source and
-// address. Combine both into a single ID.
-int get_b_id(int source_id, uint64_t address) {
-  // Addresses are currently generated in the range 0x0 to 0xFFF.
-  // The bits at 0xF0000000 are modified to allow routing to a device.
-  // This leaves 0x0FFFF000 untouched for us to insert the source ID.
-  return address + (source_id << 16);
-}
-
 tl_b new_b_request(TileLinkSender<tl_b>& endpoint, bool randomise) {
   tl_b request;
 
@@ -227,18 +221,19 @@ tl_b new_b_request(TileLinkSender<tl_b>& endpoint, bool randomise) {
   auto& device = static_cast<const TileLinkDevice&>(endpoint.get_parent());
 
   if (randomise) {
-    request.opcode = random_b_opcode();
+    request.opcode = random_b_opcode(device.protocol);
     request.param = random_cap_permission();
     request.size = random_sample(0, endpoint.max_size());
-    request.source = host.c.get_routing_id(randomise);
+    request.source = device.get_routing_id(host.position);
 
     // Can't use an address/source combination that's already in use, so
     // generate new addresses until an unused one is found.
     // Assumes an unused address/source combination exists.
     while (true) {
       int raw_address = random_sample(0, 0x1000 - 1);
-      request.address = align(raw_address, 1 << request.size);
-      int id = get_b_id(request.source, request.address);
+      int device_address = get_address(raw_address, device.position);
+      request.address = align(device_address, 1 << request.size);
+      int id = device.get_b_id(request.source, request.address);
 
       if (endpoint.transaction_id_available(id))
         break;
@@ -248,15 +243,15 @@ tl_b new_b_request(TileLinkSender<tl_b>& endpoint, bool randomise) {
     request.opcode = ProbeBlock;
     request.param = 0;
     request.size = endpoint.beat_size();
-    request.source = host.c.get_routing_id(randomise);
-    request.address = get_address(0x3000, 0);
+    request.source = device.get_routing_id(host.position);
+    request.address = get_address(0x3000, device.position);
 
-    int id = get_b_id(request.source, request.address);
+    int id = device.get_b_id(request.source, request.address);
 
     // If this address/source combination is in use, try the next one.
     while (!endpoint.transaction_id_available(id)) {
       request.address += size_to_bits(request.size) / 8;
-      id = get_b_id(request.source, request.address);
+      id = device.get_b_id(request.source, request.address);
     }
   }
 
@@ -265,7 +260,7 @@ tl_b new_b_request(TileLinkSender<tl_b>& endpoint, bool randomise) {
 
 tl_message<tl_b>::tl_message(TileLinkSender<tl_b>& endpoint,
                              tl_b header, int num_beats) :
-    tl_message_base(endpoint.bit_width() / 8, num_beats),
+    tl_message_base(endpoint.bit_width() / 8, num_beats, num_beats),
     header(header) {
   // Nothing
 }
@@ -275,6 +270,7 @@ tl_message<tl_b>::tl_message(TileLinkSender<tl_b>& endpoint,
     tl_message_base(endpoint.bit_width() / 8),
     header(modify(new_b_request(endpoint, randomise), requirements)) {
   beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  beats_ready = beats_to_send;
   assert(beats_to_send > 0);
 }
 
@@ -308,6 +304,7 @@ tl_message<tl_b>::tl_message(TileLinkSender<tl_b>& endpoint, tl_a& request,
                              bool randomise) :
     header(new_b_response(endpoint, request, randomise)),
     tl_message_base(endpoint.bit_width() / 8,
+                    num_beats(header.opcode, header.size, endpoint.bit_width() / 8),
                     num_beats(header.opcode, header.size, endpoint.bit_width() / 8)) {
   // Nothing
 }
@@ -359,9 +356,11 @@ tl_c new_c_request(TileLinkSender<tl_c>& endpoint, bool randomise) {
   tl_c request;
 
   if (randomise) {
-    auto& device = the_sim->random_device(TL_C);
+    auto& host = static_cast<const TileLinkHost&>(endpoint.get_parent());
+    auto& device = the_sim->random_device(TL_C_IO_TERM);
+    tl_protocol_e protocol = host.protocol;
 
-    request.opcode = (tl_c_op_e)random_sample(6, 7);
+    request.opcode = random_c_opcode(protocol);
     request.param = random_bool() ? (int)random_prune_permission()
                                   : (int)random_report_permission();
 
@@ -374,7 +373,9 @@ tl_c new_c_request(TileLinkSender<tl_c>& endpoint, bool randomise) {
     
     if (has_payload(request.opcode)) {
       request.corrupt = random_bool(0.05);
-      request.data = align(rand(), 160); // A round number in both hex and dec
+
+      // A round number in both hex and dec
+      request.data = ((uint64_t)rand() << 32) | align(rand(), 160);
     }
     else
       request.corrupt = false;
@@ -394,7 +395,7 @@ tl_c new_c_request(TileLinkSender<tl_c>& endpoint, bool randomise) {
 
 tl_message<tl_c>::tl_message(TileLinkSender<tl_c>& endpoint,
                              tl_c header, int num_beats) :
-    tl_message_base(endpoint.bit_width() / 8, num_beats),
+    tl_message_base(endpoint.bit_width() / 8, num_beats, num_beats),
     header(header) {
   // Nothing
 }
@@ -404,6 +405,7 @@ tl_message<tl_c>::tl_message(TileLinkSender<tl_c>& endpoint,
     tl_message_base(endpoint.bit_width() / 8),
     header(modify(new_c_request(endpoint, randomise), requirements)) {
   beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  beats_ready = beats_to_send;
   assert(beats_to_send > 0);
 }
 
@@ -436,7 +438,9 @@ tl_c new_c_response(TileLinkSender<tl_c>& endpoint, tl_b& request,
     
     if (has_payload(response.opcode)) {
       response.corrupt = random_bool(0.05);
-      response.data = align(rand(), 160); // A round number in both hex and dec
+
+      // A round number in both hex and dec
+      response.data = ((uint64_t)rand() << 32) | align(rand(), 160); 
     }
     else
       response.corrupt = false;
@@ -455,13 +459,14 @@ tl_message<tl_c>::tl_message(TileLinkSender<tl_c>& endpoint, tl_b& request,
     tl_message_base(endpoint.bit_width() / 8),
     header(new_c_response(endpoint, request, randomise)) {
   beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  beats_ready = beats_to_send;
   assert(beats_to_send > 0);
 }
 
 tl_c tl_message<tl_c>::next_beat(bool randomise) {
   tl_c beat = header;
 
-  beat.address += beats_generated * channel_width_bytes;
+  // Make it obvious which beat this is - for debugging.
   beat.data += beats_generated;
 
   if (randomise) {
@@ -513,17 +518,6 @@ int num_beats(tl_d_op_e opcode, int size, int channel_width_bytes) {
     return 1;
 }
 
-int num_beats(tl_d_op_e opcode, tl_a_op_e request, int size, int channel_width_bytes) {
-  // LogicalData and ArithmeticData responses are multibeat, but so are their
-  // requests, so instead of waiting for the entire request to arrive, we want
-  // to send a single-beat response after each request beat.
-
-  if (has_payload(opcode) && request != LogicalData && request != ArithmeticData)
-    return std::max(1, (1 << size) / channel_width_bytes);
-  else
-    return 1;
-}
-
 tl_d new_d_response(TileLinkSender<tl_d>& endpoint, tl_a& request,
                     bool randomise) {
   tl_d response;
@@ -561,10 +555,12 @@ tl_d new_d_response(TileLinkSender<tl_d>& endpoint, tl_a& request,
       default:
         response.param = 0; break;
     }
-    response.denied = random_bool(0.1);
+    response.denied = endpoint.can_deny() && random_bool(0.1);
     response.corrupt = 
       has_payload(response.opcode) ? (response.denied || random_bool(0.1)) : 0;
-    response.data = align(rand(), 160); // A round number in both hex and dec
+
+    // A round number in both hex and dec
+    response.data = ((uint64_t)rand() << 32) | align(rand(), 160); 
   }
   else {
     response.param = 0;
@@ -578,7 +574,7 @@ tl_d new_d_response(TileLinkSender<tl_d>& endpoint, tl_a& request,
 
 tl_message<tl_d>::tl_message(TileLinkSender<tl_d>& endpoint,
                              tl_d header, int num_beats) :
-    tl_message_base(endpoint.bit_width() / 8, num_beats),
+    tl_message_base(endpoint.bit_width() / 8, num_beats, num_beats),
     header(header) {
   // Nothing
 }
@@ -587,8 +583,15 @@ tl_message<tl_d>::tl_message(TileLinkSender<tl_d>& endpoint, tl_a& request,
                              bool randomise) :
     tl_message_base(endpoint.bit_width() / 8),
     header(new_d_response(endpoint, request, randomise)) {
-  beats_to_send = num_beats(header.opcode, request.opcode, header.size,
-                            endpoint.bit_width() / 8);
+  beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  
+  // LogicalData and ArithmeticData have multibeat requests and responses. We
+  // want to generate the response one beat at a time, as the request arrives.
+  if (request.opcode == LogicalData || request.opcode == ArithmeticData)
+    beats_ready = 1;
+  else
+    beats_ready = beats_to_send;
+
   assert(beats_to_send > 0);
 }
 
@@ -623,12 +626,14 @@ tl_message<tl_d>::tl_message(TileLinkSender<tl_d>& endpoint, tl_c& request,
     tl_message_base(endpoint.bit_width() / 8),
     header(new_d_response(endpoint, request, randomise)) {
   beats_to_send = num_beats(header.opcode, header.size, endpoint.bit_width() / 8);
+  beats_ready = beats_to_send;
   assert(beats_to_send > 0);
 }
 
 tl_d tl_message<tl_d>::next_beat(bool randomise) {
   tl_d beat = header;
 
+  // Make it obvious which beat this is - for debugging.
   beat.data += beats_generated;
 
   if (randomise)
@@ -661,14 +666,6 @@ tl_d tl_message<tl_d>::modify(tl_d beat, map<string, int>& updates) {
   return beat;
 }
 
-bool tl_message<tl_d>::in_progress() const {
-  // Atomic memory operations generate a new response for each beat of request,
-  // so num_beats() lies about the length of the response.
-  // Detect this lie to prevent individual beats being reordered.
-  int expected = num_beats(header.opcode, header.size, channel_width_bytes);
-  return (beats_to_send != expected) || tl_message_base::in_progress();
-}
-
 
 ///////////////
 // Channel E //
@@ -683,14 +680,14 @@ tl_e new_e_response(TileLinkSender<tl_e>& endpoint, tl_d& request,
 
 tl_message<tl_e>::tl_message(TileLinkSender<tl_e>& endpoint,
                              tl_e header, int num_beats) :
-    tl_message_base(endpoint.bit_width() / 8, num_beats),
+    tl_message_base(endpoint.bit_width() / 8, num_beats, num_beats),
     header(header) {
   // Nothing
 }
 
 tl_message<tl_e>::tl_message(TileLinkSender<tl_e>& endpoint, tl_d& request,
                              bool randomise) :
-    tl_message_base(endpoint.bit_width() / 8, 1),
+    tl_message_base(endpoint.bit_width() / 8, 1, 1),
     header(new_e_response(endpoint, request, randomise)) {
   // Nothing
 }

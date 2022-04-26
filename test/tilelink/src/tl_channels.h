@@ -33,6 +33,49 @@ typedef Vtl_wrapper DUT;
 
 extern void next_cycle();
 
+
+// Routing table matching the format from the Verilog.
+// If ID & ~mask[i] == base[i], then ID is owned by target[i]. If there are no
+// matches, ID is owned by component 0. If there are multiple matches, the final
+// match wins.
+class RoutingTable {
+public:
+  RoutingTable(vector<int> base, vector<int> mask, vector<int> target) :
+      base(base), mask(mask), target(target) {
+    assert(base.size() == mask.size());
+    assert(base.size() == target.size());
+  }
+
+  // Determine which target a message with the given ID should be routed to.
+  int get_owner(int id) const {
+    int owner = 0;
+    for (int i = 0; i < base.size(); i++) {
+      if ((id & ~mask[i]) == base[i]) {
+        owner = target[i];
+      }
+    }
+    return owner;
+  }
+
+  // Find any ID associated with the given link. Assumes such an ID exists.
+  int get_any_id(int link) const {
+    // Super simple for now - try all IDs until we find one that matches.
+    // This will not work well if there are many possible IDs.
+    // Could be a bit smarter by inspecting the routing table for matching
+    // targets, but that becomes much more complex when ranges can overlap.
+    for (int i=0; i<1024; i++) {
+      if (get_owner(i) == link)
+        return i;
+    }
+    assert(false && "No valid routing ID found < 1024");
+  }
+
+private:
+  const vector<int> base;
+  const vector<int> mask;
+  const vector<int> target;
+};
+
 // Base class for a host/device, with connections to all TileLink channels.
 class TileLinkEndpoint {
 public:
@@ -40,7 +83,8 @@ public:
       dut(dut), position(position), 
       protocol(params.protocol), bit_width(params.data_width),
       first_id(params.first_id), last_id(params.last_id),
-      max_size(params.max_size), fifo(params.fifo) {
+      max_size(params.max_size), fifo(params.fifo), can_deny(params.can_deny),
+      routing(params.bases, params.masks, params.targets) {
     // Nothing
   }
 
@@ -78,6 +122,12 @@ public:
 
   // Are requests/responses produced/required in FIFO order?
   const bool fifo;
+
+  // Can this component deny requests?
+  const bool can_deny;
+
+  // Routing table telling which sink/source IDs belong to which components.
+  const RoutingTable routing;
 };
 
 // Base class for the start/end of any TileLink channel (A, B, C, D, E).
@@ -106,6 +156,8 @@ public:
   int bit_width() const          {return parent.bit_width;}
   int max_size() const           {return parent.max_size;}
   int fifo() const               {return parent.fifo;}
+  int can_deny() const           {return parent.can_deny;}
+  const RoutingTable& routing_table() const {return parent.routing;}
 
   const TileLinkEndpoint& get_parent() {return parent;}
 
@@ -196,7 +248,7 @@ public:
       this->respond();
 
     // Send available responses 80% of the time.
-    if (!to_send.empty() && !(randomise && random_bool(0.2))) {
+    if (!to_send.empty() && to_send.front().can_send() && !(randomise && random_bool(0.2))) {
       tl_message<channel>& message = to_send.front();
       channel beat = message.next_beat(randomise);
       
@@ -244,7 +296,7 @@ protected:
     // This is only safe if we have not already started sending the response,
     // and if the response at the back of the queue is complete.
     if (!to_send.empty() && !to_send.front().in_progress() && 
-        !to_send.back().in_progress()) {
+        to_send.back().complete()) {
       to_send.push(to_send.front());
       to_send.pop();
     }
@@ -494,7 +546,6 @@ public:
   TileLinkSenderD(TileLinkEndpoint& parent) : 
       TileLinkSender<tl_d>(parent) {
     lock_output_buffer = false;
-    beats_remaining = 0;
   }
 
   virtual bool get_ready() const {
@@ -568,7 +619,6 @@ private:
   // we may need to prevent other responses from being created until all beats
   // have been handled.
   bool lock_output_buffer;
-  int beats_remaining;
 };
 
 class TileLinkSenderE : public TileLinkSender<tl_e> {
@@ -936,6 +986,25 @@ public:
 
   virtual string endpoint_type() const {
     return "Device";
+  }
+
+  // There can be an outstanding B request for any combination of source and
+  // address. Combine both into a single transaction ID.
+  int get_b_id(int source_id, uint64_t address) const  {
+    // Addresses are currently generated in the range 0x0 to 0xFFF.
+    // The bits at 0xF0000000 are modified to allow routing to a device.
+    // This leaves 0x0FFFF000 untouched for us to insert the source ID.
+    // The host can respond with any ID it owns, so convert to host index too.
+    // TODO: add this feature to the traffic generator?
+    int host_index = routing.get_owner(source_id);
+    return (address & 0xFFF) + (host_index << 16);
+  }
+
+  // Get any source ID associated with the host at the given position. This ID
+  // will only be used for routing, so it doesn't matter if it is in use by
+  // a current transaction.
+  int get_routing_id(int position) const {
+    return routing.get_any_id(position);
   }
 
   TileLinkReceiverA a;

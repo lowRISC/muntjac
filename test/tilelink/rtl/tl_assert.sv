@@ -301,28 +301,22 @@ module tl_assert import tl_pkg::*; #(
     )
   );
 
-  // a.address: must be aligned to a.size (for the first beat only).
   `SEQUENCE(aFirstBeat_S, 
     a_is_request(tl_a.opcode) && a_pending[tl_a.source].beats == 1
   );
-  `SEQUENCE(aAddrSizeAligned_S, 
-    `IMPLIES(aFirstBeat_S, (tl_a.address & ((1 << tl_a.size) - 1)) == '0)
-  );
-
-  // a.address: must increment by DataWidthInBytes within multibeat messages.
   `SEQUENCE(aFollowingBeat_S, 
     a_is_request(tl_a.opcode) && a_pending[tl_a.source].beats > 1
   );
-  `SEQUENCE(aAddressMultibeatInc_S,
-    `IMPLIES(aFollowingBeat_S,
-      tl_a.address == a_pending[tl_a.source].tl.address + 
-                      (a_pending[tl_a.source].beats - 1) * DataWidthInBytes
-    )
+
+  // a.address: must be aligned to a.size.
+  `SEQUENCE(aAddrSizeAligned_S, 
+    (tl_a.address & ((1 << tl_a.size) - 1)) == '0
   );
 
   // Most control signals must remain constant within multibeat messages.
   `SEQUENCE(aMultibeatCtrlConst_S,
     `IMPLIES(aFollowingBeat_S,
+      (tl_a.address == a_pending[tl_a.source].tl.address) &&
       (tl_a.opcode == a_pending[tl_a.source].tl.opcode) &&
       (tl_a.param == a_pending[tl_a.source].tl.param) &&
       (tl_a.size == a_pending[tl_a.source].tl.size) &&
@@ -442,29 +436,23 @@ module tl_assert import tl_pkg::*; #(
       c_pending[tl_c.source].beats <= expected_beats(tl_c.size)
     )
   );
-  
-  // c.address: must be aligned to c.size (for the first beat only).
+
   `SEQUENCE(cFirstBeat_S, 
     c_is_request(tl_c.opcode) && c_pending[tl_c.source].beats == 1
   );
-  `SEQUENCE(cAddrSizeAligned_S, 
-    `IMPLIES(cFirstBeat_S, (tl_c.address & ((1 << tl_c.size) - 1)) == '0)
-  );
-
-  // c.address: must increment by DataWidthInBytes within multibeat messages.
   `SEQUENCE(cFollowingBeat_S, 
     c_is_request(tl_c.opcode) && c_pending[tl_c.source].beats > 1
   );
-  `SEQUENCE(cAddressMultibeatInc_S, 
-    `IMPLIES(cFollowingBeat_S,
-      tl_c.address == c_pending[tl_c.source].tl.address + 
-                      (c_pending[tl_c.source].beats - 1) * DataWidthInBytes
-    )
+  
+  // c.address: must be aligned to c.size.
+  `SEQUENCE(cAddrSizeAligned_S, 
+    (tl_c.address & ((1 << tl_c.size) - 1)) == '0
   );
 
   // Most control signals must remain constant within multibeat messages.
   `SEQUENCE(cMultibeatCtrlConst_S,
     `IMPLIES(cFollowingBeat_S,
+      (tl_c.address == c_pending[tl_c.source].tl.address) &&
       (tl_c.opcode == c_pending[tl_c.source].tl.opcode) &&
       (tl_c.param == c_pending[tl_c.source].tl.param) &&
       (tl_c.size == c_pending[tl_c.source].tl.size) &&
@@ -661,7 +649,6 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSERT(aSizeMatchesMask_A, `IMPLIES(aAccepted_S, aSizeMatchesMask_S))
     `S_ASSERT(aNumBeats_A,        `IMPLIES(aAccepted_S, aNumBeats_S))
     `S_ASSERT(aAddrSizeAligned_A, `IMPLIES(aAccepted_S, aAddrSizeAligned_S))
-    `S_ASSERT(aAddrMultibeatInc_A,`IMPLIES(aAccepted_S, aAddressMultibeatInc_S))
     `S_ASSERT(aMultibeatCtrlConst_A,`IMPLIES(aAccepted_S, aMultibeatCtrlConst_S))
     `S_ASSERT(aContigMask_A,      `IMPLIES(aAccepted_S, aContigMask_S))
     `S_ASSERT(aFullMaskUsed_A,    `IMPLIES(aAccepted_S, aFullMaskUsed_S))
@@ -680,7 +667,6 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSERT(cLegalParam_A,      `IMPLIES(cAccepted_S, cLegalParam_S))
     `S_ASSERT(cNumBeats_A,        `IMPLIES(cAccepted_S, cNumBeats_S))
     `S_ASSERT(cAddrSizeAligned_A, `IMPLIES(cAccepted_S, cAddrSizeAligned_S))
-    `S_ASSERT(cAddrMultibeatInc_A,`IMPLIES(cAccepted_S, cAddressMultibeatInc_S))
     `S_ASSERT(cMultibeatCtrlConst_A,`IMPLIES(cAccepted_S, cMultibeatCtrlConst_S))
     // `S_ASSERT(cDataKnown_A,       `IMPLIES(cAccepted_S, cDataKnown_S))
     `S_ASSERT(cLegalCorrupt_A,    `IMPLIES(cAccepted_S, cLegalCorrupt_S))
@@ -718,7 +704,6 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSUME(aSizeMatchesMask_M, `IMPLIES(aAccepted_S, aSizeMatchesMask_S))
     `S_ASSUME(aNumBeats_M,        `IMPLIES(aAccepted_S, aNumBeats_S))
     `S_ASSUME(aAddrSizeAligned_M, `IMPLIES(aAccepted_S, aAddrSizeAligned_S))
-    `S_ASSUME(aAddrMultibeatInc_M,`IMPLIES(aAccepted_S, aAddressMultibeatInc_S))
     `S_ASSUME(aMultibeatCtrlConst_M,`IMPLIES(aAccepted_S, aMultibeatCtrlConst_S))
     `S_ASSUME(aContigMask_M,      `IMPLIES(aAccepted_S, aContigMask_S))
     `S_ASSUME(aFullMaskUsed_M,    `IMPLIES(aAccepted_S, aFullMaskUsed_S))
@@ -737,7 +722,6 @@ module tl_assert import tl_pkg::*; #(
     `S_ASSUME(cLegalParam_M,      `IMPLIES(cAccepted_S, cLegalParam_S))
     `S_ASSUME(cNumBeats_M,        `IMPLIES(cAccepted_S, cNumBeats_S))
     `S_ASSUME(cAddrSizeAligned_M, `IMPLIES(cAccepted_S, cAddrSizeAligned_S))
-    `S_ASSUME(cAddrMultibeatInc_M,`IMPLIES(cAccepted_S, cAddressMultibeatInc_S))
     `S_ASSUME(cMultibeatCtrlConst_M,`IMPLIES(cAccepted_S, cMultibeatCtrlConst_S))
     // `S_ASSUME(cDataKnown_M,       `IMPLIES(cAccepted_S, cDataKnown_S))
     `S_ASSUME(cLegalCorrupt_M,    `IMPLIES(cAccepted_S, cLegalCorrupt_S))

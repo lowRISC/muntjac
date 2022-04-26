@@ -34,13 +34,37 @@ static tl_a_op_e random_a_opcode(tl_protocol_e protocol) {
   switch (protocol) {
     case TL_UL: return tl_ul[random_sample(0, tl_ul.size() - 1)];
     case TL_UH: return tl_uh[random_sample(0, tl_uh.size() - 1)];
+    
+    case TL_C_IO_TERM:
+    case TL_C_ROM_TERM:
     case TL_C:  return tl_c[random_sample(0, tl_c.size() - 1)];
-    default:    assert(false && "Invalid protocol"); return Get;
+    default:    assert(false && "Invalid protocol for A channel"); return Get;
   }
 }
 
-static tl_b_op_e random_b_opcode() {
+static tl_b_op_e random_b_opcode(tl_protocol_e protocol) {
+  if (protocol != TL_C) {
+    assert(false && "Invalid protocol for B channel");
+    return ProbeBlock;
+  }
+
   return (tl_b_op_e)random_sample(6, 7);
+}
+
+static tl_c_op_e random_c_opcode(tl_protocol_e protocol) {
+  // Ignore ProbeAck(Data) - they are responses, so should not be randomised.
+  static vector<tl_c_op_e> tl_c        = {Release, ReleaseData};
+  static vector<tl_c_op_e> tl_rom_term = {Release};
+
+  switch (protocol) {
+    case TL_C_ROM_TERM: 
+      return tl_rom_term[random_sample(0, tl_rom_term.size() - 1)];
+    case TL_C:
+      return tl_c[random_sample(0, tl_c.size() - 1)];
+    default:
+      assert(false && "Invalid protocol for C channel");
+      return ProbeAck;
+  }
 }
 
 static arithmetic_data_param_e random_arithmetic_data_param() {

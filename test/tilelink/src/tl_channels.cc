@@ -70,14 +70,11 @@ void TileLinkReceiverA::handle_beat(bool randomise, tl_a data) {
 
 extern bool requires_response(tl_b_op_e opcode);
 
-// There can be an outstanding B request for any combination of source and
-// address. Combine both into a single ID.
-extern int get_b_id(int source_id, uint64_t address);
-
 void TileLinkSenderB::respond(bool randomise, tl_a& request) {
   assert(this->protocol() == TL_C);
 
   tl_message<tl_b> response(*this, request, randomise);
+  auto& device = static_cast<const TileLinkDevice&>(get_parent());
 
   // Send Probe requests out to all masters. Should exclude the one that sent
   // the incoming request, but it doesn't hurt this simulation.
@@ -86,9 +83,10 @@ void TileLinkSenderB::respond(bool randomise, tl_a& request) {
     if (host.protocol != TL_C)
       continue;
 
-    response.header.source = host.c.get_routing_id(randomise);
+    response.header.source = device.get_routing_id(host.position);
 
-    int transaction = get_b_id(response.header.source, response.header.address);
+    int transaction = device.get_b_id(response.header.source,
+                                      response.header.address);
 
     if (this->ids_in_use.find(transaction) != this->ids_in_use.end())
       throw NoAvailableIDException();
@@ -131,6 +129,7 @@ void TileLinkSenderB::queue_request(bool randomise,
     return;
 
   tl_message<tl_b> request(*this, randomise, requirements);
+  auto& device = static_cast<const TileLinkDevice&>(get_parent());
 
   // Prepare to send Probe requests out to all masters.
   // Don't send anything yet though - first need to confirm that transaction
@@ -143,9 +142,9 @@ void TileLinkSenderB::queue_request(bool randomise,
 
     // TODO: it's unclear from the spec whether the source should be a source ID
     //       associated with the host, or just the index of the host.
-    request.header.source = host.c.get_routing_id(randomise);
+    request.header.source = device.get_routing_id(host.position);
 
-    int id = get_b_id(request.header.source, request.header.address);
+    int id = device.get_b_id(request.header.source, request.header.address);
 
     if (this->transaction_id_available(id))
       pending.push_back(request);
@@ -157,7 +156,8 @@ void TileLinkSenderB::queue_request(bool randomise,
   for (auto request : pending) {
     // We only support a subset of B requests, which are all single beats.
     this->to_send.push(request);
-    this->start_transaction(get_b_id(request.header.source, request.header.address));
+    this->start_transaction(device.get_b_id(request.header.source,
+                                            request.header.address));
   }
 }
 
@@ -186,7 +186,7 @@ void TileLinkReceiverB::handle_beat(bool randomise, tl_b data) {
 extern bool requires_response(tl_c_op_e opcode);
 
 void TileLinkSenderC::respond(bool randomise, tl_b& request) {
-  assert(this->protocol() == TL_C);
+  assert(this->protocol() == TL_C || this->protocol() == TL_C_IO_TERM);
 
   tl_message<tl_c> response(*this, request, randomise);
   this->to_send.push(response);
@@ -220,7 +220,8 @@ void TileLinkSenderC::respond() {
 
 void TileLinkSenderC::queue_request(bool randomise, 
                                     map<string, int> requirements) {
-  if (this->protocol() != TL_C || !this->can_start_new_transaction())
+  if ((this->protocol() != TL_C && this->protocol() != TL_C_ROM_TERM) ||
+      !this->can_start_new_transaction())
     return;
 
   tl_message<tl_c> request(*this, randomise, requirements);
@@ -239,14 +240,14 @@ void TileLinkReceiverC::handle_beat(bool randomise, tl_c data) {
   // allowed.
   switch (data.opcode) {
     case ProbeAck:
-      device.b.end_transaction(get_b_id(data.source, data.address));
+      device.b.end_transaction(device.get_b_id(data.source, data.address));
       break;
 
     case ProbeAckData:
       this->new_beat_arrived(data.size);
       if (this->all_beats_arrived()) {
         uint64_t first_beat_addr = align(data.address, 1 << data.size);
-        device.b.end_transaction(get_b_id(data.source, first_beat_addr));
+        device.b.end_transaction(device.get_b_id(data.source, first_beat_addr));
       }
       break;
 
@@ -271,23 +272,24 @@ void TileLinkReceiverC::handle_beat(bool randomise, tl_c data) {
 extern bool requires_response(tl_d_op_e opcode);
 
 void TileLinkSenderD::respond(bool randomise, tl_a& request) {
+  // Check whether this response is a continuation of a response we already have
+  // in the buffer. This only applies to operations which have both multibeat
+  // requests and multibeat responses, where we generate one response beat for
+  // each request beat.
+  if (request.opcode == ArithmeticData || request.opcode == LogicalData) {
+    if (!this->to_send.empty() && !this->to_send.back().complete()) {
+      this->to_send.back().new_beat_ready();
+      lock_output_buffer = !this->to_send.back().complete();
+      return;
+    }
+  }
+  
+  // Default: generate a new request as normal and put it in the buffer.
+  assert(!lock_output_buffer);
+
   tl_message<tl_d> response(*this, request, randomise);
   this->to_send.push(response);
-
-  // ArithmeticData and LogicalData are multibeat requests, but we respond to
-  // each beat individually, so we need to lock the output buffer until we
-  // have responded to all beats.
-  if (request.opcode == ArithmeticData || request.opcode == LogicalData) {
-    // First beat.
-    if (beats_remaining == 0)
-      beats_remaining = std::max(1, (1 << request.size) / (this->bit_width() / 8));
-    
-    beats_remaining--;
-
-    lock_output_buffer = (beats_remaining > 0);
-  }
-  else
-    assert(!lock_output_buffer);
+  lock_output_buffer = !response.complete();
   
   if (requires_response(response.header.opcode))
     this->start_transaction(response.header.sink);
@@ -396,7 +398,7 @@ void TileLinkReceiverD::handle_beat(bool randomise, tl_d data) {
 ///////////////
 
 void TileLinkSenderE::respond(bool randomise, tl_d& request) {
-  assert(this->protocol() == TL_C);
+  assert(this->protocol() > TL_UH);
 
   tl_message<tl_e> response(*this, request, randomise);
   this->to_send.push(response);

@@ -129,7 +129,7 @@ public:
     }
 
     if (sim_duration > 0)
-      run(true, sim_duration);
+      run(true, sim_duration, 1000);
 
     end_simulation();
 
@@ -235,7 +235,7 @@ private:
   bool randomise;
 
   // Configuration of hosts/devices connected to the TileLink network.
-  string config_file = "configs/default.yaml";
+  string config_file = "configs/default/config.yaml";
 
   bool coverage_on;
   string coverage_file;

@@ -7,10 +7,19 @@
 
 #include <cstdint>
 
+// Normal protocol levels, plus a couple of extras for components which convert
+// from one protocol to another. Since these components instantly deny some
+// requests, they generally do not support any message types which follow a
+// denied request. The traffic generator does not track these dependencies, so
+// we need to restrict which operations are supported here.
+// TODO: either track dependencies, or allow particular request types to be
+//       added/removed from the configuration files.
 typedef enum {
   TL_UL          = 0,
   TL_UH          = 1,
-  TL_C           = 2
+  TL_C_IO_TERM   = 2,
+  TL_C_ROM_TERM  = 3,
+  TL_C           = 4
 } tl_protocol_e;
 
 typedef enum {

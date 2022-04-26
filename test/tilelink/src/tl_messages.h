@@ -21,7 +21,7 @@ class tl_message_base {
 public:
 
   // Basic constructor for when we don't yet know how many beats this message
-  // will require. `beats_to_send` must be set separately.
+  // will require. `beats_to_send` and `beats_ready` must be set separately.
   tl_message_base(int channel_width_bytes) :
       channel_width_bytes(channel_width_bytes) {
     assert(channel_width_bytes > 0);
@@ -32,27 +32,49 @@ public:
   // Create a message from given control signals.
   // Use `num_beats` to control how many beats are generated automatically 
   // (i.e. have dummy payloads).
-  tl_message_base(int channel_width_bytes, int num_beats) :
+  tl_message_base(int channel_width_bytes, int num_beats, int beats_ready) :
       channel_width_bytes(channel_width_bytes),
-      beats_to_send(num_beats) {
+      beats_to_send(num_beats),
+      beats_ready(beats_ready) {
     assert(beats_to_send > 0);
+    assert(beats_ready >= 0);
+    assert(beats_to_send >= beats_ready);
     assert(channel_width_bytes > 0);
 
     beats_generated = 0;
   }
 
+  // Is this message in the process of being sent? If so, it cannot be
+  // interrupted.
   bool in_progress() const {
     return beats_generated > 0;
   }
 
+  // Are there any more beats available to send?
+  bool can_send() const {
+    return beats_generated < beats_ready;
+  }
+
+  // Have all beats been sent?
   bool finished() const {
     return beats_to_send == beats_generated;
+  }
+
+  // Are all beats ready to send?
+  bool complete() const {
+    return beats_to_send == beats_ready;
   }
 
   // Roll back the number of beats sent so far.
   // Mainly for debug - generate extra beats in a message.
   void unsend() {
     beats_generated--;
+  }
+
+  // A new beat of this message has become available to send.
+  void new_beat_ready() {
+    assert(beats_ready < beats_to_send);
+    beats_ready++;
   }
 
   int current_beat() const {return beats_generated;}
@@ -68,6 +90,10 @@ protected:
   // but generating fewer beats automatically allows specific content to be
   // inserted in later beats.
   int beats_to_send;
+
+  // Flow control: allow at most this many beats to be sent. Increase this
+  // value when new beats are ready to tsend.
+  int beats_ready;
 
   // Number of beats generated so far.
   int beats_generated;
@@ -187,11 +213,6 @@ public:
   // Modify a beat of a message.
   // `updates` maps TileLink field names to values, e.g. {{"size", 4}}.
   static channel_t modify(channel_t beat, map<string, int>& updates);
-
-  // Override default method.
-  // We generate individual responses to each beat of atomic operations, and
-  // these can't be broken up either.
-  bool in_progress() const;
 
   // First beat of the message, containing all control signals.
   channel_t header;

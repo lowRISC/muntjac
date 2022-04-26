@@ -17,7 +17,7 @@ filesets:
   
   files_assertions:
     depend:
-      - lowrisc:tl:assertions
+      - lowrisc:tl_test:assertions
 
   files_verilator:
     files:
