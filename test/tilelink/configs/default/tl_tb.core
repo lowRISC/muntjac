@@ -1,0 +1,42 @@
+CAPI=2:
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+name: "lowrisc:tl_test:default:0.1"
+description: "General test of TileLink IP (for testing the tests)"
+
+filesets:
+  files_rtl:
+    depend:
+      - lowrisc:tl_test:harness
+      - lowrisc:tl:adapter
+      - lowrisc:tl:ram_terminator
+      - lowrisc:tl:socket_1n
+      - lowrisc:tl:socket_m1
+    files:
+      - tl_wrapper.sv
+    file_type: systemVerilogSource
+
+targets:
+  default: &default_target
+    filesets:
+      - files_rtl
+    toplevel: tl_wrapper
+
+  sim:
+    <<: *default_target
+    default_tool: verilator
+    tools:
+      verilator:
+        mode: cc
+        verilator_options:
+          - "-Wno-fatal"  # Ignore warnings; they are exposed by linting anyway
+          - "-o default"
+          - "--trace --trace-structs"
+          - "--assert"
+          - "--coverage-user --coverage-line"
+          # coverage-toggle is also available, but is very slow for little gain
+          - "-O3"  # Verilator optimisation
+          - "-CFLAGS -Os"  # compiler optimisation
+          - "-CFLAGS -DFST_ENABLE" # Either VCD_ENABLE or FST_ENABLE
+          - "--trace-fst"          # Only if FST_ENABLE above

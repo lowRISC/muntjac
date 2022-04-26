@@ -1,0 +1,36 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - HostSourceWidth
+  - DeviceSourceWidth
+  - SinkWidth
+  - SourceBase
+  - SourceMask
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SinkWidth: 3
+    MaxSize: 6
+  
+  no_shift:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 3
+    SourceBase: 0
+    SourceMask: 7
+  
+  shift:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 4
+    SourceBase: 8
+    SourceMask: 7

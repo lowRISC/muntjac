@@ -1,0 +1,29 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - SourceWidth
+  - SinkWidth
+  - FifoDepth
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+  
+  min_depth:
+    <<: *base
+    FifoDepth: 4
+  
+  deeper:
+    <<: *base
+    FifoDepth: 8

@@ -1,0 +1,35 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - HostDataWidth
+  - DeviceDataWidth
+  - AddrWidth
+  - SourceWidth
+  - SinkWidth
+  - MaxSize
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    AddrWidth: 56
+    SourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+  
+  reduce2x:
+    <<: *base
+    HostDataWidth: 64
+    DeviceDataWidth: 32
+  
+  reduce8x:
+    <<: *base
+    HostDataWidth: 64
+    DeviceDataWidth: 8
+  
+  # TODO: non-powers of two.
+  # Need to confirm whether this is allowed, and if so, whether input/output
+  # need to be perfect multiples of each other.

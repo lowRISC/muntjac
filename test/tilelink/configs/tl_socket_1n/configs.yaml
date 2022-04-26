@@ -1,0 +1,59 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - SourceWidth
+  - SinkWidth
+  - MaxSize
+  - NumLinks
+  - NumAddressRange
+  - AddressBase
+  - AddressMask
+  - AddressLink
+  - NumSinkRange
+  - SinkBase
+  - SinkMask
+  - SinkLink
+
+configs:
+
+  default: &base
+    hosts: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+  
+  single_link:
+    <<: *base
+    devices: 1
+    NumLinks: 1
+    NumAddressRange: 1
+    AddressBase: [ 56'b0 ]
+    AddressMask: [ 56'b0 ]
+    AddressLink: [  1'b0 ]
+    NumSinkRange: 1
+    SinkBase: [ 3'b0 ]
+    SinkMask: [ 3'b0 ]
+    SinkLink: [ 1'b0 ]
+  
+  multiple_links:
+    <<: *base
+    devices: 3
+    NumLinks: 3
+
+    # Hard coded into Verilator for now. See tl_messages.cc.
+    NumAddressRange: 2
+    AddressBase: [56'h10000000, 56'h20000000]
+    AddressMask: [56'h0fffffff, 56'h0fffffff]
+    AddressLink: [        2'd1,         2'd2]
+
+    # 0-3 -> device 0, 4-5 -> device 1, 6-7 -> device 2
+    NumSinkRange: 2
+    SinkBase: [  3'd4,   3'd6]
+    SinkMask: [3'b001, 3'b001]
+    SinkLink: [  2'd1,   2'd2]

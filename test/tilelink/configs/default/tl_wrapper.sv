@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
+`include "tl_verilator.svh"
+
 module tl_wrapper #(
     parameter int unsigned AddrWidth = 56,
     parameter int unsigned DataWidth = 64,
@@ -10,102 +12,11 @@ module tl_wrapper #(
     parameter int unsigned SinkWidth = 3,
     parameter int unsigned MaxSize = 5
 ) (
-  // Clock and reset
-  input  logic                               clk_i,
-  input  logic                               rst_ni,
+  input logic clk_i,
+  input logic rst_ni,
 
-  // Need to define all signals instead of using structs. Verilator packs
-  // structs into arrays, which makes unpacking difficult on the C++ side.
-
-  // Hosts.
-  output logic                               host_a_ready_o   [2:0],
-  input  logic                               host_a_valid_i   [2:0],
-  input  tl_pkg::tl_a_op_e                   host_a_opcode_i  [2:0],
-  input  logic                         [2:0] host_a_param_i   [2:0],
-  input  logic          [`TL_SIZE_WIDTH-1:0] host_a_size_i    [2:0],
-  input  logic         [HostSourceWidth-1:0] host_a_source_i  [2:0],
-  input  logic               [AddrWidth-1:0] host_a_address_i [2:0],
-  input  logic             [DataWidth/8-1:0] host_a_mask_i    [2:0],
-  input  logic                               host_a_corrupt_i [2:0],
-  input  logic               [DataWidth-1:0] host_a_data_i    [2:0],
-
-  input  logic                               host_b_ready_i   [2:0],
-  output logic                               host_b_valid_o   [2:0],
-  output tl_pkg::tl_b_op_e                   host_b_opcode_o  [2:0],
-  output logic                         [2:0] host_b_param_o   [2:0],
-  output logic          [`TL_SIZE_WIDTH-1:0] host_b_size_o    [2:0],
-  output logic         [HostSourceWidth-1:0] host_b_source_o  [2:0],
-  output logic               [AddrWidth-1:0] host_b_address_o [2:0],
-
-  output logic                               host_c_ready_o   [2:0],
-  input  logic                               host_c_valid_i   [2:0],
-  input  tl_pkg::tl_c_op_e                   host_c_opcode_i  [2:0],
-  input  logic                         [2:0] host_c_param_i   [2:0],
-  input  logic          [`TL_SIZE_WIDTH-1:0] host_c_size_i    [2:0],
-  input  logic         [HostSourceWidth-1:0] host_c_source_i  [2:0],
-  input  logic               [AddrWidth-1:0] host_c_address_i [2:0],
-  input  logic                               host_c_corrupt_i [2:0],
-  input  logic               [DataWidth-1:0] host_c_data_i    [2:0],
-
-  input  logic                               host_d_ready_i   [2:0],
-  output logic                               host_d_valid_o   [2:0],
-  output tl_pkg::tl_d_op_e                   host_d_opcode_o  [2:0],
-  output logic                         [2:0] host_d_param_o   [2:0],
-  output logic          [`TL_SIZE_WIDTH-1:0] host_d_size_o    [2:0],
-  output logic         [HostSourceWidth-1:0] host_d_source_o  [2:0],
-  output logic               [SinkWidth-1:0] host_d_sink_o    [2:0],
-  output logic                               host_d_denied_o  [2:0],
-  output logic                               host_d_corrupt_o [2:0],
-  output logic               [DataWidth-1:0] host_d_data_o    [2:0],
-
-  output logic                               host_e_ready_o   [2:0],
-  input  logic                               host_e_valid_i   [2:0],
-  input  logic               [SinkWidth-1:0] host_e_sink_i    [2:0],
-
-  // Devices.
-  input  logic                               dev_a_ready_i    [2:0],
-  output logic                               dev_a_valid_o    [2:0],
-  output tl_pkg::tl_a_op_e                   dev_a_opcode_o   [2:0],
-  output logic                         [2:0] dev_a_param_o    [2:0],
-  output logic          [`TL_SIZE_WIDTH-1:0] dev_a_size_o     [2:0],
-  output logic       [DeviceSourceWidth-1:0] dev_a_source_o   [2:0],
-  output logic               [AddrWidth-1:0] dev_a_address_o  [2:0],
-  output logic             [DataWidth/8-1:0] dev_a_mask_o     [2:0],
-  output logic                               dev_a_corrupt_o  [2:0],
-  output logic               [DataWidth-1:0] dev_a_data_o     [2:0],
-
-  output logic                               dev_b_ready_o    [2:0],
-  input  logic                               dev_b_valid_i    [2:0],
-  input  tl_pkg::tl_b_op_e                   dev_b_opcode_i   [2:0],
-  input  logic                         [2:0] dev_b_param_i    [2:0],
-  input  logic          [`TL_SIZE_WIDTH-1:0] dev_b_size_i     [2:0],
-  input  logic       [DeviceSourceWidth-1:0] dev_b_source_i   [2:0],
-  input  logic               [AddrWidth-1:0] dev_b_address_i  [2:0],
-
-  input  logic                               dev_c_ready_i    [2:0],
-  output logic                               dev_c_valid_o    [2:0],
-  output tl_pkg::tl_c_op_e                   dev_c_opcode_o   [2:0],
-  output logic                         [2:0] dev_c_param_o    [2:0],
-  output logic          [`TL_SIZE_WIDTH-1:0] dev_c_size_o     [2:0],
-  output logic       [DeviceSourceWidth-1:0] dev_c_source_o   [2:0],
-  output logic               [AddrWidth-1:0] dev_c_address_o  [2:0],
-  output logic                               dev_c_corrupt_o  [2:0],
-  output logic               [DataWidth-1:0] dev_c_data_o     [2:0],
-
-  output logic                               dev_d_ready_o    [2:0],
-  input  logic                               dev_d_valid_i    [2:0],
-  input  tl_pkg::tl_d_op_e                   dev_d_opcode_i   [2:0],
-  input  logic                         [2:0] dev_d_param_i    [2:0],
-  input  logic          [`TL_SIZE_WIDTH-1:0] dev_d_size_i     [2:0],
-  input  logic       [DeviceSourceWidth-1:0] dev_d_source_i   [2:0],
-  input  logic               [SinkWidth-1:0] dev_d_sink_i     [2:0],
-  input  logic                               dev_d_denied_i   [2:0],
-  input  logic                               dev_d_corrupt_i  [2:0],
-  input  logic               [DataWidth-1:0] dev_d_data_i     [2:0],
-
-  input  logic                               dev_e_ready_i    [2:0],
-  output logic                               dev_e_valid_o    [2:0],
-  output logic               [SinkWidth-1:0] dev_e_sink_o     [2:0]
+  `TL_VERILATOR_HOST_PORT_ARR(DataWidth, AddrWidth, HostSourceWidth, SinkWidth, host, 3),
+  `TL_VERILATOR_DEVICE_PORT_ARR(DataWidth, AddrWidth, DeviceSourceWidth, SinkWidth, dev, 3)
 );
 
   // Source widths required for devices using different protocols. Each time we
@@ -237,57 +148,13 @@ module tl_wrapper #(
     `TL_CONNECT_HOST_PORT(device, dev2_tlul)
   );
 
-  // Can't use normal macros here because the names are slightly different with
-  // unpacked structs.
-
   // From hosts.
   for (genvar i=0; i<3; i++) begin
-    assign host_a_ready_o[i] = host_tl_a_ready[i];
-    assign host_tl_a_valid[i] = host_a_valid_i[i];
-    assign host_tl_a[i].opcode = host_a_opcode_i[i];
-    assign host_tl_a[i].param = host_a_param_i[i];
-    assign host_tl_a[i].size = host_a_size_i[i];
-    assign host_tl_a[i].source = host_a_source_i[i];
-    assign host_tl_a[i].address = host_a_address_i[i];
-    assign host_tl_a[i].mask = host_a_mask_i[i];
-    assign host_tl_a[i].corrupt = host_a_corrupt_i[i];
-    assign host_tl_a[i].data = host_a_data_i[i];
-
-    assign host_tl_b_ready[i] = host_b_ready_i[i];
-    assign host_b_valid_o[i] = host_tl_b_valid[i];
-    assign host_b_opcode_o[i] = host_tl_b[i].opcode;
-    assign host_b_param_o[i] = host_tl_b[i].param;
-    assign host_b_size_o[i] = host_tl_b[i].size;
-    assign host_b_source_o[i] = host_tl_b[i].source;
-    assign host_b_address_o[i] = host_tl_b[i].address;
-
-    assign host_c_ready_o[i] = host_tl_c_ready[i];
-    assign host_tl_c_valid[i] = host_c_valid_i[i];
-    assign host_tl_c[i].opcode = host_c_opcode_i[i];
-    assign host_tl_c[i].param = host_c_param_i[i];
-    assign host_tl_c[i].size = host_c_size_i[i];
-    assign host_tl_c[i].source = host_c_source_i[i];
-    assign host_tl_c[i].address = host_c_address_i[i];
-    assign host_tl_c[i].corrupt = host_c_corrupt_i[i];
-    assign host_tl_c[i].data = host_c_data_i[i];
-
-    assign host_tl_d_ready[i] = host_d_ready_i[i];
-    assign host_d_valid_o[i] = host_tl_d_valid[i];
-    assign host_d_opcode_o[i] = host_tl_d[i].opcode;
-    assign host_d_param_o[i] = host_tl_d[i].param;
-    assign host_d_size_o[i] = host_tl_d[i].size;
-    assign host_d_source_o[i] = host_tl_d[i].source;
-    assign host_d_sink_o[i] = host_tl_d[i].sink;
-    assign host_d_denied_o[i] = host_tl_d[i].denied;
-    assign host_d_corrupt_o[i] = host_tl_d[i].corrupt;
-    assign host_d_data_o[i] = host_tl_d[i].data;
-
-    assign host_e_ready_o[i] = host_tl_e_ready[i];
-    assign host_tl_e_valid[i] = host_e_valid_i[i];
-    assign host_tl_e[i].sink = host_e_sink_i[i];
+    `TL_VERILATOR_BIND_HOST_PORT_IDX(host, [i], host_tl, [i]);
   end
 
   // To devices.
+  // Can't use the macros because some fields need to be size-matched.
   for (genvar i=0; i<1; i++) begin
     assign dev_tl_a_ready[i] = dev_a_ready_i[i];
     assign dev_a_valid_o[i] = dev_tl_a_valid[i];

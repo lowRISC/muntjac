@@ -1,0 +1,41 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - HostSourceWidth
+  - DeviceSourceWidth
+  - SinkWidth
+  - MaxSize
+  - NumCachedHosts
+  - SourceBase
+  - SourceMask
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    HostSourceWidth: 3
+    DeviceSourceWidth: 5
+    SinkWidth: 3
+    MaxSize: 6
+  
+  single_host:
+    <<: *base
+    NumCachedHosts: 1
+    SourceBase: [   3'd0 ]
+    SourceMask: [ 3'b111 ]
+  
+  # Pretend the single host is two separate hosts by splitting the source range
+  # in two. Could do this properly by adding a socket_m1 to the wrapper, but
+  # this is simpler.
+  multiple_hosts:
+    <<: *base
+    NumCachedHosts: 2
+    SourceBase: [  3'd0,   3'd4]
+    SourceMask: [3'b011, 3'b011]

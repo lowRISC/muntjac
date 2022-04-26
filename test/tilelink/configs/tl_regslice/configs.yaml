@@ -1,0 +1,43 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - SourceWidth
+  - SinkWidth
+  - Mode
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+  
+  mode0:
+    <<: *base
+    Mode: 0
+  
+  mode1:
+    <<: *base
+    Mode: 1
+  
+  mode2:
+    <<: *base
+    Mode: 2
+  
+  mode3:
+    <<: *base
+    Mode: 3
+  
+  # Modes 4-6 don't correspond to anything meaningful.
+
+  mode7:
+    <<: *base
+    Mode: 7

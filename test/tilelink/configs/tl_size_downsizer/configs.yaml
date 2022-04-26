@@ -1,0 +1,54 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - HostSourceWidth
+  - DeviceSourceWidth
+  - SinkWidth
+  - HostMaxSize
+  - DeviceMaxSize
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SinkWidth: 3
+    DeviceFifo: 1
+    # Size downsizer doesn't support the B, C or E channels.
+    Protocol: TL-UH
+  
+  min_decrease:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 4
+    HostMaxSize: 5
+    DeviceMaxSize: 4
+  
+  min_decrease_extra_bits:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 6
+    HostMaxSize: 5
+    DeviceMaxSize: 4
+  
+  large_decrease:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 6
+    HostMaxSize: 7
+    DeviceMaxSize: 4
+  
+  large_decrease_extra_bits:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 7
+    HostMaxSize: 7
+    DeviceMaxSize: 4
+
+# TODO: consider MaxSizes greater than, less than, and equal to the channel width

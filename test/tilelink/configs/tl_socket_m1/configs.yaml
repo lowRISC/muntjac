@@ -1,0 +1,70 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - SourceWidth
+  - SinkWidth
+  - MaxSize
+  - NumLinks
+  - NumCachedHosts
+  - NumCachedLinks
+  - NumSourceRange
+  - SourceBase
+  - SourceMask
+  - SourceLink
+
+configs:
+
+  default: &base
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+  
+  single_link:
+    <<: *base
+    hosts: 1
+    NumLinks: 1
+    NumCachedHosts: 1
+    NumCachedLinks: 1
+    NumSourceRange: 1
+    SourceBase: [ 3'b0 ]
+    SourceMask: [ 3'b0 ]
+    SourceLink: [ 1'b0 ]
+  
+  multiple_links:
+    <<: *base
+    hosts: 3
+    NumLinks: 3
+    NumCachedHosts: 3
+    NumCachedLinks: 3
+
+    # 0-3 -> device 0, 4-5 -> device 1, 6-7 -> device 2
+    NumSourceRange: 2
+    SourceBase: [  3'd4,   3'd6]
+    SourceMask: [3'b001, 3'b001]
+    SourceLink: [  2'd1,   2'd2]
+  
+  multiple_links_no_caching:
+    <<: *base
+    hosts: 3
+    NumLinks: 3
+    NumCachedHosts: 0
+    NumCachedLinks: 0
+    Protocol: TL-UH
+
+    # 0-3 -> device 0, 4-5 -> device 1, 6-7 -> device 2
+    NumSourceRange: 2
+    SourceBase: [  3'd4,   3'd6]
+    SourceMask: [3'b001, 3'b001]
+    SourceLink: [  2'd1,   2'd2]
+  
+  # TODO: CachedLinks > CachedHosts
+  #       CachedLinks < CachedHosts
+  # The Verilog and C++ sides both support these, but the configuration
+  # generator does not.

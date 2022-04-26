@@ -1,0 +1,51 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - HostSourceWidth
+  - DeviceSourceWidth
+  - SinkWidth
+  - MaxSize
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    HostSourceWidth: 3
+    DeviceSourceWidth: 3
+    SinkWidth: 3
+    MaxSize: 6
+    Protocol: TL-UH
+  
+  host_fifo_device_fifo:
+    <<: *base
+    HostFifo: 1
+    DeviceFifo: 1
+  
+  host_fifo_device_non_fifo:
+    <<: *base
+    HostFifo: 1
+    DeviceFifo: 0
+  
+  host_non_fifo_device_fifo:
+    <<: *base
+    HostFifo: 0
+    DeviceFifo: 1
+  
+  host_non_fifo_device_non_fifo:
+    <<: *base
+    HostFifo: 0
+    DeviceFifo: 0
+  
+  # All messages 1 beat long -> more potential for reordering.
+  short_messages:
+    <<: *base
+    MaxSize: 3
+    HostFifo: 0
+    DeviceFifo: 0

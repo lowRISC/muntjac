@@ -13,7 +13,8 @@ hosts:
     FirstID:   0
     LastID:    3
     MaxSize:   5
-    FIFO:      0
+    Fifo:      0
+    CanDeny:   1
 
   # This was originally TL-UH, but needed more concurrent TL-C messages to see
   # corner cases in the TL-C-only fields.
@@ -22,14 +23,16 @@ hosts:
     FirstID:   4
     LastID:    5
     MaxSize:   5
-    FIFO:      0
+    Fifo:      0
+    CanDeny:   1
 
   - Protocol:  TL-UL
     DataWidth: 64
     FirstID:   6
     LastID:    7
     MaxSize:   5
-    FIFO:      1
+    Fifo:      1
+    CanDeny:   1
 
 devices:
   - Protocol:  TL-C
@@ -37,18 +40,36 @@ devices:
     FirstID:   0
     LastID:    3
     MaxSize:   5
-    FIFO:      0
+    Fifo:      0
+    CanDeny:   1
+    # Routing table mapping source IDs to hosts. Some network components use
+    # source ID bits for out-of-band data, so this can change between devices.
+    SourceBase: 4 6
+    SourceMask: 0x1 0x1
+    SourceTarget: 1 2
 
   - Protocol:  TL-UH
     DataWidth: 64
     FirstID:   4
     LastID:    5
     MaxSize:   5
-    FIFO:      0
+    Fifo:      0
+    CanDeny:   1
+    # Routing table mapping source IDs to hosts. Some network components use
+    # source ID bits for out-of-band data, so this can change between devices.
+    SourceBase: 4 6
+    SourceMask: 0x19 0x19
+    SourceTarget: 1 2
 
   - Protocol:  TL-UL
     DataWidth: 64
     FirstID:   6
     LastID:    7
     MaxSize:   5
-    FIFO:      1
+    Fifo:      1
+    CanDeny:   1
+    # Routing table mapping source IDs to hosts. Some network components use
+    # source ID bits for out-of-band data, so this can change between devices.
+    SourceBase: 4 6
+    SourceMask: 0x79 0x79
+    SourceTarget: 1 2

@@ -1,0 +1,48 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - DataWidth
+  - AddrWidth
+  - SourceWidth
+  - HostSinkWidth
+  - MaxSize
+  - SinkBase
+  - SinkMask
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    DataWidth: 64
+    AddrWidth: 56
+    SourceWidth: 3
+    DeviceSinkWidth: 1
+    MaxSize: 6
+
+    # Don't allow the host to send all TL-C messages, only Acquires.
+    # The device should present as being capable of receiving TL-C messages, but
+    # the terminator will block them.
+    HostProtocol: TL-C-IO-TERM
+    DeviceProtocol: TL-C-IO-TERM
+  
+  # Use all sink IDs available with the given 3 bits.
+  simple:
+    <<: *base
+    HostSinkWidth: 3
+    SinkBase: 0
+    SinkMask: 7
+
+  shifted_sink_range:
+    <<: *base
+    HostSinkWidth: 3
+    SinkBase: 4
+    SinkMask: 3
+
+  minimum_sink_range:
+    <<: *base
+    HostSinkWidth: 1
+    SinkBase: 0
+    SinkMask: 1

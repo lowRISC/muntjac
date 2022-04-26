@@ -1,0 +1,134 @@
+# Copyright lowRISC contributors.
+# Licensed under the Apache License, Version 2.0, see LICENSE for details.
+# SPDX-License-Identifier: Apache-2.0
+
+verilog_parameters:
+  - HostDataWidth
+  - DeviceDataWidth
+  - HostAddrWidth
+  - DeviceAddrWidth
+  - HostSourceWidth
+  - DeviceSourceWidth
+  - HostSinkWidth
+  - DeviceSinkWidth
+  - HostMaxSize
+  - DeviceMaxSize
+  - HostFifo
+  - DeviceFifo
+
+configs:
+
+  default: &base
+    hosts: 1
+    devices: 1
+    HostDataWidth: 64
+    DeviceDataWidth: 64
+    HostAddrWidth: 56
+    DeviceAddrWidth: 56
+    HostSourceWidth: 3
+    DeviceSourceWidth: 3
+    HostSinkWidth: 3
+    DeviceSinkWidth: 3
+    HostMaxSize: 6
+    DeviceMaxSize: 6
+    HostFifo: 0
+    DeviceFifo: 0
+  
+  decrease_datawidth:
+    <<: *base
+    HostDataWidth: 64
+    DeviceDataWidth: 32
+  
+  increase_datawidth:
+    <<: *base
+    HostDataWidth: 32
+    DeviceDataWidth: 64
+  
+  decrease_sourcewidth:
+    <<: *base
+    HostSourceWidth: 4
+    DeviceDataWidth: 3
+  
+  increase_sourcewidth:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceDataWidth: 4
+  
+  host_fifo_device_fifo:
+    <<: *base
+    HostFifo: 1
+    DeviceFifo: 1
+  
+  host_fifo_device_non_fifo:
+    <<: *base
+    HostFifo: 1
+    DeviceFifo: 0
+
+    # This configuration creates a FIFO converter, which doesn't support TL-C.
+    Protocol: TL-UH
+  
+  host_non_fifo_device_fifo:
+    <<: *base
+    HostFifo: 0
+    DeviceFifo: 1
+  
+  host_non_fifo_device_non_fifo:
+    <<: *base
+    HostFifo: 0
+    DeviceFifo: 0
+  
+  increase_sinkwidth:
+    <<: *base
+    HostSinkWidth: 3
+    DeviceSinkWidth: 4
+  
+  decrease_sourcewidth:
+    <<: *base
+    HostSourceWidth: 4
+    DeviceSourceWidth: 3
+  
+  increase_sourcewidth:
+    <<: *base
+    HostSourceWidth: 3
+    DeviceSourceWidth: 4
+  
+  decrease_maxsize:
+    <<: *base
+    HostMaxSize: 6
+    DeviceMaxSize: 5
+
+    # This configuration creates a FIFO converter and a size downsizer, neither
+    # of which support TL-C.
+    Protocol: TL-UH
+  
+  decrease_everything:
+    <<: *base
+    HostDataWidth: 64
+    DeviceDataWidth: 32
+    HostSourceWidth: 4
+    DeviceSourceWidth: 3
+    HostSinkWidth: 4
+    DeviceSinkWidth: 3
+    HostMaxSize: 6
+    DeviceMaxSize: 5
+    HostFifo: 1
+    DeviceFifo: 0
+
+    # This configuration creates a FIFO converter and a size downsizer, neither
+    # of which support TL-C.
+    Protocol: TL-UH
+  
+  increase_everything:
+    <<: *base
+    HostDataWidth: 32
+    DeviceDataWidth: 64
+    HostSourceWidth: 3
+    DeviceSourceWidth: 4
+    HostSinkWidth: 3
+    DeviceSinkWidth: 4
+    HostFifo: 0
+    DeviceFifo: 1
+  
+  # Could add a few more complex adapters, but I don't think they would help
+  # much. We can only test that valid messages have been converted into new
+  # valid messages, not whether that conversion did the right thing.
