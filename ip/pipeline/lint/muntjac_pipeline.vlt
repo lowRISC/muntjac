@@ -90,3 +90,6 @@ lint_off -rule WIDTH -file "*/rtl/muntjac_mul_fast.sv"
 // Register fetch for floating-point units can be unused when FP is turned lint_off
 lint_off -rule UNUSED -file "*/rtl/muntjac_backend.sv" -match "*'de_ex_frs?'*"
 lint_off -rule UNUSED -file "*/rtl/muntjac_backend.sv" -match "*'ex_frs?'*"
+
+// Ignore unused parameters in packages.
+lint_off -rule UNUSED -file "*/rtl/muntjac_pkg.sv" -match "Parameter *"

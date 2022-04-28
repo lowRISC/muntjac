@@ -18,3 +18,6 @@ lint_off -rule UNUSED -file "*/muntjac_fpu_add.sv" -match "*'resp_sig'[106]"
 
 // MSB is known to be 0 so not checked.
 lint_off -rule UNUSED -file "*/muntjac_fpu_add.sv" -match "*'neg_exponent_difference'[13]"
+
+// Ignore unused parameters in packages.
+lint_off -rule UNUSED -file "*/rtl/muntjac_fpu_pkg.sv" -match "Parameter *"
