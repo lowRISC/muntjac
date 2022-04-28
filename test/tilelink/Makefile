@@ -45,8 +45,6 @@ define config_name
 $(word 2,$(subst -, ,$1))
 endef
 
-# TODO: add a proper testing command which runs all simulations without coverage.
-
 MUNTJAC_ROOT = ../..
 BUILD_DIR    = build/lowrisc_tl_test_$(DUT)_0.1/sim-verilator
 FUSESOC     ?= ~/.local/bin/fusesoc
@@ -99,21 +97,16 @@ $(FCOV_FILES): $(TOTAL_COV)
 
 # Summarise functional coverage results.
 functional_coverage: $(FCOV_FILES)
-	$(eval TOTAL := $(shell grep -Eh ^.[0-9]{6} $^ | wc -l))
-	$(eval REACHED := $(shell grep -Eh ^.[0-9]{6} $^ | grep -v ^.000000 | wc -l))
-	@echo "Functional coverage ($(REACHED)/$(TOTAL)) $$(( $(REACHED) * 100 / $(TOTAL) ))%"
+	@echo -n "Functional coverage: "
+	@python3 $(MUNTJAC_ROOT)/test/coverage/coverage_filter.py --annotation-dir $(ANNOTATION_DIR) --files $(COVERAGE_SRC)
 
 # Summarise line coverage results.
 # Ignore coverage results for all files except the DUT. Depending on how the DUT
 # uses its subcomponents, it may not be possible to achieve a high coverage.
 # Assume that subcomponents will be tested in isolation elsewhere.
-# TODO: this can fail if there are no cover points in the DUT (i.e. it delegates
-#       to subcomponents).
 line_coverage: $(FCOV_FILES)
-	$(eval FILES := $(ANNOTATION_DIR)/$(DUT).sv)
-	$(eval TOTAL := $(shell grep -Eh ^.[0-9]{6} $(FILES) | wc -l))
-	$(eval REACHED := $(shell grep -Eh ^.[0-9]{6} $(FILES) | grep -v ^.000000 | wc -l))
-	@echo "Line coverage, DUT only ($(REACHED)/$(TOTAL)) $$(( $(REACHED) * 100 / $(TOTAL) ))%"
+	@echo -n "Line coverage, DUT only: "
+	@python3 $(MUNTJAC_ROOT)/test/coverage/coverage_filter.py --annotation-dir $(ANNOTATION_DIR) --files $(DUT).sv
 
 .PHONY: clean
 clean:

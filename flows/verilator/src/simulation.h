@@ -36,9 +36,11 @@ public:
   Simulation(string name) {
     this->name = name;
     timeout = 1000000;
+    coverage_on = false;
     cycle = 0.0;
 
     args.add_argument("--timeout", "Force end of simulation after fixed number of cycles", ArgumentParser::ARGS_ONE);
+    args.add_argument("--coverage", "Dump coverage information to a file", ArgumentParser::ARGS_ONE);
     args.add_argument("-v", "Display basic logging information as simulation proceeds");
     args.add_argument("-vv", "Display detailed logging information as simulation proceeds");
     args.add_argument("--help", "Display this information and exit");
@@ -106,6 +108,8 @@ protected:
       fst_trace.close();
     }
 #endif
+    if (coverage_on)
+      Verilated::threadContextp()->coveragep()->write(coverage_file.c_str());
   }
 
 public:
@@ -137,6 +141,11 @@ public:
 
     if (args.found_arg("--timeout"))
       timeout = std::stoi(args.get_arg("--timeout"));
+
+    if (this->args.found_arg("--coverage")) {
+      coverage_on = true;
+      coverage_file = this->args.get_arg("--coverage");
+    }
     
 #ifdef FST_ENABLE
     if (args.found_arg("--fst")) {
@@ -195,6 +204,10 @@ private:
   string fst_filename;
   VerilatedFstC fst_trace;
 #endif
+
+  // Generate coverage report?
+  bool coverage_on;
+  string coverage_file;
 
 };
 

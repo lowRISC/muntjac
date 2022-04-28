@@ -30,16 +30,13 @@ class TileLinkSimulation : public Simulation<DUT> {
 public:
   TileLinkSimulation(string name, vector<tl_test>& tests) :
       Simulation<DUT>(name),
-      tests(tests),
-      coverage_file("coverage.dat") {
-    coverage_on = false;
+      tests(tests) {
     sim_duration = 0;
     randomise = false;
 
     this->args.set_description("Usage: " + name + " [simulator args] [tests to run]");
     this->args.add_argument("--list-tests", "List all available tests");
     this->args.add_argument("--config", "Load host/device configuration from a file", ArgumentParser::ARGS_ONE);
-    this->args.add_argument("--coverage", "Dump coverage information to a file", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--random-seed", "Set the random seed", ArgumentParser::ARGS_ONE);
     this->args.add_argument("--run", "Generate random traffic for the given duration (in cycles)", ArgumentParser::ARGS_ONE);
   }
@@ -135,9 +132,6 @@ public:
 
     this->trace_close();
 
-    if (coverage_on)
-      Verilated::threadContextp()->coveragep()->write(coverage_file.c_str());
-
     cout << "No assertions triggered" << endl;
   }
 
@@ -156,11 +150,6 @@ public:
 
     if (this->args.found_arg("--config"))
       config_file = this->args.get_arg("--config");
-
-    if (this->args.found_arg("--coverage")) {
-      coverage_on = true;
-      coverage_file = this->args.get_arg("--coverage");
-    }
 
     if (this->args.found_arg("--random-seed"))
       srand(std::stoi(this->args.get_arg("--random-seed")));
@@ -236,9 +225,6 @@ private:
 
   // Configuration of hosts/devices connected to the TileLink network.
   string config_file = "configs/default/config.yaml";
-
-  bool coverage_on;
-  string coverage_file;
 
   vector<TileLinkHost*> hosts;
   vector<TileLinkDevice*> devices;

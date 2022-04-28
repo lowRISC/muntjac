@@ -109,6 +109,8 @@ targets:
           - "-o muntjac_pipeline"
           - "--trace --trace-structs"
           - "--assert"
+          - "--coverage-user --coverage-line"
+          # coverage-toggle is also available, but is very slow for little gain
           - "-O3"  # Verilator optimisation
           - "-CFLAGS -O3"  # compiler optimisation
           - "-CFLAGS -DFST_ENABLE" # Either VCD_ENABLE or FST_ENABLE
