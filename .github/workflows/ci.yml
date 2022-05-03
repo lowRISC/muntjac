@@ -151,9 +151,9 @@ jobs:
           chmod +x ${{ matrix.sim }}
           make -f test/riscv-tests/Makefile results.xml -j$(nproc) TEST_DIR=tests MUNTJAC_SIM=./${{ matrix.sim }}
 
-      - name: Publish test report
-        uses: scacap/action-surefire-report@v1
+      - name: Upload test report
+        uses: actions/upload-artifact@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          report_paths: 'results.xml'
-          check_name: riscv-tests-${{ matrix.name }}
+          name: riscv-tests-${{ matrix.name }}
+          path: results.xml
+          if-no-files-found: error

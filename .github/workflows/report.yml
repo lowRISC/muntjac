@@ -1,0 +1,34 @@
+name: CI Result Report
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+  report:
+    runs-on: ubuntu-20.04
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    strategy:
+      matrix:
+        include:
+          - name: pipeline
+          - name: core
+
+    steps:
+      - name: Download test report
+        uses: dawidd6/action-download-artifact@v2
+        with:
+          workflow: ci.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: riscv-tests-${{ matrix.name }}
+
+      - name: Publish test report
+        uses: scacap/action-surefire-report@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          report_paths: results.xml
+          check_name: riscv-tests-${{ matrix.name }}
