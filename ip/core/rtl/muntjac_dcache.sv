@@ -1922,10 +1922,10 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             end
           end
 
-          if (op_q[1]) begin
-            // Early release of timer once we've done a write; forward progress could be
+          if (op_q != MEM_LR) begin
+            // Early release of timer once for non-LR accesses; forward progress could be
             // guaranteed and we won't starve other core.
-            // There is no need to care if it's successful write or not.
+            // There is no need to care if it's successful write or not if MEM_SC is involved.
             access_lock_timer_d = 0;
           end
         end else if (op_q == MEM_SC) begin
