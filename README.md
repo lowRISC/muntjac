@@ -8,6 +8,8 @@ Muntjac is currently a work in progress and is supported on a best-effort basis.
 
 Documentation is available [here](doc/README.md) and build instructions are [here](./flows).
 
+An example SoC and tutorial can be found [here](https://github.com/nbdd0121/muntjac-soc).
+
 ## How to contribute
 
 Have a look at [CONTRIBUTING](./CONTRIBUTING.md) for guidelines on how to
