@@ -20,6 +20,7 @@ module axi_tl_adapter import tl_pkg::*; import axi_pkg::*; #(
   localparam int unsigned DataWidthInBytes = DataWidth / 8;
   localparam int unsigned NonBurstSize = $clog2(DataWidthInBytes);
   localparam int unsigned UncappedLog2MaxBurstLen = MaxSize - NonBurstSize;
+  // Cap the maximum burst length to the maximum supported by the AXI protocol.
   localparam int unsigned Log2MaxBurstLen = UncappedLog2MaxBurstLen > 8 ? 8 : UncappedLog2MaxBurstLen;
   localparam int unsigned MaxBurstLen = 2 ** Log2MaxBurstLen;
 
@@ -177,16 +178,27 @@ module axi_tl_adapter import tl_pkg::*; import axi_pkg::*; #(
   ///////////////////////
   // #region A Channel //
 
-  function automatic logic [7:0] get_mask(
-      input  logic [2:0] addr,
-      input  logic [`TL_SIZE_WIDTH-1:0] size
+  function automatic logic [DataWidthInBytes-1:0] get_mask(
+    input logic [NonBurstSize-1:0] address,
+    input logic [`TL_SIZE_WIDTH-1:0] size
   );
-    unique case (size)
-      0: get_mask = 'b1 << addr;
-      1: get_mask = 'b11 << addr;
-      2: get_mask = 'b1111 << addr;
-      default: get_mask = 'b11111111;
-    endcase
+    logic [`TL_SIZE_WIDTH-1:0] capped_size;
+    capped_size = size >= NonBurstSize ? NonBurstSize : size;
+
+    get_mask = 1;
+    for (int i = 1; i <= NonBurstSize; i++) begin
+      if (capped_size == i) begin
+        // In this case the mask computed should be all 1
+        get_mask = (1 << (2**i)) - 1;
+      end else begin
+        // In this case the mask is computed from existing mask shifted according to address
+        if (address[i - 1]) begin
+          get_mask = get_mask << (2**(i-1));
+        end else begin
+          get_mask = get_mask;
+        end
+      end
+    end
   endfunction
 
   enum logic [1:0] {
