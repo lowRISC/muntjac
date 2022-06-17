@@ -1,5 +1,7 @@
 # Muntjac
 
+A high-level introduction of microarchitectural overview is available as a [tech report](https://www.cl.cam.ac.uk/techreports/UCAM-CL-TR-972.html).
+
 Details about the microarchitecture are available [here](microarchitecture.md).
 
 # Features
