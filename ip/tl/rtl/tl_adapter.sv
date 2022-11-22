@@ -2,19 +2,26 @@
 
 // An adapter that joins two TileLink links with different parameters.
 module tl_adapter import tl_pkg::*; #(
-  parameter  int unsigned HostDataWidth     = 64,
-  parameter  int unsigned DeviceDataWidth   = 64,
-  parameter  int unsigned HostAddrWidth     = 56,
-  parameter  int unsigned DeviceAddrWidth   = 56,
-  parameter  int unsigned HostSinkWidth     = 1,
-  parameter  int unsigned DeviceSinkWidth   = 1,
-  parameter  int unsigned HostSourceWidth   = 2,
-  parameter  int unsigned DeviceSourceWidth = 1,
-  parameter  int unsigned HostMaxSize       = 6,
-  parameter  int unsigned DeviceMaxSize     = 6,
+  parameter  int unsigned DataWidth   = 64,
+  parameter  int unsigned AddrWidth   = 56,
+  parameter  int unsigned SinkWidth   = 1,
+  parameter  int unsigned SourceWidth = 2,
+  parameter  int unsigned MaxSize     = 6,
+  parameter  bit          Fifo        = 1'b0,
 
-  parameter  bit HostFifo = 1'b0,
-  parameter  bit DeviceFifo = 1'b0
+  parameter  int unsigned HostDataWidth     = DataWidth,
+  parameter  int unsigned DeviceDataWidth   = DataWidth,
+  parameter  int unsigned HostAddrWidth     = AddrWidth,
+  parameter  int unsigned DeviceAddrWidth   = AddrWidth,
+  parameter  int unsigned HostSinkWidth     = SinkWidth,
+  parameter  int unsigned DeviceSinkWidth   = SinkWidth,
+  parameter  int unsigned HostSourceWidth   = SourceWidth,
+  parameter  int unsigned DeviceSourceWidth = SourceWidth,
+  parameter  int unsigned HostMaxSize       = MaxSize,
+  parameter  int unsigned DeviceMaxSize     = MaxSize,
+
+  parameter  bit HostFifo   = Fifo,
+  parameter  bit DeviceFifo = Fifo
 ) (
   input  logic       clk_i,
   input  logic       rst_ni,
