@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Verilator
         run: |
@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Verilator
         run: |
@@ -59,7 +59,7 @@ jobs:
         run: make sim-${{ matrix.name }}
 
       - name: Upload simulator
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ${{ matrix.sim }}
           path: bin/${{ matrix.sim }}
@@ -70,10 +70,10 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Checkout riscv-tests
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           repository: riscv/riscv-tests
           ref: c4217d88bce9f805a81f42e86ff56ed363931d69
@@ -108,7 +108,7 @@ jobs:
           tar -cjf ~/riscv-isa-tests.tar.xz *
 
       - name: Upload test binaries
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: riscv-isa-tests
           path: ~/riscv-isa-tests.tar.xz
@@ -128,15 +128,15 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Get simulator
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: ${{ matrix.sim }}
 
       - name: Get tests
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           name: riscv-isa-tests
 
@@ -152,7 +152,7 @@ jobs:
           make -f test/riscv-tests/Makefile results.xml -j$(nproc) TEST_DIR=tests MUNTJAC_SIM=./${{ matrix.sim }}
 
       - name: Upload test report
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: riscv-tests-${{ matrix.name }}
           path: results.xml
