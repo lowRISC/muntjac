@@ -8,7 +8,7 @@ Details about the microarchitecture are available [here](microarchitecture.md).
 
 | Feature | Description |
 | --- | --- |
-| [Instruction set](glossary.md#risc-v-instruction-sets) | RV64IMAC |
+| [Instruction set](glossary.md#risc-v-instruction-sets) | RV64IMAC (FD support optional) |
 | [Privilege modes](glossary.md#privilege-modes) | M/S/U |
 | [Virtual addressing modes](glossary.md#virtual-addressing-modes) | Sv39 |
 | [Interrupt modes](glossary.md#interrupt-modes) | Direct |
