@@ -5,18 +5,20 @@ on: [push, pull_request]
 jobs:
 
   lint:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Verilator
         run: |
-          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
-          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
-          sudo apt-get update
-          sudo apt-get install verilator-4.200
+          VERILATOR_VERSION=v4.210
+          wget https://storage.googleapis.com/verilator-builds/verilator-"$VERILATOR_VERSION".tar.gz
+          sudo mkdir -p /tools/verilator
+          sudo chmod 777 /tools/verilator
+          sudo tar -C /tools/verilator -xvzf verilator-"$VERILATOR_VERSION".tar.gz
+          echo "/tools/verilator/$VERILATOR_VERSION/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: pip3 install setuptools wheel
@@ -28,7 +30,7 @@ jobs:
         run: make lint
 
   simulator-build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     strategy:
       matrix:
@@ -40,14 +42,16 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Verilator
         run: |
-          curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
-          sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
-          sudo apt-get update
-          sudo apt-get install verilator-4.200
+          VERILATOR_VERSION=v4.210
+          wget https://storage.googleapis.com/verilator-builds/verilator-"$VERILATOR_VERSION".tar.gz
+          sudo mkdir -p /tools/verilator
+          sudo chmod 777 /tools/verilator
+          sudo tar -C /tools/verilator -xvzf verilator-"$VERILATOR_VERSION".tar.gz
+          echo "/tools/verilator/$VERILATOR_VERSION/bin" >> $GITHUB_PATH
 
       - name: Install Python dependencies
         run: pip3 install setuptools wheel
@@ -59,21 +63,21 @@ jobs:
         run: make sim-${{ matrix.name }}
 
       - name: Upload simulator
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.sim }}
           path: bin/${{ matrix.sim }}
           if-no-files-found: error
 
   riscv-tests-build:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Checkout riscv-tests
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: riscv/riscv-tests
           ref: c4217d88bce9f805a81f42e86ff56ed363931d69
@@ -89,14 +93,14 @@ jobs:
         with:
           owner: lowRISC
           repo: lowrisc-toolchains
-          tag: 20200904-1
-          file: lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
+          tag: 20230427-1
+          file: lowrisc-toolchain-gcc-rv64imac-20230427-1.tar.xz
 
       # Also add the tools to PATH for next step.
       - name: Extract compiler toolchain
         run: |
-          tar -xf lowrisc-toolchain-gcc-rv64imac-20200904-1.tar.xz
-          echo "`pwd`/lowrisc-toolchain-gcc-rv64imac-20200904-1/bin" >> $GITHUB_PATH
+          tar -xf lowrisc-toolchain-gcc-rv64imac-20230427-1.tar.xz
+          echo "`pwd`/lowrisc-toolchain-gcc-rv64imac-20230427-1/bin" >> $GITHUB_PATH
 
       # All tests except breakpoint - it is not part of the core specification.
       - name: Build ISA tests
@@ -108,14 +112,14 @@ jobs:
           tar -cjf ~/riscv-isa-tests.tar.xz *
 
       - name: Upload test binaries
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: riscv-isa-tests
           path: ~/riscv-isa-tests.tar.xz
           if-no-files-found: error
 
   riscv-tests-run:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     needs: [simulator-build, riscv-tests-build]
 
     strategy:
@@ -128,15 +132,15 @@ jobs:
 
     steps:
       - name: Checkout Muntjac
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Get simulator
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.sim }}
 
       - name: Get tests
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: riscv-isa-tests
 
@@ -152,7 +156,7 @@ jobs:
           make -f test/riscv-tests/Makefile results.xml -j$(nproc) TEST_DIR=tests MUNTJAC_SIM=./${{ matrix.sim }}
 
       - name: Upload test report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: riscv-tests-${{ matrix.name }}
           path: results.xml
