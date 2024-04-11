@@ -16,10 +16,9 @@ Tested on Ubuntu >= 16.04.
 We currently require newer versions of [Verilator](https://www.veripool.org/wiki/verilator), [FuseSoC](https://github.com/olofk/fusesoc) and [Edalize](https://github.com/olofk/edalize) than most package managers provide:
 
 ```
-curl -Ls https://download.opensuse.org/repositories/home:phiwag:edatools/xUbuntu_20.04/Release.key | sudo apt-key add -
-sudo sh -c "echo 'deb http://download.opensuse.org/repositories/home:/phiwag:/edatools/xUbuntu_20.04/ /' > /etc/apt/sources.list.d/edatools.list"
-sudo apt-get update
-sudo apt-get install verilator-4.200
+sudo mkdir -p /tools/verilator
+curl -sSfL https://storage.googleapis.com/verilator-builds/verilator-v4.210.tar.gz | sudo tar -C /tools/verilator -xvzf -
+echo 'export PATH=/tools/verilator/v4.210/bin:$PATH' >> ~/.bashrc
 
 pip3 install -r python-requirements.txt
 ```
