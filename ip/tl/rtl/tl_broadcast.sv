@@ -419,9 +419,7 @@ module tl_broadcast import tl_pkg::*; #(
 
       // Wait for all probes to be acked.
       StateInv: begin
-        if (probe_ack_complete || probe_ack_data_complete) begin
-          probe_ack_pending_d = probe_ack_pending_q - 1;
-        end
+        probe_ack_pending_d = probe_ack_pending_q - probe_ack_complete - probe_ack_data_complete;
 
         if (probe_ack_pending_d == 0) begin
           // We can return to the caller.
