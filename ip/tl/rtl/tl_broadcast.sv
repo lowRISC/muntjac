@@ -498,8 +498,8 @@ module tl_broadcast import tl_pkg::*; #(
   assign host_b_valid = |probe_pending_q;
   assign host_b.opcode = ProbeBlock;
   assign host_b.param = probe_param_q;
-  assign host_b.size = 6;
-  assign host_b.address = {address_q[AddrWidth-1:6], 6'd0};
+  assign host_b.size = MaxSize;
+  assign host_b.address = {address_q[AddrWidth-1:MaxSize], {MaxSize{1'b0}}};
 
   // Zero or onehot bit mask of currently probing host.
   logic [NumCachedHosts-1:0] probe_selected;
