@@ -597,9 +597,16 @@ module muntjac_cs_registers import muntjac_pkg::*; # (
               if (mideleg_q.irq_software_s) ssip_d = csr_wdata_int[CSR_SSIX_BIT];
             end
             CSR_SATP: begin
-              satp_mode_d = csr_wdata_int[63];
-              satp_asid_d = csr_wdata_int[44 +: AsidLen];
-              satp_ppn_d  = csr_wdata_int[0 +: PhysAddrLen-12];
+              unique case (csr_wdata_int[63:60])
+                SATP_MODE_BARE, SATP_MODE_SV39: begin
+                  satp_mode_d = csr_wdata_int[63];
+                  satp_asid_d = csr_wdata_int[44 +: AsidLen];
+                  satp_ppn_d  = csr_wdata_int[0 +: PhysAddrLen-12];
+                end
+                // When we cannot recongise the mode register, entire CSR
+                // write needs to be ignored.
+                default:;
+              endcase
             end
 
             CSR_MSTATUS: begin

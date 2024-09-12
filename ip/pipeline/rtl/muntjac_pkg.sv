@@ -229,6 +229,12 @@ typedef enum logic [1:0] {
   PRIV_LVL_U = 2'b00
 } priv_lvl_e;
 
+// SATP mode
+typedef enum logic [3:0] {
+  SATP_MODE_BARE = 4'd0,
+  SATP_MODE_SV39 = 4'd8
+} satp_mode_e;
+
 // Status register
 typedef struct packed {
   logic tsr;
