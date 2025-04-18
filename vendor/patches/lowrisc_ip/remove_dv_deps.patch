@@ -1,0 +1,13 @@
+diff --git a/prim_generic_flop_2sync.core b/prim_generic_flop_2sync.core
+index f315906..80b7f2d 100644
+--- a/prim_generic_flop_2sync.core
++++ b/prim_generic_flop_2sync.core
+@@ -10,8 +10,6 @@ filesets:
+     depend:
+       # Needed because the generic impl instantiates prim_flop.
+       - lowrisc:prim:flop
+-      # Needed for DV.
+-      - lowrisc:prim:cdc_rand_delay
+     files:
+       - rtl/prim_generic_flop_2sync.sv
+     file_type: systemVerilogSource
