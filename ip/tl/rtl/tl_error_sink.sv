@@ -1,7 +1,7 @@
 `include "tl_util.svh"
 
 // This module denys all TileLink requests.
-module tl_error_sink import tl_pkg::*; import muntjac_pkg::*; #(
+module tl_error_sink import tl_pkg::*; #(
   parameter  int unsigned DataWidth   = 64,
   parameter  int unsigned AddrWidth   = 56,
   parameter  int unsigned SourceWidth = 1,

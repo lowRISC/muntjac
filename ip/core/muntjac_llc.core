@@ -8,6 +8,7 @@ description: "TileLink last-level cache for muntjac"
 filesets:
   files_rtl:
     depend:
+      - lowrisc:muntjac:pipeline
       - lowrisc:prim:ram_1p
       - lowrisc:tl:common
       - lowrisc:tl:regslice
