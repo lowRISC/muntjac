@@ -11,20 +11,8 @@ jobs:
       - name: Checkout Muntjac
         uses: actions/checkout@v4
 
-      - name: Install Verilator
-        run: |
-          VERILATOR_VERSION=v4.210
-          wget https://storage.googleapis.com/verilator-builds/verilator-"$VERILATOR_VERSION".tar.gz
-          sudo mkdir -p /tools/verilator
-          sudo chmod 777 /tools/verilator
-          sudo tar -C /tools/verilator -xvzf verilator-"$VERILATOR_VERSION".tar.gz
-          echo "/tools/verilator/$VERILATOR_VERSION/bin" >> $GITHUB_PATH
-
-      - name: Install Python dependencies
-        run: pip3 install setuptools wheel
-
-      - name: Install FuseSoC
-        run: pip3 install -r python-requirements.txt
+      - name: Prepare environment
+        uses: ./.github/actions/prepare-env
 
       - name: Run lint
         run: make lint
@@ -44,20 +32,8 @@ jobs:
       - name: Checkout Muntjac
         uses: actions/checkout@v4
 
-      - name: Install Verilator
-        run: |
-          VERILATOR_VERSION=v4.210
-          wget https://storage.googleapis.com/verilator-builds/verilator-"$VERILATOR_VERSION".tar.gz
-          sudo mkdir -p /tools/verilator
-          sudo chmod 777 /tools/verilator
-          sudo tar -C /tools/verilator -xvzf verilator-"$VERILATOR_VERSION".tar.gz
-          echo "/tools/verilator/$VERILATOR_VERSION/bin" >> $GITHUB_PATH
-
-      - name: Install Python dependencies
-        run: pip3 install setuptools wheel
-
-      - name: Install FuseSoC
-        run: pip3 install -r python-requirements.txt
+      - name: Prepare environment
+        uses: ./.github/actions/prepare-env
 
       - name: Run build
         run: make sim-${{ matrix.name }}
