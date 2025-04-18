@@ -9,7 +9,7 @@ filesets:
   files_rtl:
     depend:
       - lowrisc:tl:common
-      - lowrisc:prim:fifo_sync
+      - lowrisc:prim:fifo
     files:
       - rtl/tl_fifo_sync.sv
     file_type: systemVerilogSource

@@ -11,7 +11,7 @@ filesets:
       - lowrisc:muntjac:pipeline
       - lowrisc:prim:ram_1p
       - lowrisc:prim:util
-      - lowrisc:prim:fifo_sync
+      - lowrisc:prim:fifo
       - lowrisc:tl:common
       - lowrisc:tl:socket_m1
       - lowrisc:tl:adapter

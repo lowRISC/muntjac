@@ -1035,14 +1035,16 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   ) refill_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (refill_fifo_insert),
-    .wready (),
-    .wdata  ({gnt_w, mem_d_last, mem_d_idx}),
-    .rvalid (refill_fifo_valid),
-    .rready (refill_fifo_ready),
-    .rdata  ({refill_fifo_beat, refill_fifo_last, refill_fifo_idx}),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (refill_fifo_insert),
+    .wready_o (),
+    .wdata_i  ({gnt_w, mem_d_last, mem_d_idx}),
+    .rvalid_o (refill_fifo_valid),
+    .rready_i (refill_fifo_ready),
+    .rdata_o  ({refill_fifo_beat, refill_fifo_last, refill_fifo_idx}),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
   logic refill_beat_saved_q, refill_beat_saved_d;

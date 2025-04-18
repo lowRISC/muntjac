@@ -47,14 +47,16 @@ module tl_fifo_sync import tl_pkg::*; #(
   ) req_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (host_a_valid),
-    .wready (host_a_ready),
-    .wdata  (req_w),
-    .rvalid (device_a_valid),
-    .rready (device_a_ready),
-    .rdata  (device_a),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (host_a_valid),
+    .wready_o (host_a_ready),
+    .wdata_i  (req_w),
+    .rvalid_o (device_a_valid),
+    .rready_i (device_a_ready),
+    .rdata_o  (device_a),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
   ///////////////////
@@ -72,14 +74,16 @@ module tl_fifo_sync import tl_pkg::*; #(
   ) prb_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (device_b_valid),
-    .wready (device_b_ready),
-    .wdata  (prb_w),
-    .rvalid (host_b_valid),
-    .rready (host_b_ready),
-    .rdata  (host_b),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (device_b_valid),
+    .wready_o (device_b_ready),
+    .wdata_i  (prb_w),
+    .rvalid_o (host_b_valid),
+    .rready_i (host_b_ready),
+    .rdata_o  (host_b),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
   /////////////////////
@@ -97,14 +101,16 @@ module tl_fifo_sync import tl_pkg::*; #(
   ) rel_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (host_c_valid),
-    .wready (host_c_ready),
-    .wdata  (rel_w),
-    .rvalid (device_c_valid),
-    .rready (device_c_ready),
-    .rdata  (device_c),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (host_c_valid),
+    .wready_o (host_c_ready),
+    .wdata_i  (rel_w),
+    .rvalid_o (device_c_valid),
+    .rready_i (device_c_ready),
+    .rdata_o  (device_c),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
   ///////////////////
@@ -122,14 +128,16 @@ module tl_fifo_sync import tl_pkg::*; #(
   ) gnt_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (device_d_valid),
-    .wready (device_d_ready),
-    .wdata  (gnt_w),
-    .rvalid (host_d_valid),
-    .rready (host_d_ready),
-    .rdata  (host_d),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (device_d_valid),
+    .wready_o (device_d_ready),
+    .wdata_i  (gnt_w),
+    .rvalid_o (host_d_valid),
+    .rready_i (host_d_ready),
+    .rdata_o  (host_d),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
   /////////////////////////////
@@ -143,14 +151,16 @@ module tl_fifo_sync import tl_pkg::*; #(
   ) ack_fifo (
     .clk_i,
     .rst_ni,
-    .clr_i  (1'b0),
-    .wvalid (host_e_valid),
-    .wready (host_e_ready),
-    .wdata  (host_e),
-    .rvalid (device_e_valid),
-    .rready (device_e_ready),
-    .rdata  (device_e),
-    .depth  ()
+    .clr_i    (1'b0),
+    .wvalid_i (host_e_valid),
+    .wready_o (host_e_ready),
+    .wdata_i  (host_e),
+    .rvalid_o (device_e_valid),
+    .rready_i (device_e_ready),
+    .rdata_o  (device_e),
+    .full_o   (),
+    .depth_o  (),
+    .err_o    ()
   );
 
 endmodule
