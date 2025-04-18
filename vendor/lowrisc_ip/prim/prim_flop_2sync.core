@@ -1,24 +1,20 @@
 CAPI=2:
-# Copyright lowRISC contributors.
+# Copyright lowRISC contributors (OpenTitan project).
 # Licensed under the Apache License, Version 2.0, see LICENSE for details.
 # SPDX-License-Identifier: Apache-2.0
 
 name: "lowrisc:prim:flop_2sync"
-description: "Primitive synchronizer"
+description: "Flop-based synchronizer"
 filesets:
   primgen_dep:
     depend:
       - lowrisc:prim:prim_pkg
       - lowrisc:prim:primgen
-      # Needed because the generic prim_generic_flop_2sync has a
-      # dependency on prim:flop.
-      - lowrisc:prim:flop
 
   files_verilator_waiver:
     depend:
       # common waivers
       - lowrisc:lint:common
-    files:
     file_type: vlt
 
   files_ascentlint_waiver:
@@ -33,8 +29,6 @@ filesets:
     depend:
       # common waivers
       - lowrisc:lint:common
-      - lowrisc:lint:comportable
-
 
 generate:
   impl:
@@ -50,5 +44,4 @@ targets:
       - tool_veriblelint ? (files_veriblelint_waiver)
       - primgen_dep
     generate:
-      - impl
-
+    - impl

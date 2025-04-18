@@ -1,4 +1,4 @@
-// Copyright lowRISC contributors.
+// Copyright lowRISC contributors (OpenTitan project).
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 
@@ -27,9 +27,12 @@ package prim_util_pkg;
    */
   function automatic integer _clog2(integer value);
     integer result;
-    value = value - 1;
-    for (result = 0; value > 0; result = result + 1) begin
-      value = value >> 1;
+    // Use an intermediate value to avoid assigning to an input port, which produces a warning in
+    // Synopsys DC.
+    integer v = value;
+    v = v - 1;
+    for (result = 0; v > 0; result++) begin
+      v = v >> 1;
     end
     return result;
   endfunction
@@ -77,10 +80,19 @@ package prim_util_pkg;
     // to an implementation without a system function. Remove this workaround
     // if we require a newer Xcelium version.
     // See #2579 and #2597.
-    return (value == 1) ? 1 : prim_util_pkg::_clog2(value);
+    return (value == 1) ? 1 : _clog2(value);
 `else
     return (value == 1) ? 1 : $clog2(value);
 `endif
   endfunction
+
+`ifdef INC_ASSERT
+  // Package-scoped variable to detect the end of simulation.
+  //
+  // Used only in DV simulations. The bit will be used by assertions in RTL to perform end-of-test
+  // cleanup. It is set to 1 in `dv_test_status_pkg::dv_test_status()`, which is invoked right
+  // before the simulation is terminated, to signal the status of the test.
+  bit end_of_simulation;
+`endif
 
 endpackage
