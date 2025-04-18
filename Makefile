@@ -1,5 +1,5 @@
 TARGET_DIR?=bin
-FUSESOC?=~/.local/bin/fusesoc
+FUSESOC?=fusesoc
 
 # Pass extra flags to FuseSoC. e.g. EXTRA_FLAGS=assertions_on
 EXTRA_FLAGS ?= 
