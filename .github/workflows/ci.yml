@@ -137,3 +137,10 @@ jobs:
           name: riscv-tests-${{ matrix.name }}
           path: results.xml
           if-no-files-found: error
+
+      - name: Publish job summary
+        uses: mikepenz/action-junit-report@ec3a351c13e080dc4fa94c49ab7ad5bf778a9668 # v5
+        with:
+          report_paths: results.xml
+          annotate_only: true
+          detailed_summary: true
