@@ -462,7 +462,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         .addr_i  (tag_addr[SetsWidth-1:0]),
         .wdata_i (tag_write_data),
         .wmask_i ('1),
-        .rdata_o (tag_read_data[i])
+        .rdata_o (tag_read_data[i]),
+        .cfg_i   ('0)
     );
 
     wire [SetsWidth+4-1:0] data_addr_effective = data_addr ^ (data_wide ? (i & InterleaveMask) : 0);
@@ -478,7 +479,8 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
         .addr_i  (data_addr_effective),
         .wdata_i (data_write_data_interleave[i & InterleaveMask]),
         .wmask_i ('1),
-        .rdata_o (data_read_data_interleave[i])
+        .rdata_o (data_read_data_interleave[i]),
+        .cfg_i   ('0)
     );
   end
 

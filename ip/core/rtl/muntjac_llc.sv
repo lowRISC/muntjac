@@ -991,7 +991,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
       .addr_i  (tag_set),
       .wdata_i (tag_wdata),
       .wmask_i ('1),
-      .rdata_o (tag_rdata[i])
+      .rdata_o (tag_rdata[i]),
+      .cfg_i   ('0)
     );
   end
 
@@ -1006,7 +1007,8 @@ module muntjac_llc import tl_pkg::*; import muntjac_pkg::*; import prim_util_pkg
     .addr_i  ({data_way, data_set, data_offset}),
     .wdata_i (data_wdata),
     .wmask_i (data_wmask_expanded),
-    .rdata_o (data_rdata)
+    .rdata_o (data_rdata),
+    .cfg_i   ('0)
   );
 
   /////////////////////

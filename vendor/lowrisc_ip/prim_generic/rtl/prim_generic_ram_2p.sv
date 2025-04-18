@@ -1,4 +1,4 @@
-// Copyright lowRISC contributors.
+// Copyright lowRISC contributors (OpenTitan project).
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -6,7 +6,7 @@
 //   This module is for simulation and small size SRAM.
 //   Implementing ECC should be done inside wrapper not this model.
 `include "prim_assert.sv"
-module prim_generic_ram_2p #(
+module prim_generic_ram_2p import prim_ram_2p_pkg::*; #(
   parameter  int Width           = 32, // bit
   parameter  int Depth           = 128,
   parameter  int DataBitsPerMask = 1, // Number of data bits per bit of write mask
@@ -30,8 +30,24 @@ module prim_generic_ram_2p #(
   input        [Aw-1:0]    b_addr_i,
   input        [Width-1:0] b_wdata_i,
   input  logic [Width-1:0] b_wmask_i,
-  output logic [Width-1:0] b_rdata_o
+  output logic [Width-1:0] b_rdata_o,
+
+  input ram_2p_cfg_t       cfg_i
 );
+
+// For certain synthesis experiments we compile the design with generic models to get an unmapped
+// netlist (GTECH). In these synthesis experiments, we typically black-box the memory models since
+// these are going to be simulated using plain RTL models in netlist simulations. This can be done
+// by analyzing and elaborating the design, and then removing the memory submodules before writing
+// out the verilog netlist. However, memory arrays can take a long time to elaborate, and in case
+// of dual port rams they can even trigger elab errors due to multiple processes writing to the
+// same memory variable concurrently. To this end, we exclude the entire logic in this module in
+// these runs with the following macro.
+`ifndef SYNTHESIS_MEMORY_BLACK_BOXING
+
+  logic unused_cfg;
+  assign unused_cfg = ^cfg_i;
+
   // Width of internal write mask. Note *_wmask_i input into the module is always assumed
   // to be the full bit mask.
   localparam int MaskWidth = Width / DataBitsPerMask;
@@ -87,5 +103,5 @@ module prim_generic_ram_2p #(
   end
 
   `include "prim_util_memload.svh"
-
+`endif
 endmodule

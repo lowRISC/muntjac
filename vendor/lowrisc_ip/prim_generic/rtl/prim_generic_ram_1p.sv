@@ -1,4 +1,4 @@
-// Copyright lowRISC contributors.
+// Copyright lowRISC contributors (OpenTitan project).
 // Licensed under the Apache License, Version 2.0, see LICENSE for details.
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -6,7 +6,7 @@
 
 `include "prim_assert.sv"
 
-module prim_generic_ram_1p #(
+module prim_generic_ram_1p import prim_ram_1p_pkg::*; #(
   parameter  int Width           = 32, // bit
   parameter  int Depth           = 128,
   parameter  int DataBitsPerMask = 1, // Number of data bits per bit of write mask
@@ -21,8 +21,25 @@ module prim_generic_ram_1p #(
   input  logic [Aw-1:0]    addr_i,
   input  logic [Width-1:0] wdata_i,
   input  logic [Width-1:0] wmask_i,
-  output logic [Width-1:0] rdata_o // Read data. Data is returned one cycle after req_i is high.
+  output logic [Width-1:0] rdata_o, // Read data. Data is returned one cycle after req_i is high.
+  input ram_1p_cfg_t       cfg_i
 );
+
+// For certain synthesis experiments we compile the design with generic models to get an unmapped
+// netlist (GTECH). In these synthesis experiments, we typically black-box the memory models since
+// these are going to be simulated using plain RTL models in netlist simulations. This can be done
+// by analyzing and elaborating the design, and then removing the memory submodules before writing
+// out the verilog netlist. However, memory arrays can take a long time to elaborate, and in case
+// of dual port rams they can even trigger elab errors due to multiple processes writing to the
+// same memory variable concurrently. To this end, we exclude the entire logic in this module in
+// these runs with the following macro.
+`ifndef SYNTHESIS_MEMORY_BLACK_BOXING
+
+  // Width must be fully divisible by DataBitsPerMask
+  `ASSERT_INIT(DataBitsPerMaskCheck_A, (Width % DataBitsPerMask) == 0)
+
+  logic unused_cfg;
+  assign unused_cfg = ^cfg_i;
 
   // Width of internal write mask. Note wmask_i input into the module is always assumed
   // to be the full bit mask
@@ -58,4 +75,5 @@ module prim_generic_ram_1p #(
   end
 
   `include "prim_util_memload.svh"
+`endif
 endmodule
