@@ -153,20 +153,21 @@ module muntjac_tlb import muntjac_pkg::*; #(
 
     for (genvar i = 0; i < NumWays; i++) begin
 
-      prim_generic_ram_simple_2p #(
+      prim_ram_1r1w #(
         .Width           ($bits(tlb_entry_t)),
         .Depth           (2 ** SetsWidth),
         .DataBitsPerMask ($bits(tlb_entry_t))
       ) tag_ram (
         .clk_a_i   (clk_i),
         .clk_b_i   (clk_i),
-        .a_req_i   (read_req),
-        .a_addr_i  (read_addr),
-        .a_rdata_o (read_rdata[i]),
-        .b_req_i   (write_req && write_ways[i]),
-        .b_addr_i  (write_addr),
-        .b_wdata_i (write_wdata),
-        .b_wmask_i ('1)
+        .a_req_i   (write_req && write_ways[i]),
+        .a_addr_i  (write_addr),
+        .a_wdata_i (write_wdata),
+        .a_wmask_i ('1),
+        .b_req_i   (read_req),
+        .b_addr_i  (read_addr),
+        .b_rdata_o (read_rdata[i]),
+        .cfg_i     ('0)
       );
 
     end
