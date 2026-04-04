@@ -68,6 +68,9 @@ Elf64_Ehdr get_elf_header(ifstream& file) {
   file.seekg(0, file.beg);
   file.read((char*)&header, sizeof(Elf64_Ehdr));
 
+  if (!file || file.gcount() != sizeof(Elf64_Ehdr))
+    throw std::runtime_error("Failed to read ELF header");
+
   if (header.e_machine != EM_RISCV)
     throw std::runtime_error("Received non-RISC-V binary");
 
