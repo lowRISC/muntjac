@@ -230,7 +230,9 @@ module muntjac_frontend import muntjac_pkg::*; #(
   assign icache_h2d_o.req_atp = redirect_valid_q && align_ready ? redirect_atp_q : atp_latch;
   assign icache_h2d_o.req_prv = redirect_valid_q && align_ready ? redirect_prv_q : prv_latch;
 
-  logic resp_latched;
+  // See comment on valid initialization in regslice.sv.
+  // Reset value is 1'b1 (response already latched at startup).
+  logic resp_latched = 1'b1;
   logic [31:0] resp_instr_latched;
   logic resp_exception_latched;
   exc_cause_e resp_ex_code_latched;

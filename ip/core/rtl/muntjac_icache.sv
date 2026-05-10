@@ -188,7 +188,7 @@ module muntjac_icache import muntjac_pkg::*; import tl_pkg::*; # (
   openip_round_robin_arbiter #(.WIDTH(ANums)) mem_a_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (mem_a_valid && mem_a_ready && !mem_a_locked),
+    .enable  ((|mem_a_valid_mult) && mem_a_ready && !mem_a_locked),
     .request (mem_a_valid_mult),
     .grant   (mem_a_arb_grant)
   );

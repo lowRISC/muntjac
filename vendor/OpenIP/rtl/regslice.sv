@@ -57,8 +57,14 @@ module openip_regslice #(
         // We need two buffers to achieve 100% throughput.
         TYPE buffer;
         TYPE skid_buffer;
-        logic valid;
-        logic skid_valid;
+        // Variable initialization is required for event-driven simulators
+        // (e.g. Vivado xsim). These registers use async reset, but at time 0
+        // no edge has occurred yet, so always_comb blocks see X and create a
+        // delta cycle oscillation. The init value must match the async reset
+        // value. This has no effect on synthesis.
+        // See: https://github.com/lowRISC/muntjac/issues/4
+        logic valid = 1'b0;
+        logic skid_valid = 1'b0;
 
         // We can accept write if the skid buffer is still empty.
         assign w_ready = !skid_valid;
@@ -97,7 +103,8 @@ module openip_regslice #(
 
         // This is equivalent to a depth 1 FIFO.
         TYPE buffer;
-        logic valid;
+        // See comment on valid initialization above.
+        logic valid = 1'b0;
 
         // We can read if the buffer is not empty and write if it is.
         assign w_ready = !valid;
@@ -122,7 +129,8 @@ module openip_regslice #(
     else if (FORWARD) begin
 
         TYPE buffer;
-        logic valid;
+        // See comment on valid initialization above.
+        logic valid = 1'b0;
 
         // We can read if the buffer is not empty.
         assign r_valid = valid;
@@ -151,7 +159,8 @@ module openip_regslice #(
         // This is equivalent to a fall-through depth 1 FIFO.
 
         TYPE buffer;
-        logic valid;
+        // See comment on valid initialization above.
+        logic valid = 1'b0;
 
         // We can read if the buffer is not empty, or data is fed in directly from w_data.
         assign r_valid = valid || w_valid;

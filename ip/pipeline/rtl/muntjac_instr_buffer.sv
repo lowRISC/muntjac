@@ -19,10 +19,11 @@ module muntjac_instr_buffer import muntjac_pkg::*; (
     buffer_d = buffer_q;
 
     in_ready_o = 1'b0;
+    out_valid_o = 1'b0;
+    out_instr_o = buffer_q;
 
     if (buffer_valid_q && !(in_valid_i[0] && in_instr_i[0].if_reason[0])) begin
       out_valid_o = 1'b1;
-      out_instr_o = buffer_q;
 
       if (out_ready_i) begin
         buffer_valid_d = 1'b0;
@@ -33,17 +34,11 @@ module muntjac_instr_buffer import muntjac_pkg::*; (
         end
       end
     end else begin
-      out_valid_o = in_valid_i[0];
-      out_instr_o = in_instr_i[0];
-
-      if (out_ready_i) begin
-        in_ready_o = 1'b1;
-        buffer_valid_d = in_valid_i[1];
-        buffer_d = in_instr_i[1];
-      end else if (!in_valid_i[1]) begin
-        in_ready_o = 1'b1;
-        buffer_valid_d = in_valid_i[0];
-        buffer_d = in_instr_i[0];
+      if (in_valid_i[0]) begin
+         out_valid_o = 1'b0; // Force pipelining, break combinatorial bypass
+         buffer_valid_d = 1'b1;
+         buffer_d = in_instr_i[0];
+         in_ready_o = 1'b1;
       end
     end
   end

@@ -29,6 +29,7 @@ filesets:
     depend:
       # common waivers
       - lowrisc:lint:common
+    files: []
 
 generate:
   impl:

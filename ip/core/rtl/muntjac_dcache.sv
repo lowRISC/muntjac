@@ -389,7 +389,7 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   openip_round_robin_arbiter #(.WIDTH(ANums)) mem_a_arb (
     .clk     (clk_i),
     .rstn    (rst_ni),
-    .enable  (mem_a_valid && mem_a_ready && !mem_a_locked),
+    .enable  ((|mem_a_valid_mult) && mem_a_ready && !mem_a_locked),
     .request (mem_a_valid_mult),
     .grant   (mem_a_arb_grant)
   );
@@ -1792,6 +1792,33 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
   wire [PhysAddrLen-1:0] address_phys = req_atp[63] ? {ppn, address_q[11:0]} : address_q[PhysAddrLen-1:0];
 
+  always @(state_q, nothing_in_progress, req_atp, ppn_valid, ppn_perm, op_q, req_mxr, req_prv, req_sum, hit, hit_tag) begin
+    cache_d2h_o.req_ready = 1'b0;
+    unique case (state_q)
+      StateIdle: begin
+        cache_d2h_o.req_ready = 1'b1;
+      end
+
+      StateFetch: begin
+        if (nothing_in_progress && (!req_atp[63] || ppn_valid)) begin
+          if (!(req_atp[63] && (
+              !ppn_perm.valid  || // Invalid
+              (!ppn_perm.writable && op_q != MEM_LOAD) || // Write denied
+              (!ppn_perm.readable && !req_mxr) || // Read Instruction Memory without MXR
+              (!ppn_perm.user && !req_prv) || // Accessing supervisor memory
+              (ppn_perm.user && req_prv && !req_sum) // Accessing user memory without SUM
+          ))) begin
+            if ((|hit && (hit_tag.writable || op_q == MEM_LOAD)) || (op_q == MEM_SC)) begin
+              cache_d2h_o.req_ready = 1'b1;
+            end
+          end
+        end
+      end
+
+      default: ;
+    endcase
+  end
+
   logic [SetsWidth-1:0] access_lock_addr_d;
   logic [5:0] access_lock_timer_q, access_lock_timer_d;
   assign access_lock_valid = access_lock_timer_q != 0;
@@ -1799,7 +1826,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
   assign access_lock_acq = access_tag_write_req;
 
   always_comb begin
-    cache_d2h_o.req_ready = 1'b0;
     resp_valid = 1'b0;
     resp_value = 'x;
     ex_valid = 1'b0;
@@ -1866,7 +1892,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
 
     unique case (state_q)
       StateIdle: begin
-        cache_d2h_o.req_ready = 1'b1;
       end
 
       StateFetch: begin
@@ -1902,13 +1927,11 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
           ex_code_d = op_q == MEM_LOAD ? EXC_CAUSE_LOAD_PAGE_FAULT : EXC_CAUSE_STORE_PAGE_FAULT;
         end else if (|hit && (hit_tag.writable || op_q == MEM_LOAD)) begin
           if (reservation_failed_q) begin
-            cache_d2h_o.req_ready = 1'b1;
             resp_valid = 1'b1;
             resp_value = 1;
             state_d = StateIdle;
           end else begin
 
-            cache_d2h_o.req_ready = 1'b1;
             resp_valid = 1'b1;
             resp_value = op_q[0] ? align_load(
                 .value (hit_data),
@@ -1933,7 +1956,6 @@ module muntjac_dcache import muntjac_pkg::*; import tl_pkg::*; # (
             access_lock_timer_d = 0;
           end
         end else if (op_q == MEM_SC) begin
-          cache_d2h_o.req_ready = 1'b1;
           resp_valid = 1'b1;
           resp_value = 1;
           state_d = StateIdle;
