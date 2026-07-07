@@ -32,7 +32,7 @@ filesets:
       - verilator/lint_waiver.vlt: {file_type: vlt}
 
   files_lint_verible:
-    files:
+    files: []
 #      - lint/verible_waiver.vbw: {file_type: veribleLintWaiver}
 
 parameters:
